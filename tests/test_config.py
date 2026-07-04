@@ -181,6 +181,13 @@ def test_sec_edgar_is_not_part_of_provider_key_setup() -> None:
     assert "SEC EDGAR" not in [provider.name for provider in providers]
 
 
+def test_fmp_is_not_part_of_default_provider_key_setup() -> None:
+    providers = _providers_requiring_values(default_config())
+
+    assert "Financial Modeling Prep" not in [provider.name for provider in providers]
+    assert default_config().providers["fmp"].requires_value
+
+
 def test_provider_config_status_masks_configured_values() -> None:
     provider = default_config().providers["alpha_vantage"].model_copy(
         update={"value": "demo-secret-key"}

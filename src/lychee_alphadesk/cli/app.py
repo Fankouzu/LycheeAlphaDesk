@@ -426,7 +426,7 @@ def _providers_requiring_values(config: AlphaDeskConfig) -> list[ProviderSetupIn
         for provider in sorted(
             config.providers.values(), key=lambda item: (item.priority, item.provider_id)
         )
-        if provider.requires_value
+        if provider.requires_value and provider.show_in_wizard
     ]
 
 

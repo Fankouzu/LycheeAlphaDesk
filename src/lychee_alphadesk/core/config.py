@@ -17,6 +17,7 @@ class ProviderSetupInfo(BaseModel):
     config_field: ConfigField
     priority: int
     notes: str
+    show_in_wizard: bool = True
     value: str | None = None
 
     @property
@@ -117,10 +118,11 @@ PROVIDER_SETUP_REGISTRY: tuple[ProviderSetupInfo, ...] = (
         name="Financial Modeling Prep",
         domain="Prices, fundamentals, statements, press releases",
         registration="API key",
-        registration_url="https://site.financialmodelingprep.com/developer/docs",
+        registration_url="https://site.financialmodelingprep.com/register",
         config_field="api_key",
         priority=2,
         notes="Check licensing before redistribution or commercial use.",
+        show_in_wizard=False,
     ),
     ProviderSetupInfo(
         provider_id="fred",

@@ -193,12 +193,10 @@ def setup(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is not None:
         return
     path = ensure_config_file()
-    config = load_config(path)
     console.print(f"Config file: {path}", soft_wrap=True)
     console.print("Run `lychee setup wizard` for the interactive setup flow.")
     console.print("Use `lychee setup providers` to list registration links.")
     console.print("Use `lychee setup set <provider_id> <value>` after getting a key.")
-    _print_provider_setup_table(config)
 
 
 @setup_app.command("providers")

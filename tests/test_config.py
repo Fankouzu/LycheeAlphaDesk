@@ -69,7 +69,7 @@ def test_load_config_migrates_provider_metadata_from_registry(tmp_path: Path) ->
     ]
 
 
-def test_setup_command_shows_config_path_and_provider_urls(monkeypatch, tmp_path: Path) -> None:
+def test_setup_command_shows_clean_guidance(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
     result = runner.invoke(app, ["setup"])
@@ -77,9 +77,19 @@ def test_setup_command_shows_config_path_and_provider_urls(monkeypatch, tmp_path
     assert result.exit_code == 0
     assert str(tmp_path / "lychee-alphadesk" / "config.yaml") in result.stdout
     assert "lychee setup providers" in result.stdout
+    assert "Alpha Vantage" not in result.stdout
+    assert "https://www.alphavantage.co/support/#api-key" not in result.stdout
+    assert "Run `lychee setup wizard` for the interactive setup flow." in result.stdout
+
+
+def test_setup_providers_shows_provider_urls(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = runner.invoke(app, ["setup", "providers"])
+
+    assert result.exit_code == 0
     assert "Alpha Vantage" in result.stdout
     assert "https://www.alphavantage.co/support/#api-key" in result.stdout
-    assert "Run `lychee setup wizard` for the interactive setup flow." in result.stdout
 
 
 def test_setup_set_writes_provider_secret(monkeypatch, tmp_path: Path) -> None:

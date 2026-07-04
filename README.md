@@ -180,7 +180,7 @@ lychee setup providers
 lychee setup set alpha_vantage "YOUR_API_KEY"
 ```
 
-The setup command prints where to register, what value is required, and where the value is stored. In a real terminal, the wizard uses an arrow-key menu: use ↑/↓ to choose a provider, Enter to view provider details, and `q` to finish. The main menu only shows display names and masked configuration status; registration links appear only after opening a provider. Hidden key entry confirms whether a value was received with `✅` or `❌`.
+The setup command prints the config path and next-step commands. Use `lychee setup providers` to list registration links and required values. In a real terminal, the wizard uses an arrow-key menu: use ↑/↓ to choose a provider, Enter to view provider details, and `q` to finish. The main menu only shows display names and masked configuration status; registration links appear only after opening a provider. Hidden key entry confirms whether a value was received with `✅` or `❌`.
 
 Recommended first integrations:
 

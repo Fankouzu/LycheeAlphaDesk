@@ -6,6 +6,12 @@ from rich.console import Console
 from rich.table import Table
 
 from lychee_alphadesk.core.audit import init_audit_db, list_audit_records
+from lychee_alphadesk.core.config import (
+    AlphaDeskConfig,
+    ensure_config_file,
+    load_config,
+    set_provider_value,
+)
 from lychee_alphadesk.core.data_engine import build_demo_data_snapshot, write_snapshot_json
 from lychee_alphadesk.core.demo import REQUIRED_DEMO_FILES, check_demo_workspace
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
@@ -21,6 +27,10 @@ app = typer.Typer(
 policy_app = typer.Typer(help="Investment policy commands.")
 audit_app = typer.Typer(help="Audit trail commands.")
 data_app = typer.Typer(help="Market, news, filing, and forecast data commands.")
+setup_app = typer.Typer(
+    help="Configure provider API keys in the local config file.",
+    invoke_without_command=True,
+)
 
 
 @app.callback()
@@ -174,9 +184,76 @@ def data_health(
     console.print(table)
 
 
+@setup_app.callback()
+def setup(ctx: typer.Context) -> None:
+    """Create local config and show provider setup guidance."""
+    if ctx.invoked_subcommand is not None:
+        return
+    path = ensure_config_file()
+    config = load_config(path)
+    console.print(f"Config file: {path}", soft_wrap=True)
+    console.print("Use `lad setup providers` to list registration links.")
+    console.print("Use `lad setup set <provider_id> <value>` after getting a key.")
+    _print_provider_setup_table(config)
+
+
+@setup_app.command("providers")
+def setup_providers() -> None:
+    """List provider registration links and config fields."""
+    config = load_config(ensure_config_file())
+    _print_provider_setup_table(config)
+
+
+@setup_app.command("set")
+def setup_set(provider_id: str, value: str) -> None:
+    """Save a provider API key, token, or User-Agent in the config file."""
+    try:
+        path = set_provider_value(provider_id, value)
+    except KeyError as error:
+        console.print(f"Unknown provider: {provider_id}")
+        console.print(str(error))
+        raise typer.Exit(code=1) from error
+    except ValueError as error:
+        console.print(str(error))
+        raise typer.Exit(code=1) from error
+
+    console.print(f"Saved {provider_id} in {path}", soft_wrap=True)
+
+
+def _print_provider_setup_table(config: AlphaDeskConfig) -> None:
+    providers = sorted(
+        config.providers.values(), key=lambda item: (item.priority, item.provider_id)
+    )
+    for provider in providers:
+        console.print(
+            f"Provider: {provider.provider_id} | {provider.name} | "
+            f"{provider.registration} | {provider.registration_url}",
+            soft_wrap=True,
+        )
+
+    table = Table(title="Lychee AlphaDesk Provider Setup")
+    table.add_column("Provider ID")
+    table.add_column("Name")
+    table.add_column("Priority")
+    table.add_column("Registration")
+    table.add_column("Config Field")
+    table.add_column("Registration URL")
+    for provider in providers:
+        table.add_row(
+            provider.provider_id,
+            provider.name,
+            str(provider.priority),
+            provider.registration,
+            provider.config_field,
+            provider.registration_url,
+        )
+    console.print(table)
+
+
 app.add_typer(policy_app, name="policy")
 app.add_typer(audit_app, name="audit")
 app.add_typer(data_app, name="data")
+app.add_typer(setup_app, name="setup")
 
 
 def main() -> None:

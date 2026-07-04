@@ -31,6 +31,7 @@ v0.1 should deliver:
 - Data quality checks.
 - Unified data snapshot command.
 - Provider health command.
+- CLI setup command for local provider configuration.
 - Markdown daily report.
 - Local audit trail.
 - Minimal Textual TUI shell.
@@ -101,6 +102,9 @@ Required v0.1 commands:
 
 ```bash
 lad demo
+lad setup
+lad setup providers
+lad setup set alpha_vantage YOUR_API_KEY
 lad data health --demo
 lad data snapshot --demo
 lad report --demo
@@ -113,6 +117,9 @@ Command behavior:
 
 - `lad` opens the TUI.
 - `lad demo` verifies that demo files and local output directories exist.
+- `lad setup` creates `~/.config/lychee-alphadesk/config.yaml` and prints provider registration guidance.
+- `lad setup providers` lists provider registration links and required setup values.
+- `lad setup set` stores provider keys, tokens, or User-Agent values in the local config file.
 - `lad data health --demo` prints provider-level quality checks.
 - `lad data snapshot --demo` writes a unified JSON snapshot with market, news, filing, and forecast data.
 - `lad report --demo` generates a Markdown daily report from bundled demo providers.
@@ -258,6 +265,7 @@ v0.1 defaults:
 - Broker provider optional.
 - LLM provider optional.
 - TimesFM provider optional.
+- Provider keys stored in the user config directory, not project-level `.env` files.
 - All real provider failures must degrade to explicit warnings.
 - No silent fallback from real data to demo data.
 

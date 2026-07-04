@@ -146,26 +146,43 @@ Lychee AlphaDesk is designed around provider interfaces.
 
 The open-source MVP must run without a broker account or paid API key.
 
-## 🔑 Provider Setup
+## 🔑 CLI Setup And Provider Keys
 
 The next development milestone should add real providers without making any of them mandatory. The default demo flow must keep working offline.
 
+Lychee AlphaDesk is a command-line tool, so provider keys should be configured through the CLI instead of project-level `.env` files. The default config file is:
+
+```text
+~/.config/lychee-alphadesk/config.yaml
+```
+
+Use `lad setup` to create the config file and see provider registration links:
+
+```bash
+uv run --no-editable lad setup
+uv run --no-editable lad setup providers
+uv run --no-editable lad setup set alpha_vantage "YOUR_API_KEY"
+uv run --no-editable lad setup set sec_edgar "LycheeAlphaDesk/0.1 your-email@example.com"
+```
+
+The setup command prints where to register, what value is required, and where the value is stored. Providers that do not require keys can be skipped.
+
 Recommended first integrations:
 
-| Priority | Provider | Domain | Registration | Address | Suggested env var | Notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | yfinance | US/HK/global daily prices | No formal signup | [GitHub](https://github.com/ranaroussi/yfinance) | none | Good for development and research demos; unofficial Yahoo Finance access, so do not treat it as production-grade or licensed redistribution data. |
-| 1 | AkShare | China A-shares, HK/US data, macro datasets | Usually no API key | [GitHub](https://github.com/akfamily/akshare) | none | Best first open-source option for China-market coverage; interfaces may change with upstream sites. |
-| 1 | GDELT | Global news and events | No API key | [GDELT data/API](https://www.gdeltproject.org/data.html) | none | Good first news provider because it is open and global, but needs downstream deduplication and ticker/entity mapping. |
-| 1 | SEC EDGAR | US filings and XBRL facts | No API key | [SEC EDGAR APIs](https://www.sec.gov/search-filings/edgar-application-programming-interfaces) | `LAD_SEC_USER_AGENT` | Required for US company filings; use a responsible User-Agent and follow SEC fair-access guidance. |
-| 1 | HKMA Open API | HK macro and financial statistics | No registration | [HKMA Open API](https://apidocs.hkma.gov.hk/) | none | Useful for HK macro/rates context. |
-| 2 | Tushare Pro | China A-share prices, fundamentals, calendars | Account + token | [Tushare token guide](https://tushare.pro/document/1?doc_id=39) | `LAD_TUSHARE_TOKEN` | Better structured China data than scraping, but some datasets may require points/permissions. |
-| 2 | Alpha Vantage | Global prices, fundamentals, indicators, macro | Free API key | [Get API key](https://www.alphavantage.co/support/#api-key) | `LAD_ALPHA_VANTAGE_API_KEY` | Good beginner-friendly API; free tier is rate-limited. |
-| 2 | Finnhub | Market data, fundamentals, filings, news | Free API key | [Register](https://finnhub.io/register) / [Docs](https://finnhub.io/docs/api) | `LAD_FINNHUB_API_KEY` | Useful for ticker-linked market news and company data. |
-| 2 | FMP | Prices, fundamentals, statements, press releases | API key | [Docs](https://site.financialmodelingprep.com/developer/docs) | `LAD_FMP_API_KEY` | Strong candidate for financial statements, but usage/licensing should be checked before redistribution. |
-| 2 | FRED | US macro data | Free API key | [FRED API](https://fred.stlouisfed.org/docs/api/fred/) | `LAD_FRED_API_KEY` | Best first US macro provider. |
-| 2 | Marketaux | Financial news and sentiment | Free API key | [Docs](https://www.marketaux.com/documentation) | `LAD_MARKETAUX_API_KEY` | Useful for entity-tagged financial news if GDELT matching is too noisy. |
-| 2 | NewsAPI | General news | Free development API key | [Docs](https://newsapi.org/docs) | `LAD_NEWSAPI_KEY` | Useful for general headlines; check plan limits and commercial-use restrictions. |
+| Priority | Provider ID | Provider | Domain | Registration | Setup value | Address | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `yfinance` | yfinance | US/HK/global daily prices | No formal signup | none | [GitHub](https://github.com/ranaroussi/yfinance) | Good for development and research demos; unofficial Yahoo Finance access, so do not treat it as production-grade or licensed redistribution data. |
+| 1 | `akshare` | AkShare | China A-shares, HK/US data, macro datasets | Usually no API key | none | [GitHub](https://github.com/akfamily/akshare) | Best first open-source option for China-market coverage; interfaces may change with upstream sites. |
+| 1 | `gdelt` | GDELT | Global news and events | No API key | none | [GDELT data/API](https://www.gdeltproject.org/data.html) | Good first news provider because it is open and global, but needs downstream deduplication and ticker/entity mapping. |
+| 1 | `sec_edgar` | SEC EDGAR | US filings and XBRL facts | No API key; User-Agent required | User-Agent | [SEC EDGAR APIs](https://www.sec.gov/search-filings/edgar-application-programming-interfaces) | Required for US company filings; use a responsible User-Agent and follow SEC fair-access guidance. |
+| 1 | `hkma` | HKMA Open API | HK macro and financial statistics | No registration | none | [HKMA Open API](https://apidocs.hkma.gov.hk/) | Useful for HK macro/rates context. |
+| 2 | `tushare` | Tushare Pro | China A-share prices, fundamentals, calendars | Account + token | token | [Tushare token guide](https://tushare.pro/document/1?doc_id=39) | Better structured China data than scraping, but some datasets may require points/permissions. |
+| 2 | `alpha_vantage` | Alpha Vantage | Global prices, fundamentals, indicators, macro | Free API key | API key | [Get API key](https://www.alphavantage.co/support/#api-key) | Good beginner-friendly API; free tier is rate-limited. |
+| 2 | `finnhub` | Finnhub | Market data, fundamentals, filings, news | Free API key | API key | [Register](https://finnhub.io/register) / [Docs](https://finnhub.io/docs/api) | Useful for ticker-linked market news and company data. |
+| 2 | `fmp` | FMP | Prices, fundamentals, statements, press releases | API key | API key | [Docs](https://site.financialmodelingprep.com/developer/docs) | Strong candidate for financial statements, but usage/licensing should be checked before redistribution. |
+| 2 | `fred` | FRED | US macro data | Free API key | API key | [FRED API](https://fred.stlouisfed.org/docs/api/fred/) | Best first US macro provider. |
+| 2 | `marketaux` | Marketaux | Financial news and sentiment | Free API key | API key | [Docs](https://www.marketaux.com/documentation) | Useful for entity-tagged financial news if GDELT matching is too noisy. |
+| 2 | `newsapi` | NewsAPI | General news | Free development API key | API key | [Docs](https://newsapi.org/docs) | Useful for general headlines; check plan limits and commercial-use restrictions. |
 
 Official or licensed data routes:
 
@@ -175,19 +192,7 @@ Official or licensed data routes:
 | CNINFO | China listed company announcements | Public website; data-service API may require access | [CNINFO](https://www.cninfo.com.cn/) / [CNINFO Data Service](https://webapi.cninfo.com.cn/) | Start with public announcement discovery; enterprise-style API access may require separate service terms. |
 | HKEX Market Data Services | HK official market data | Paid/licensed application | [HKEX getting market data](https://www.hkex.com.hk/Global/Exchange/FAQ/Market-Data/Getting-Market-Data?sc_lang=en) | Only needed when open/free providers are not reliable enough or redistribution/commercial use is required. |
 
-Never commit provider secrets. Use shell environment variables or a local `.env` file ignored by git.
-
-```bash
-cp .env.example .env
-export LAD_ALPHA_VANTAGE_API_KEY="..."
-export LAD_FINNHUB_API_KEY="..."
-export LAD_FMP_API_KEY="..."
-export LAD_FRED_API_KEY="..."
-export LAD_MARKETAUX_API_KEY="..."
-export LAD_NEWSAPI_KEY="..."
-export LAD_TUSHARE_TOKEN="..."
-export LAD_SEC_USER_AGENT="LycheeAlphaDesk/0.1 contact@example.com"
-```
+Never commit provider secrets. Do not paste real API keys into examples, issues, logs, or screenshots.
 
 Implementation order:
 

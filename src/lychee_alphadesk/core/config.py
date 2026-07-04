@@ -64,13 +64,13 @@ PROVIDER_SETUP_REGISTRY: tuple[ProviderSetupInfo, ...] = (
         provider_id="sec_edgar",
         name="SEC EDGAR",
         domain="US filings and XBRL facts",
-        registration="No API key; User-Agent required",
+        registration="No API key",
         registration_url=(
             "https://www.sec.gov/search-filings/edgar-application-programming-interfaces"
         ),
-        config_field="user_agent",
+        config_field="none",
         priority=1,
-        notes="Use a responsible User-Agent and follow SEC fair-access guidance.",
+        notes="No user setup is required for local research use; follow SEC fair-access guidance.",
     ),
     ProviderSetupInfo(
         provider_id="hkma",

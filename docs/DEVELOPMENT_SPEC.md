@@ -123,7 +123,7 @@ Command behavior:
 - `lad setup` creates `~/.config/lychee-alphadesk/config.yaml` and prints provider registration guidance.
 - `lad setup wizard` runs an interactive provider-key setup flow with arrow-key provider selection in TTY environments and text fallback in non-TTY environments. The TTY main menu shows display names and masked setup status only; provider details show registration links and user-facing setup guidance after selection.
 - `lad setup providers` lists provider registration links and required setup values.
-- `lad setup set` stores provider keys, tokens, or User-Agent values in the local config file.
+- `lad setup set` stores provider keys or tokens in the local config file.
 - `lychee` is the recommended console command; `lad` remains a short alias.
 - `lad data health --demo` prints provider-level quality checks.
 - `lad data snapshot --demo` writes a unified JSON snapshot with market, news, filing, and forecast data.

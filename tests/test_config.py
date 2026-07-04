@@ -81,6 +81,17 @@ def test_setup_set_rejects_unknown_provider(monkeypatch, tmp_path: Path) -> None
     assert "Unknown provider" in result.stdout
 
 
+def test_setup_set_rejects_provider_without_user_configuration(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = runner.invoke(app, ["setup", "set", "sec_edgar", "anything"])
+
+    assert result.exit_code == 1
+    assert "does not require" in result.stdout
+
+
 def test_setup_wizard_can_skip_all_providers(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
@@ -126,6 +137,12 @@ def test_provider_choice_fallback_still_accepts_number_and_id() -> None:
     assert _resolve_provider_choice("2", providers) == providers[1]
     assert _resolve_provider_choice("alpha_vantage", providers).provider_id == "alpha_vantage"
     assert _resolve_provider_choice("not-real", providers) is None
+
+
+def test_sec_edgar_is_not_part_of_provider_key_setup() -> None:
+    providers = _providers_requiring_values(default_config())
+
+    assert "SEC EDGAR" not in [provider.name for provider in providers]
 
 
 def test_provider_config_status_masks_configured_values() -> None:

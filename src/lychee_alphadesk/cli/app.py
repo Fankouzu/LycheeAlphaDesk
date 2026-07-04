@@ -210,7 +210,7 @@ def setup_providers() -> None:
 
 @setup_app.command("set")
 def setup_set(provider_id: str, value: str) -> None:
-    """Save a provider API key, token, or User-Agent in the config file."""
+    """Save a provider API key or token in the config file."""
     try:
         path = set_provider_value(provider_id, value)
     except KeyError as error:
@@ -347,13 +347,13 @@ def _print_provider_detail(provider: ProviderSetupInfo) -> None:
 
 def _provider_registration_summary(provider: ProviderSetupInfo) -> str:
     if provider.config_field == "user_agent":
-        return "无需 API key；按 SEC 要求填写一个能联系到你的访问标识。"
+        return "无需 API key；Lychee AlphaDesk 会自动处理访问标识。"
     return provider.registration
 
 
 def _provider_notes(provider: ProviderSetupInfo) -> str:
     if provider.config_field == "user_agent":
-        return "用于合规访问 SEC 数据。建议包含项目名和你的联系邮箱。"
+        return "用于合规访问 SEC 数据；普通用户无需手动配置。"
     return provider.notes
 
 
@@ -363,7 +363,7 @@ def _provider_value_prompt(provider: ProviderSetupInfo) -> str:
     if provider.config_field == "token":
         return f"粘贴 {provider.name} token"
     if provider.config_field == "user_agent":
-        return f"填写 {provider.name} 访问标识"
+        return f"填写 {provider.name} 配置值"
     return f"粘贴 {provider.name} 配置值"
 
 

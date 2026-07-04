@@ -146,6 +146,56 @@ Lychee AlphaDesk 围绕 provider 接口设计。
 
 开源 MVP 必须在没有券商账户、没有付费 API key 的情况下运行。
 
+## 🔑 Provider 申请与配置
+
+下一阶段应接入真实 provider，但任何 provider 都不应成为必选项。默认 demo 流程必须继续支持离线运行。
+
+建议优先接入：
+
+| 优先级 | Provider | 数据范围 | 是否需要注册 | 地址 | 建议环境变量 | 备注 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | yfinance | 美股/港股/全球日线行情 | 不需要正式注册 | [GitHub](https://github.com/ranaroussi/yfinance) | 无 | 适合开发和研究 demo；这是非官方 Yahoo Finance 接入，不应视为生产级或可再分发授权数据。 |
+| 1 | AkShare | A 股、港股/美股、宏观等公开数据 | 通常不需要 API key | [GitHub](https://github.com/akfamily/akshare) | 无 | 中国市场覆盖的第一优先开源选择；接口稳定性受上游网站影响。 |
+| 1 | GDELT | 全球新闻和事件 | 不需要 API key | [GDELT data/API](https://www.gdeltproject.org/data.html) | 无 | 适合作为第一版新闻源，但需要后续做去重、ticker/entity 映射。 |
+| 1 | SEC EDGAR | 美国上市公司公告和 XBRL | 不需要 API key | [SEC EDGAR APIs](https://www.sec.gov/search-filings/edgar-application-programming-interfaces) | `LAD_SEC_USER_AGENT` | 美国财报/公告必接；需要设置负责任的 User-Agent，并遵守 SEC fair-access 要求。 |
+| 1 | HKMA Open API | 香港宏观和金融统计 | 不需要注册 | [HKMA Open API](https://apidocs.hkma.gov.hk/) | 无 | 适合补充港币利率、银行、金融市场背景。 |
+| 2 | Tushare Pro | A 股行情、财务、交易日历 | 需要账号和 token | [Tushare token 指南](https://tushare.pro/document/1?doc_id=39) | `LAD_TUSHARE_TOKEN` | 比爬取更结构化，但部分数据可能需要积分/权限。 |
+| 2 | Alpha Vantage | 全球行情、基本面、技术指标、宏观 | 免费 API key | [申请 API key](https://www.alphavantage.co/support/#api-key) | `LAD_ALPHA_VANTAGE_API_KEY` | 适合初学者；免费档有频率限制。 |
+| 2 | Finnhub | 行情、基本面、公告、新闻 | 免费 API key | [注册](https://finnhub.io/register) / [文档](https://finnhub.io/docs/api) | `LAD_FINNHUB_API_KEY` | 适合 ticker 级新闻和公司数据。 |
+| 2 | FMP | 行情、基本面、财务报表、新闻稿 | 需要 API key | [文档](https://site.financialmodelingprep.com/developer/docs) | `LAD_FMP_API_KEY` | 适合财报和指标，但再分发/商业使用前要检查许可。 |
+| 2 | FRED | 美国宏观数据 | 免费 API key | [FRED API](https://fred.stlouisfed.org/docs/api/fred/) | `LAD_FRED_API_KEY` | 美国宏观数据第一优先。 |
+| 2 | Marketaux | 金融新闻和情绪 | 免费 API key | [文档](https://www.marketaux.com/documentation) | `LAD_MARKETAUX_API_KEY` | 如果 GDELT 的 ticker 匹配太噪，可作为金融新闻增强源。 |
+| 2 | NewsAPI | 通用新闻 | 开发阶段免费 API key | [文档](https://newsapi.org/docs) | `LAD_NEWSAPI_KEY` | 可补充通用新闻，但要检查套餐限制和商业用途限制。 |
+
+官方或授权数据路线：
+
+| Provider | 数据范围 | 注册/申请 | 地址 | 备注 |
+| --- | --- | --- | --- | --- |
+| HKEXnews | 港股上市公司公告 | 网站搜索无需账号 | [HKEXnews](https://www.hkexnews.hk/) | 适合作为第一版港股公告源；但它不是稳定开发者 API，抓取/搜索行为要谨慎。 |
+| 巨潮资讯 / CNINFO | 中国上市公司公告 | 公开网站可查；数据服务 API 可能需要申请 | [巨潮资讯](https://www.cninfo.com.cn/) / [CNINFO Data Service](https://webapi.cninfo.com.cn/) | 可先做公开公告发现；企业级接口可能需要单独服务条款。 |
+| HKEX Market Data Services | 港交所官方行情 | 需要付费/授权申请 | [HKEX 获取行情](https://www.hkex.com.hk/Global/Exchange/FAQ/Market-Data/Getting-Market-Data?sc_lang=en) | 只有当免费/开放 provider 不稳定，或涉及再分发/商业用途时才需要。 |
+
+不要把 provider 密钥提交进仓库。使用 shell 环境变量，或使用被 git 忽略的本地 `.env` 文件。
+
+```bash
+cp .env.example .env
+export LAD_ALPHA_VANTAGE_API_KEY="..."
+export LAD_FINNHUB_API_KEY="..."
+export LAD_FMP_API_KEY="..."
+export LAD_FRED_API_KEY="..."
+export LAD_MARKETAUX_API_KEY="..."
+export LAD_NEWSAPI_KEY="..."
+export LAD_TUSHARE_TOKEN="..."
+export LAD_SEC_USER_AGENT="LycheeAlphaDesk/0.1 contact@example.com"
+```
+
+实现顺序：
+
+1. 先接无需 key 的 provider：yfinance、AkShare、GDELT、SEC EDGAR、HKMA。
+2. 再把需要 key 的 provider 放到 optional extras 和 health checks 后面。
+3. 付费/授权数据只作为可选插件加入。
+4. 每个 provider 都必须输出同一套 `DataSnapshot` 结构，并记录来源时间戳、provider 名称和 warning。
+
 ## 🧱 技术栈
 
 | 层 | 选择 |

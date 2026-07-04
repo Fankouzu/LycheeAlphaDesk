@@ -103,15 +103,9 @@ Required v0.1 commands:
 ```bash
 lad demo
 lad setup
-lad setup wizard
-lad setup providers
 lad setup set alpha_vantage YOUR_API_KEY
-lad setup llm
-lad setup llm wizard
 lad setup llm set https://api.example.com/v1 YOUR_API_KEY MODEL_NAME
 lychee setup
-lychee setup wizard
-lychee setup llm
 lad data health --demo
 lad data snapshot --demo
 lad report --demo
@@ -124,13 +118,11 @@ Command behavior:
 
 - `lad` opens the TUI.
 - `lad demo` verifies that demo files and local output directories exist.
-- `lad setup` creates `~/.config/lychee-alphadesk/config.yaml` and prints only the config path plus next-step commands.
-- `lad setup wizard` runs an interactive provider-key setup flow with arrow-key provider selection in TTY environments and text fallback in non-TTY environments. The TTY main menu shows display names and masked setup status only; provider details show registration links and user-facing setup guidance after selection. Hidden key entry confirms whether input was received with `✅` or `❌`. Advanced providers such as FMP may stay available in `setup providers` while hidden from the default wizard.
-- `lad setup providers` lists provider registration links and required setup values.
-- `lad setup set` stores provider keys or tokens in the local config file.
-- `lad setup llm` shows LLM provider status separately from market-data providers.
-- `lad setup llm wizard` stores a custom OpenAI-compatible `base_url`, API key, and model name with hidden key entry and `✅` / `❌` feedback. It first reads `{base_url}/models`; if the endpoint is unavailable or returns no usable model IDs, it prompts for a manual model name.
-- `lad setup llm set` stores the same OpenAI-compatible LLM values non-interactively, with the model name accepted as an optional third value.
+- `lad setup` opens the unified interactive configuration center for data providers and LLM providers.
+- `lad setup set` stores one provider key or token in the local config file for automation and agent use.
+- `lad setup llm set` stores one OpenAI-compatible LLM `base_url`, API key, and optional model name non-interactively for automation and agent use.
+- The interactive configuration center uses arrow-key provider selection in TTY environments and text fallback in non-TTY environments. Provider menus show display names and masked setup status only; provider details show registration links and user-facing setup guidance after selection. Hidden key entry confirms whether input was received with `✅` or `❌`.
+- The LLM section stores a custom OpenAI-compatible `base_url`, API key, and model name. It first reads `{base_url}/models`; if the endpoint is unavailable or returns no usable model IDs, it prompts for a manual model name.
 - `lychee` is the recommended console command; `lad` remains a short alias.
 - `lad data health --demo` prints provider-level quality checks.
 - `lad data snapshot --demo` writes a unified JSON snapshot with market, news, filing, and forecast data.

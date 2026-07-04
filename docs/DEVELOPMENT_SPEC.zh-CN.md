@@ -103,15 +103,9 @@ v0.1 必须支持：
 ```bash
 lad demo
 lad setup
-lad setup wizard
-lad setup providers
 lad setup set alpha_vantage YOUR_API_KEY
-lad setup llm
-lad setup llm wizard
 lad setup llm set https://api.example.com/v1 YOUR_API_KEY MODEL_NAME
 lychee setup
-lychee setup wizard
-lychee setup llm
 lad data health --demo
 lad data snapshot --demo
 lad report --demo
@@ -124,13 +118,11 @@ lad
 
 - `lad` 打开 TUI。
 - `lad demo` 检查 demo 文件和本地输出目录。
-- `lad setup` 创建 `~/.config/lychee-alphadesk/config.yaml`，只打印配置文件路径和下一步命令。
-- `lad setup wizard` 运行交互式 provider key 配置流程；TTY 环境使用上下箭头选择 provider，非 TTY 环境使用文本 fallback。TTY 主菜单只显示展示名称和脱敏配置状态；进入 provider 后再显示注册链接和面向用户的配置说明。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。FMP 这类高级 provider 可以继续出现在 `setup providers`，但默认 wizard 中隐藏。
-- `lad setup providers` 列出 provider 注册地址和需要配置的值。
-- `lad setup set` 把 provider key 或 token 写入本机配置文件。
-- `lad setup llm` 单独显示 LLM provider 配置状态，不和市场数据 provider 混在一起。
-- `lad setup llm wizard` 写入自定义 OpenAI-compatible `base_url`、API key 和模型名，API key 使用隐藏输入并用 `✅` / `❌` 反馈是否收到内容。它会先读取 `{base_url}/models`；如果接口不可用或没有返回可用模型 ID，就提示用户手动输入模型名。
-- `lad setup llm set` 以非交互方式写入同样的 OpenAI-compatible LLM 配置，模型名作为可选的第三个值传入。
+- `lad setup` 打开统一交互式配置中心，数据 provider 和 LLM provider 都从这里配置。
+- `lad setup set` 为自动化脚本和 agent 单项写入一个 provider key 或 token。
+- `lad setup llm set` 为自动化脚本和 agent 单项写入一个 OpenAI-compatible LLM `base_url`、API key 和可选模型名。
+- 交互式配置中心在 TTY 环境使用上下箭头选择 provider，在非 TTY 环境使用文本 fallback。provider 菜单只显示展示名称和脱敏配置状态；进入 provider 后再显示注册链接和面向用户的配置说明。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。
+- LLM 配置区会写入自定义 OpenAI-compatible `base_url`、API key 和模型名。它会先读取 `{base_url}/models`；如果接口不可用或没有返回可用模型 ID，就提示用户手动输入模型名。
 - `lychee` 是推荐的 console command；`lad` 保留为短别名。
 - `lad data health --demo` 打印 provider 级数据质量检查。
 - `lad data snapshot --demo` 写入统一 JSON 快照，包含市场、新闻、公告和预测数据。

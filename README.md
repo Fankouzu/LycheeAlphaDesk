@@ -171,21 +171,22 @@ Lychee AlphaDesk is a command-line tool, so provider keys should be configured t
 ~/.config/lychee-alphadesk/config.yaml
 ```
 
-Use `lychee setup` to create the config file and see the next setup commands:
+Use `lychee setup` to open the interactive configuration center:
 
 ```bash
 lychee setup
-lychee setup wizard
-lychee setup providers
+```
+
+Automation and coding agents can write one value at a time with non-interactive commands:
+
+```bash
 lychee setup set alpha_vantage "YOUR_API_KEY"
-lychee setup llm
-lychee setup llm wizard
 lychee setup llm set "https://api.example.com/v1" "YOUR_API_KEY" "MODEL_NAME"
 ```
 
-The setup command prints the config path and next-step commands. Use `lychee setup providers` to list registration links and required values. In a real terminal, the wizard uses an arrow-key menu: use ↑/↓ to choose a provider, Enter to view provider details, and `q` to finish. The main menu only shows display names and masked configuration status; registration links appear only after opening a provider. Hidden key entry confirms whether a value was received with `✅` or `❌`.
+The setup command opens one configuration center for data providers and LLM providers. In a real terminal, provider selection uses an arrow-key menu: use ↑/↓ to choose a provider, Enter to view provider details, and `q` to finish. The provider menu only shows display names and masked configuration status; registration links appear only after opening a provider. Hidden key entry confirms whether a value was received with `✅` or `❌`.
 
-LLM providers are configured separately from market-data providers. The initial LLM setup supports one custom OpenAI-compatible endpoint with a `base_url`, API key, and model name stored in `~/.config/lychee-alphadesk/config.yaml`. The wizard tries to read `{base_url}/models` from OpenAI-compatible APIs and lets the user select a model when available; if the endpoint is unavailable, it prompts for a manual model name. API keys are masked in status output.
+The initial LLM setup supports one custom OpenAI-compatible endpoint with a `base_url`, API key, and model name stored in `~/.config/lychee-alphadesk/config.yaml`. The configuration center tries to read `{base_url}/models` from OpenAI-compatible APIs and lets the user select a model when available; if the endpoint is unavailable, it prompts for a manual model name. API keys are masked in status output.
 
 Recommended first integrations:
 

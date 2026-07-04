@@ -35,11 +35,11 @@ policy_app = typer.Typer(help="Investment policy commands.")
 audit_app = typer.Typer(help="Audit trail commands.")
 data_app = typer.Typer(help="Market, news, filing, and forecast data commands.")
 setup_app = typer.Typer(
-    help="Configure provider API keys in the local config file.",
+    help="Open the configuration center or write a single config value.",
     invoke_without_command=True,
 )
 llm_setup_app = typer.Typer(
-    help="Configure LLM providers in the local config file.",
+    help="Write a single LLM provider config value.",
     invoke_without_command=True,
 )
 
@@ -197,22 +197,11 @@ def data_health(
 
 @setup_app.callback()
 def setup(ctx: typer.Context) -> None:
-    """Create local config and show provider setup guidance."""
+    """Open the interactive configuration center."""
     if ctx.invoked_subcommand is not None:
         return
     path = ensure_config_file()
-    console.print(f"Config file: {path}", soft_wrap=True)
-    console.print("Run `lychee setup wizard` for the interactive setup flow.")
-    console.print("Use `lychee setup providers` to list registration links.")
-    console.print("Use `lychee setup llm` to configure LLM providers.")
-    console.print("Use `lychee setup set <provider_id> <value>` after getting a key.")
-
-
-@setup_app.command("providers")
-def setup_providers() -> None:
-    """List provider registration links and config fields."""
-    config = load_config(ensure_config_file())
-    _print_provider_setup_table(config)
+    _run_configuration_center(path)
 
 
 @setup_app.command("set")
@@ -231,50 +220,13 @@ def setup_set(provider_id: str, value: str) -> None:
     console.print(f"Saved {provider_id} in {path}", soft_wrap=True)
 
 
-@setup_app.command("wizard")
-def setup_wizard() -> None:
-    """Run an interactive provider-key setup wizard."""
-    path = ensure_config_file()
-    config = load_config(path)
-    console.print("Lychee AlphaDesk Setup Wizard")
-    console.print(f"Config file: {path}", soft_wrap=True)
-    console.print("You can skip any provider and configure it later.")
-
-    if not Confirm.ask("Configure provider keys now?", default=True):
-        console.print("Skipped provider key configuration")
-        return
-
-    providers = _providers_requiring_values(config)
-    while True:
-        provider = _choose_provider_from_menu(providers)
-        if provider is None:
-            break
-
-        _print_provider_detail(provider)
-        value = _prompt_secret(_provider_value_prompt(provider))
-        if not value.strip():
-            _print_value_capture_result(received=False)
-            console.print(f"Skipped {provider.name}")
-        else:
-            _print_value_capture_result(received=True)
-            path = set_provider_value(provider.provider_id, value.strip())
-            config = load_config(path)
-            providers = _providers_requiring_values(config)
-            console.print(f"Saved {provider.name} in {path}", soft_wrap=True)
-
-        if not Confirm.ask("Configure another provider?", default=True):
-            break
-
-    console.print("Setup wizard complete")
-
-
 @llm_setup_app.callback()
 def setup_llm(ctx: typer.Context) -> None:
-    """Show LLM provider setup status."""
+    """Require a non-interactive LLM setup command."""
     if ctx.invoked_subcommand is not None:
         return
-    config = load_config(ensure_config_file())
-    _print_llm_setup_status(config)
+    console.print("Use `lychee setup llm set <base_url> <api_key> MODEL_NAME`.")
+    raise typer.Exit(code=2)
 
 
 @llm_setup_app.command("set")
@@ -296,10 +248,78 @@ def setup_llm_set(
     console.print(f"Saved OpenAI-compatible LLM provider in {path}", soft_wrap=True)
 
 
-@llm_setup_app.command("wizard")
-def setup_llm_wizard() -> None:
-    """Run an interactive LLM provider setup wizard."""
-    path = ensure_config_file()
+def _run_configuration_center(path: Path) -> None:
+    console.print("Lychee AlphaDesk Configuration Center")
+    console.print(f"Config file: {path}", soft_wrap=True)
+    while True:
+        config = load_config(path)
+        _print_configuration_center_menu(config)
+        selected = Prompt.ask("Choose setup area, or q to finish", default="q")
+        if selected.lower() in {"q", "quit", "done", "finish"}:
+            console.print("Setup complete")
+            return
+        if selected == "1":
+            _configure_data_providers()
+        elif selected == "2":
+            _configure_llm_provider(path)
+        else:
+            console.print(f"Unknown setup choice: {selected}")
+
+
+def _print_configuration_center_menu(config: AlphaDeskConfig) -> None:
+    table = Table(title="Setup")
+    table.add_column("#")
+    table.add_column("Area")
+    table.add_column("Status")
+    table.add_row("1", "Data providers", _data_provider_status(config))
+    table.add_row("2", "LLM provider", _llm_provider_status(config))
+    console.print(table)
+
+
+def _data_provider_status(config: AlphaDeskConfig) -> str:
+    configured_count = sum(
+        1
+        for provider in _providers_requiring_values(config)
+        if provider.value and provider.value.strip()
+    )
+    total_count = len(_providers_requiring_values(config))
+    return f"{configured_count}/{total_count} configured"
+
+
+def _llm_provider_status(config: AlphaDeskConfig) -> str:
+    provider = config.llm.openai_compatible
+    if provider.base_url and provider.api_key and provider.model:
+        return f"Configured: {provider.model}"
+    if provider.base_url or provider.api_key or provider.model:
+        return "Partially configured"
+    return "Not configured"
+
+
+def _configure_data_providers() -> None:
+    config = load_config(ensure_config_file())
+    providers = _providers_requiring_values(config)
+    while True:
+        provider = _choose_provider_from_menu(providers)
+        if provider is None:
+            return
+
+        _print_provider_detail(provider)
+        value = _prompt_secret(_provider_value_prompt(provider))
+        if not value.strip():
+            _print_value_capture_result(received=False)
+            console.print(f"Skipped {provider.name}")
+        else:
+            _print_value_capture_result(received=True)
+            path = set_provider_value(provider.provider_id, value.strip())
+            config = load_config(path)
+            providers = _providers_requiring_values(config)
+            console.print(f"Saved {provider.name} in {path}", soft_wrap=True)
+
+        if not Confirm.ask("Configure another provider?", default=True):
+            return
+
+
+def _configure_llm_provider(path: Path) -> None:
     console.print("OpenAI-compatible custom endpoint")
     console.print(f"Config file: {path}", soft_wrap=True)
     console.print(
@@ -327,54 +347,9 @@ def setup_llm_wizard() -> None:
         saved_path = set_openai_compatible_llm(base_url, api_key.strip(), model)
     except ValueError as error:
         console.print(str(error))
-        raise typer.Exit(code=1) from error
+        return
 
     console.print(f"Saved OpenAI-compatible LLM provider in {saved_path}", soft_wrap=True)
-
-
-def _print_provider_setup_table(config: AlphaDeskConfig) -> None:
-    providers = sorted(
-        config.providers.values(), key=lambda item: (item.priority, item.provider_id)
-    )
-    for provider in providers:
-        console.print(
-            f"Provider: {provider.provider_id} | {provider.name} | "
-            f"{provider.registration} | {provider.registration_url}",
-            soft_wrap=True,
-        )
-
-    table = Table(title="Lychee AlphaDesk Provider Setup")
-    table.add_column("Provider ID")
-    table.add_column("Name")
-    table.add_column("Priority")
-    table.add_column("Registration")
-    table.add_column("Config Field")
-    table.add_column("Registration URL")
-    for provider in providers:
-        table.add_row(
-            provider.provider_id,
-            provider.name,
-            str(provider.priority),
-            provider.registration,
-            provider.config_field,
-            provider.registration_url,
-        )
-    console.print(table)
-
-
-def _print_llm_setup_status(config: AlphaDeskConfig) -> None:
-    provider = config.llm.openai_compatible
-    console.print(provider.name)
-    console.print(f"Base URL: {_plain_config_status(provider.base_url)}", soft_wrap=True)
-    console.print(f"API key: {_secret_config_status(provider.api_key)}")
-    console.print(f"Model: {_plain_config_status(provider.model)}", soft_wrap=True)
-    console.print("Run `lychee setup llm wizard` for interactive LLM setup.")
-    console.print(
-        "Use `lychee setup llm set <base_url> <api_key> MODEL_NAME` to set values directly."
-    )
-    console.print(
-        "MODEL_NAME is optional, but recommended when you already know the model ID."
-    )
 
 
 def _choose_openai_compatible_model(base_url: str, api_key: str) -> str:
@@ -473,18 +448,6 @@ def _resolve_model_choice(selected: str, models: list[str]) -> str:
         if 1 <= index <= len(models):
             return models[index - 1]
     return normalized
-
-
-def _plain_config_status(value: str | None) -> str:
-    if value and value.strip():
-        return value.strip()
-    return "Not configured"
-
-
-def _secret_config_status(value: str | None) -> str:
-    if value and value.strip():
-        return _mask_config_value(value.strip())
-    return "Not configured"
 
 
 def _choose_provider_from_menu(providers: list[ProviderSetupInfo]) -> ProviderSetupInfo | None:

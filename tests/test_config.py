@@ -1,8 +1,11 @@
 import tomllib
+from io import StringIO
 from pathlib import Path
 
+from rich.console import Console
 from typer.testing import CliRunner
 
+import lychee_alphadesk.cli.app as cli_app
 from lychee_alphadesk.cli.app import (
     _choose_provider_from_menu,
     _move_menu_selection,
@@ -95,7 +98,10 @@ def test_setup_wizard_can_store_selected_provider_value(monkeypatch, tmp_path: P
     result = runner.invoke(app, ["setup", "wizard"], input="y\nalpha_vantage\ndemo-key\nn\n")
 
     assert result.exit_code == 0
-    assert "Saved alpha_vantage" in result.stdout
+    assert "Saved Alpha Vantage" in result.stdout
+    assert "Required value" not in result.stdout
+    assert "alpha_vantage" not in result.stdout
+    assert "api_key" not in result.stdout
     config = load_config(config_file_path())
     assert config.providers["alpha_vantage"].value == "demo-key"
 
@@ -120,3 +126,53 @@ def test_provider_choice_fallback_still_accepts_number_and_id() -> None:
     assert _resolve_provider_choice("2", providers) == providers[1]
     assert _resolve_provider_choice("alpha_vantage", providers).provider_id == "alpha_vantage"
     assert _resolve_provider_choice("not-real", providers) is None
+
+
+def test_provider_config_status_masks_configured_values() -> None:
+    provider = default_config().providers["alpha_vantage"].model_copy(
+        update={"value": "demo-secret-key"}
+    )
+
+    assert cli_app._provider_config_status(provider) == "已配置: demo***-key"
+    assert cli_app._provider_config_status(default_config().providers["alpha_vantage"]) == "未配置"
+
+
+def test_arrow_menu_shows_display_name_and_masked_status_only(monkeypatch) -> None:
+    buffer = StringIO()
+    monkeypatch.setattr(
+        cli_app,
+        "console",
+        Console(file=buffer, force_terminal=False, width=140, color_system=None),
+    )
+    provider = default_config().providers["alpha_vantage"].model_copy(
+        update={"value": "demo-secret-key"}
+    )
+
+    cli_app._render_arrow_menu([provider], 0)
+
+    output = buffer.getvalue()
+    assert "Alpha Vantage" in output
+    assert "已配置: demo***-key" in output
+    assert "alpha_vantage" not in output
+    assert "api_key" not in output
+    assert "https://" not in output
+
+
+def test_provider_detail_uses_user_facing_copy_without_internal_fields(monkeypatch) -> None:
+    buffer = StringIO()
+    monkeypatch.setattr(
+        cli_app,
+        "console",
+        Console(file=buffer, force_terminal=False, width=140, color_system=None),
+    )
+    provider = default_config().providers["alpha_vantage"]
+
+    cli_app._print_provider_detail(provider)
+
+    output = buffer.getvalue()
+    assert "Alpha Vantage" in output
+    assert "Global prices, fundamentals, indicators, macro" in output
+    assert "https://www.alphavantage.co/support/#api-key" in output
+    assert "alpha_vantage" not in output
+    assert "Required value" not in output
+    assert "api_key" not in output

@@ -243,18 +243,15 @@ def setup_wizard() -> None:
         if provider is None:
             break
 
-        console.print(f"Provider: {provider.provider_id} | {provider.name}")
-        console.print(f"Registration: {provider.registration}")
-        console.print(f"Register here: {provider.registration_url}", soft_wrap=True)
-        console.print(f"Required value: {provider.config_field}")
-        value = _prompt_secret(f"Paste value for {provider.provider_id}")
+        _print_provider_detail(provider)
+        value = _prompt_secret(_provider_value_prompt(provider))
         if not value.strip():
-            console.print(f"Skipped {provider.provider_id}")
+            console.print(f"Skipped {provider.name}")
         else:
             path = set_provider_value(provider.provider_id, value.strip())
             config = load_config(path)
             providers = _providers_requiring_values(config)
-            console.print(f"Saved {provider.provider_id} in {path}", soft_wrap=True)
+            console.print(f"Saved {provider.name} in {path}", soft_wrap=True)
 
         if not Confirm.ask("Configure another provider?", default=True):
             break
@@ -301,7 +298,7 @@ def _choose_provider_from_menu(providers: list[ProviderSetupInfo]) -> ProviderSe
         return _choose_provider_with_arrow_keys(providers)
 
     _print_wizard_menu(providers)
-    selected = Prompt.ask("Choose provider number or ID, or q to finish", default="q")
+    selected = Prompt.ask("Choose provider number, or q to finish", default="q")
     if selected.lower() in {"q", "quit", "done", "finish"}:
         return None
     provider = _resolve_provider_choice(selected, providers)
@@ -331,15 +328,57 @@ def _choose_provider_with_arrow_keys(
 def _render_arrow_menu(providers: list[ProviderSetupInfo], selected_index: int) -> None:
     console.clear()
     console.print("Provider Key Menu")
-    console.print("Use ↑/↓ to move, Enter to select, q to finish.")
+    console.print("Use ↑/↓ to move, Enter to view details, q to finish.")
     for index, provider in enumerate(providers):
         marker = ">" if index == selected_index else " "
-        status = "configured" if provider.value else "missing"
-        console.print(
-            f"{marker} {provider.provider_id:<15} {provider.name:<24} "
-            f"{provider.config_field:<10} {status:<10} {provider.registration_url}",
-            soft_wrap=True,
-        )
+        console.print(f"{marker} {provider.name:<30} {_provider_config_status(provider)}")
+
+
+def _print_provider_detail(provider: ProviderSetupInfo) -> None:
+    console.clear()
+    console.print(provider.name)
+    console.print(f"用途: {provider.domain}")
+    console.print(f"申请方式: {_provider_registration_summary(provider)}")
+    console.print(f"注册地址: {provider.registration_url}", soft_wrap=True)
+    console.print(f"当前状态: {_provider_config_status(provider)}")
+    if provider.notes:
+        console.print(f"说明: {_provider_notes(provider)}", soft_wrap=True)
+
+
+def _provider_registration_summary(provider: ProviderSetupInfo) -> str:
+    if provider.config_field == "user_agent":
+        return "无需 API key；按 SEC 要求填写一个能联系到你的访问标识。"
+    return provider.registration
+
+
+def _provider_notes(provider: ProviderSetupInfo) -> str:
+    if provider.config_field == "user_agent":
+        return "用于合规访问 SEC 数据。建议包含项目名和你的联系邮箱。"
+    return provider.notes
+
+
+def _provider_value_prompt(provider: ProviderSetupInfo) -> str:
+    if provider.config_field == "api_key":
+        return f"粘贴 {provider.name} API key"
+    if provider.config_field == "token":
+        return f"粘贴 {provider.name} token"
+    if provider.config_field == "user_agent":
+        return f"填写 {provider.name} 访问标识"
+    return f"粘贴 {provider.name} 配置值"
+
+
+def _provider_config_status(provider: ProviderSetupInfo) -> str:
+    if provider.value and provider.value.strip():
+        return f"已配置: {_mask_config_value(provider.value.strip())}"
+    return "未配置"
+
+
+def _mask_config_value(value: str) -> str:
+    if len(value) <= 1:
+        return "***"
+    if len(value) <= 4:
+        return f"{value[0]}***{value[-1]}"
+    return f"{value[:4]}***{value[-4:]}"
 
 
 def _raw_tty_available() -> bool:
@@ -385,20 +424,13 @@ def _providers_requiring_values(config: AlphaDeskConfig) -> list[ProviderSetupIn
 def _print_wizard_menu(providers: list[ProviderSetupInfo]) -> None:
     table = Table(title="Provider Key Menu")
     table.add_column("#")
-    table.add_column("Provider ID")
     table.add_column("Name")
-    table.add_column("Required")
     table.add_column("Status")
-    table.add_column("Registration URL")
     for index, provider in enumerate(providers, start=1):
-        status = "configured" if provider.value else "missing"
         table.add_row(
             str(index),
-            provider.provider_id,
             provider.name,
-            provider.config_field,
-            status,
-            provider.registration_url,
+            _provider_config_status(provider),
         )
     console.print(table)
 

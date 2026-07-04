@@ -77,6 +77,7 @@ def test_setup_command_shows_clean_guidance(monkeypatch, tmp_path: Path) -> None
     assert result.exit_code == 0
     assert str(tmp_path / "lychee-alphadesk" / "config.yaml") in result.stdout
     assert "lychee setup providers" in result.stdout
+    assert "lychee setup llm" in result.stdout
     assert "Alpha Vantage" not in result.stdout
     assert "https://www.alphavantage.co/support/#api-key" not in result.stdout
     assert "Run `lychee setup wizard` for the interactive setup flow." in result.stdout
@@ -121,6 +122,67 @@ def test_setup_set_rejects_provider_without_user_configuration(
 
     assert result.exit_code == 1
     assert "does not require" in result.stdout
+
+
+def test_default_llm_config_is_unconfigured() -> None:
+    config = default_config()
+
+    assert config.llm.openai_compatible.base_url is None
+    assert config.llm.openai_compatible.api_key is None
+
+
+def test_setup_llm_shows_status_without_secret(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = runner.invoke(app, ["setup", "llm"])
+
+    assert result.exit_code == 0
+    assert "OpenAI-compatible custom endpoint" in result.stdout
+    assert "Base URL: Not configured" in result.stdout
+    assert "API key: Not configured" in result.stdout
+    assert "lychee setup llm wizard" in result.stdout
+
+
+def test_setup_llm_set_writes_custom_openai_compatible_config(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["setup", "llm", "set", "https://llm.example.com/v1", "sk-demo-secret"],
+    )
+
+    assert result.exit_code == 0
+    assert "Saved OpenAI-compatible LLM provider" in result.stdout
+    config = load_config(config_file_path())
+    assert config.llm.openai_compatible.base_url == "https://llm.example.com/v1"
+    assert config.llm.openai_compatible.api_key == "sk-demo-secret"
+
+    status = runner.invoke(app, ["setup", "llm"])
+    assert status.exit_code == 0
+    assert "https://llm.example.com/v1" in status.stdout
+    assert "sk-d***cret" in status.stdout
+    assert "sk-demo-secret" not in status.stdout
+
+
+def test_setup_llm_wizard_stores_base_url_and_hidden_key_feedback(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["setup", "llm", "wizard"],
+        input="https://llm.example.com/v1\nsk-demo-secret\n",
+    )
+
+    assert result.exit_code == 0
+    assert "✅ Value received" in result.stdout
+    assert "Saved OpenAI-compatible LLM provider" in result.stdout
+    config = load_config(config_file_path())
+    assert config.llm.openai_compatible.base_url == "https://llm.example.com/v1"
+    assert config.llm.openai_compatible.api_key == "sk-demo-secret"
 
 
 def test_setup_wizard_can_skip_all_providers(monkeypatch, tmp_path: Path) -> None:

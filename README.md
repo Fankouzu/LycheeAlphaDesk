@@ -171,16 +171,21 @@ Lychee AlphaDesk is a command-line tool, so provider keys should be configured t
 ~/.config/lychee-alphadesk/config.yaml
 ```
 
-Use `lad setup` to create the config file and see provider registration links:
+Use `lychee setup` to create the config file and see the next setup commands:
 
 ```bash
 lychee setup
 lychee setup wizard
 lychee setup providers
 lychee setup set alpha_vantage "YOUR_API_KEY"
+lychee setup llm
+lychee setup llm wizard
+lychee setup llm set "https://api.example.com/v1" "YOUR_API_KEY"
 ```
 
 The setup command prints the config path and next-step commands. Use `lychee setup providers` to list registration links and required values. In a real terminal, the wizard uses an arrow-key menu: use ↑/↓ to choose a provider, Enter to view provider details, and `q` to finish. The main menu only shows display names and masked configuration status; registration links appear only after opening a provider. Hidden key entry confirms whether a value was received with `✅` or `❌`.
+
+LLM providers are configured separately from market-data providers. The initial LLM setup supports one custom OpenAI-compatible endpoint with a `base_url` and API key stored in `~/.config/lychee-alphadesk/config.yaml`. API keys are masked in status output.
 
 Recommended first integrations:
 

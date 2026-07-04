@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 ConfigField = Literal["api_key", "token", "user_agent", "none"]
 
@@ -25,9 +25,22 @@ class ProviderSetupInfo(BaseModel):
         return self.config_field != "none"
 
 
+class OpenAICompatibleLLMConfig(BaseModel):
+    name: str = "OpenAI-compatible custom endpoint"
+    base_url: str | None = None
+    api_key: str | None = None
+
+
+class LLMSettings(BaseModel):
+    openai_compatible: OpenAICompatibleLLMConfig = Field(
+        default_factory=OpenAICompatibleLLMConfig
+    )
+
+
 class AlphaDeskConfig(BaseModel):
     version: int = 1
     providers: dict[str, ProviderSetupInfo]
+    llm: LLMSettings = Field(default_factory=LLMSettings)
 
 
 PROVIDER_SETUP_REGISTRY: tuple[ProviderSetupInfo, ...] = (
@@ -197,6 +210,7 @@ def load_config(path: Path | None = None) -> AlphaDeskConfig:
 
 def normalize_config(config: AlphaDeskConfig) -> AlphaDeskConfig:
     normalized = default_config()
+    normalized.llm = config.llm
     for provider_id, existing_provider in config.providers.items():
         if provider_id not in normalized.providers:
             normalized.providers[provider_id] = existing_provider
@@ -228,4 +242,21 @@ def set_provider_value(provider_id: str, value: str, path: Path | None = None) -
         raise ValueError(f"Provider '{provider_id}' does not require an API key or token")
     provider.value = value
     config.providers[provider_id] = provider
+    return save_config(config, target)
+
+
+def set_openai_compatible_llm(base_url: str, api_key: str, path: Path | None = None) -> Path:
+    cleaned_base_url = base_url.strip()
+    cleaned_api_key = api_key.strip()
+    if not cleaned_base_url:
+        raise ValueError("Base URL is required")
+    if not cleaned_base_url.startswith(("http://", "https://")):
+        raise ValueError("Base URL must start with http:// or https://")
+    if not cleaned_api_key:
+        raise ValueError("API key is required")
+
+    target = path or config_file_path()
+    config = load_config(target)
+    config.llm.openai_compatible.base_url = cleaned_base_url
+    config.llm.openai_compatible.api_key = cleaned_api_key
     return save_config(config, target)

@@ -163,7 +163,7 @@ Lychee AlphaDesk 围绕 provider 接口设计。
 
 ## 🔑 CLI Setup 与 Provider Key
 
-下一阶段应接入真实 provider，但任何 provider 都不应成为必选项。默认 demo 流程必须继续支持离线运行。
+当前 live data 路径会接入真实 provider，但任何 provider 都不应成为必选项。默认 demo 流程仍然支持离线运行。
 
 Lychee AlphaDesk 是命令行工具，所以 provider key 应通过 CLI 写入本机配置，而不是在项目目录里维护 `.env`。默认配置文件位置：
 
@@ -187,6 +187,27 @@ lychee setup llm set "https://api.example.com/v1" "YOUR_API_KEY" "MODEL_NAME"
 setup 命令会打开统一配置中心，数据 provider 和 LLM provider 都从这里配置。面向人的菜单使用 Textual `OptionList` 控件实现，并且必须只使用键盘导航：↑/↓/←/→/Tab 移动选择，Enter 确认，Esc 返回或退出。菜单选项不得使用数字或字母进行选择，项目不得为这条交互流程继续维护手写 raw-key parser。provider 菜单只显示展示名称和脱敏后的配置状态；注册链接只会在进入某个 provider 后显示。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。
 
 第一版 LLM setup 只支持一个自定义 OpenAI-compatible endpoint，填写 `base_url`、API key 和模型名后写入 `~/.config/lychee-alphadesk/config.yaml`。配置中心会尝试读取 `{base_url}/models` 并让用户选择模型；如果接口不可用，就提示用户手动输入模型名。状态输出会脱敏 API key。非 TTY 环境不提供文本菜单 fallback，应使用上面的非交互式命令。
+
+## 📥 Live Data Cache
+
+第一阶段真实数据会先写入 `.alphadesk/data/` 下的本地 JSON cache。这样工作台有审计基础，也能让 TUI dashboard 从本地数据启动，而不是每次打开都反复打 API。
+
+```bash
+lychee data pull market --symbols AAPL,TSLA
+lychee data pull news --symbols AAPL --provider auto
+lychee data pull filings --symbols AAPL,TSLA --limit 3
+lychee data health
+lychee data snapshot
+lychee
+```
+
+当前 live provider：
+
+- 行情：Alpha Vantage 日线行情。
+- 新闻：Marketaux、Finnhub 或 NewsAPI，可用 `--provider` 指定；`auto` 会使用第一个已配置 provider。
+- 公告：SEC EDGAR 美股近期 filings。
+
+live TUI dashboard 会读取本地 cache，并展示数量、provider 和最新缓存价格。它不会下单，也不会输出投资建议。
 
 建议优先接入：
 

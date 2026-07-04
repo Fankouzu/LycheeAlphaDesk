@@ -163,7 +163,7 @@ The open-source MVP must run without a broker account or paid API key.
 
 ## 🔑 CLI Setup And Provider Keys
 
-The next development milestone should add real providers without making any of them mandatory. The default demo flow must keep working offline.
+The live data path adds real providers without making any of them mandatory. The default demo flow still works offline.
 
 Lychee AlphaDesk is a command-line tool, so provider keys should be configured through the CLI instead of project-level `.env` files. The default config file is:
 
@@ -187,6 +187,27 @@ lychee setup llm set "https://api.example.com/v1" "YOUR_API_KEY" "MODEL_NAME"
 The setup command opens one configuration center for data providers and LLM providers. Human-facing menus are implemented with Textual `OptionList` controls and must use keyboard navigation only: ↑/↓/←/→/Tab move selection, Enter selects, and Esc goes back or exits. Menus must not use numbers or letters for option selection, and the project must not maintain a hand-rolled raw-key parser for this flow. The provider menu only shows display names and masked configuration status; registration links appear only after opening a provider. Hidden key entry confirms whether a value was received with `✅` or `❌`.
 
 The initial LLM setup supports one custom OpenAI-compatible endpoint with a `base_url`, API key, and model name stored in `~/.config/lychee-alphadesk/config.yaml`. The configuration center tries to read `{base_url}/models` from OpenAI-compatible APIs and lets the user select a model when available; if the endpoint is unavailable, it prompts for a manual model name. API keys are masked in status output. Non-TTY environments do not get text-menu fallbacks; they should use the non-interactive commands above.
+
+## 📥 Live Data Cache
+
+The first live-data milestone writes provider responses into local JSON cache files under `.alphadesk/data/`. This keeps the workbench auditable and lets the TUI dashboard start from local data instead of repeatedly hitting APIs.
+
+```bash
+lychee data pull market --symbols AAPL,TSLA
+lychee data pull news --symbols AAPL --provider auto
+lychee data pull filings --symbols AAPL,TSLA --limit 3
+lychee data health
+lychee data snapshot
+lychee
+```
+
+Current live providers:
+
+- Market prices: Alpha Vantage daily time series.
+- News: Marketaux, Finnhub, or NewsAPI, selected with `--provider`; `auto` uses the first configured provider.
+- Filings: SEC EDGAR recent filings for US-listed symbols.
+
+The live TUI dashboard reads the local cache and shows counts, providers, and latest cached prices. It does not place trades and does not produce investment advice.
 
 Recommended first integrations:
 

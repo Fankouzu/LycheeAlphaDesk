@@ -29,7 +29,7 @@ class DataQualityCheck:
 
 @dataclass(frozen=True)
 class DataSnapshot:
-    mode: Literal["demo"]
+    mode: Literal["demo", "live"]
     created_at: str
     provider_names: list[str]
     prices: list[PriceRow]
@@ -138,7 +138,7 @@ def run_quality_checks(
 
 def write_snapshot_json(snapshot: DataSnapshot, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "data-snapshot-demo.json"
+    output_path = output_dir / f"data-snapshot-{snapshot.mode}.json"
     output_path.write_text(
         json.dumps(snapshot_to_dict(snapshot), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

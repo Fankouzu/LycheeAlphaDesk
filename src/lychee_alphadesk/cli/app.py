@@ -17,6 +17,15 @@ from lychee_alphadesk.core.config import (
 )
 from lychee_alphadesk.core.data_engine import build_demo_data_snapshot, write_snapshot_json
 from lychee_alphadesk.core.demo import REQUIRED_DEMO_FILES, check_demo_workspace
+from lychee_alphadesk.core.live_data import (
+    PullResult,
+    build_cached_data_snapshot,
+    parse_symbols,
+    pull_market_prices,
+    pull_news_events,
+    pull_sec_filings,
+    run_cached_data_health,
+)
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
 from lychee_alphadesk.core.policy import load_policy, validate_policy
 from lychee_alphadesk.core.reports import generate_demo_report
@@ -31,6 +40,7 @@ app = typer.Typer(
 policy_app = typer.Typer(help="Investment policy commands.")
 audit_app = typer.Typer(help="Audit trail commands.")
 data_app = typer.Typer(help="Market, news, filing, and forecast data commands.")
+data_pull_app = typer.Typer(help="Pull live provider data into the local cache.")
 setup_app = typer.Typer(
     help="Open the configuration center or write a single config value.",
     invoke_without_command=True,
@@ -154,13 +164,14 @@ def data_snapshot(
     ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
     """Write a unified JSON data snapshot."""
-    if not demo:
-        console.print("Only --demo data snapshots are available in v0.1.")
-        raise typer.Exit(code=1)
-
-    snapshot = build_demo_data_snapshot(DEMO_ROOT)
+    snapshot = (
+        build_demo_data_snapshot(DEMO_ROOT)
+        if demo
+        else build_cached_data_snapshot(output_dir)
+    )
     output_path = write_snapshot_json(snapshot, output_dir)
     console.print(f"Data snapshot written: {output_path}")
+    console.print(f"Mode: {snapshot.mode}")
     console.print(f"Providers: {', '.join(snapshot.provider_names)}")
     console.print(f"Prices: {snapshot.counts['prices']}")
     console.print(f"News events: {snapshot.counts['news_events']}")
@@ -174,22 +185,132 @@ def data_health(
         bool,
         typer.Option("--demo", help="Check bundled demo provider health."),
     ] = False,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Live cache output directory."),
+    ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
     """Show provider data quality checks."""
-    if not demo:
-        console.print("Only --demo data health checks are available in v0.1.")
-        raise typer.Exit(code=1)
-
-    snapshot = build_demo_data_snapshot(DEMO_ROOT)
-    console.print(f"Providers: {', '.join(snapshot.provider_names)}")
+    if demo:
+        snapshot = build_demo_data_snapshot(DEMO_ROOT)
+        checks = snapshot.quality_checks
+        console.print(f"Providers: {', '.join(snapshot.provider_names)}")
+    else:
+        checks = run_cached_data_health(output_dir)
+        console.print(f"Cache directory: {output_dir / 'data'}", soft_wrap=True)
     table = Table(title="Lychee AlphaDesk Data Health")
     table.add_column("Check")
     table.add_column("Status")
     table.add_column("Provider")
     table.add_column("Message")
-    for check in snapshot.quality_checks:
+    for check in checks:
         table.add_row(check.name, check.status, check.provider, check.message)
     console.print(table)
+
+
+@data_pull_app.command("market")
+def data_pull_market(
+    symbols: Annotated[
+        str,
+        typer.Option("--symbols", help="Comma-separated symbols, e.g. AAPL,TSLA,0700.HK."),
+    ],
+    provider: Annotated[
+        str,
+        typer.Option("--provider", help="Market data provider."),
+    ] = "alpha_vantage",
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Live cache output directory."),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """Pull latest daily market prices into the local cache."""
+    try:
+        result = pull_market_prices(
+            symbols=parse_symbols(symbols),
+            output_dir=output_dir,
+            provider_id=provider,
+        )
+    except (RuntimeError, ValueError) as error:
+        console.print(str(error))
+        raise typer.Exit(code=1) from error
+    _print_pull_result(result_label="market rows", count=result.count, result=result)
+
+
+@data_pull_app.command("news")
+def data_pull_news(
+    symbols: Annotated[
+        str,
+        typer.Option("--symbols", help="Comma-separated symbols, e.g. AAPL,TSLA."),
+    ],
+    provider: Annotated[
+        str,
+        typer.Option("--provider", help="News provider: auto, marketaux, finnhub, newsapi."),
+    ] = "auto",
+    start_date: Annotated[
+        str | None,
+        typer.Option("--from", help="Start date YYYY-MM-DD."),
+    ] = None,
+    end_date: Annotated[
+        str | None,
+        typer.Option("--to", help="End date YYYY-MM-DD."),
+    ] = None,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Live cache output directory."),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """Pull market news into the local cache."""
+    try:
+        result = pull_news_events(
+            symbols=parse_symbols(symbols),
+            output_dir=output_dir,
+            provider_id=provider,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except (RuntimeError, ValueError) as error:
+        console.print(str(error))
+        raise typer.Exit(code=1) from error
+    _print_pull_result(result_label="news events", count=result.count, result=result)
+
+
+@data_pull_app.command("filings")
+def data_pull_filings(
+    symbols: Annotated[
+        str,
+        typer.Option("--symbols", help="Comma-separated US symbols, e.g. AAPL,TSLA."),
+    ],
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="Maximum recent SEC filings per symbol."),
+    ] = 5,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Live cache output directory."),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """Pull recent SEC EDGAR filings into the local cache."""
+    try:
+        result = pull_sec_filings(
+            symbols=parse_symbols(symbols),
+            output_dir=output_dir,
+            limit_per_symbol=limit,
+        )
+    except (RuntimeError, ValueError) as error:
+        console.print(str(error))
+        raise typer.Exit(code=1) from error
+    _print_pull_result(result_label="filings", count=result.count, result=result)
+
+
+def _print_pull_result(*, result_label: str, count: int, result: PullResult) -> None:
+    provider = result.provider
+    output_path = result.output_path
+    warnings = result.warnings
+    console.print(f"Pulled {result_label}: {count}")
+    console.print(f"Provider: {provider}")
+    console.print(f"Cache: {output_path}", soft_wrap=True)
+    for warning in warnings:
+        console.print(f"WARNING: {warning}", soft_wrap=True)
 
 
 @setup_app.callback()
@@ -293,6 +414,7 @@ def _keyboard_navigation_available() -> bool:
 
 app.add_typer(policy_app, name="policy")
 app.add_typer(audit_app, name="audit")
+data_app.add_typer(data_pull_app, name="pull")
 app.add_typer(data_app, name="data")
 setup_app.add_typer(llm_setup_app, name="llm")
 app.add_typer(setup_app, name="setup")

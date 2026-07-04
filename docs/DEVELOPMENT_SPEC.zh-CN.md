@@ -108,6 +108,11 @@ lad setup llm set https://api.example.com/v1 YOUR_API_KEY MODEL_NAME
 lychee setup
 lad data health --demo
 lad data snapshot --demo
+lad data pull market --symbols AAPL,TSLA
+lad data pull news --symbols AAPL --provider auto
+lad data pull filings --symbols AAPL,TSLA --limit 3
+lad data health
+lad data snapshot
 lad report --demo
 lad policy check examples/demo/policy.yaml
 lad audit list
@@ -126,6 +131,11 @@ lad
 - `lychee` 是推荐的 console command；`lad` 保留为短别名。
 - `lad data health --demo` 打印 provider 级数据质量检查。
 - `lad data snapshot --demo` 写入统一 JSON 快照，包含市场、新闻、公告和预测数据。
+- `lad data pull market` 将 Alpha Vantage 日线行情写入本地 live cache。
+- `lad data pull news` 将 Marketaux、Finnhub 或 NewsAPI 新闻事件写入本地 live cache。
+- `lad data pull filings` 将 SEC EDGAR 近期 filings 写入本地 live cache。
+- `lad data health` 检查 live cache 是否存在以及行数状态。
+- `lad data snapshot` 基于 live cache 写入统一 JSON 快照。
 - `lad report --demo` 使用内置 demo provider 生成 Markdown 日报。
 - `lad policy check` 校验投资政策文件，并打印违反项或警告。
 - `lad audit list` 列出已生成的报告和决策记录。

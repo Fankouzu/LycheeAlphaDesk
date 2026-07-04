@@ -108,6 +108,11 @@ lad setup llm set https://api.example.com/v1 YOUR_API_KEY MODEL_NAME
 lychee setup
 lad data health --demo
 lad data snapshot --demo
+lad data pull market --symbols AAPL,TSLA
+lad data pull news --symbols AAPL --provider auto
+lad data pull filings --symbols AAPL,TSLA --limit 3
+lad data health
+lad data snapshot
 lad report --demo
 lad policy check examples/demo/policy.yaml
 lad audit list
@@ -126,6 +131,11 @@ Command behavior:
 - `lychee` is the recommended console command; `lad` remains a short alias.
 - `lad data health --demo` prints provider-level quality checks.
 - `lad data snapshot --demo` writes a unified JSON snapshot with market, news, filing, and forecast data.
+- `lad data pull market` writes Alpha Vantage daily prices into the local live cache.
+- `lad data pull news` writes Marketaux, Finnhub, or NewsAPI events into the local live cache.
+- `lad data pull filings` writes recent SEC EDGAR filings into the local live cache.
+- `lad data health` checks live cache presence and row counts.
+- `lad data snapshot` writes a unified JSON snapshot from the live cache.
 - `lad report --demo` generates a Markdown daily report from bundled demo providers.
 - `lad policy check` validates the policy file and prints violations or warnings.
 - `lad audit list` lists generated reports and decision records.

@@ -2,7 +2,9 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+import lychee_alphadesk.cli.app as cli_app
 from lychee_alphadesk.cli.app import app
+from lychee_alphadesk.core.live_data import PullResult
 
 runner = CliRunner()
 
@@ -66,3 +68,83 @@ def test_data_health_command_shows_provider_quality() -> None:
     assert "demo-market-data" in result.stdout
     assert "market-data-present" in result.stdout
     assert "pass" in result.stdout
+
+
+def test_data_pull_market_command_writes_live_cache(monkeypatch, tmp_path: Path) -> None:
+    def fake_pull_market_prices(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == ["AAPL", "TSLA"]
+        assert kwargs["output_dir"] == tmp_path
+        return PullResult(
+            domain="market",
+            provider="alpha_vantage",
+            count=2,
+            output_path=tmp_path / "data" / "market-prices.json",
+            warnings=[],
+        )
+
+    monkeypatch.setattr(cli_app, "pull_market_prices", fake_pull_market_prices)
+
+    result = runner.invoke(
+        app,
+        ["data", "pull", "market", "--symbols", "AAPL,TSLA", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "Pulled market rows: 2" in result.stdout
+    assert "alpha_vantage" in result.stdout
+
+
+def test_data_pull_news_command_writes_live_cache(monkeypatch, tmp_path: Path) -> None:
+    def fake_pull_news_events(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == ["AAPL"]
+        assert kwargs["provider_id"] == "finnhub"
+        assert kwargs["start_date"] == "2026-07-01"
+        assert kwargs["end_date"] == "2026-07-03"
+        return PullResult(
+            domain="news",
+            provider="finnhub",
+            count=1,
+            output_path=tmp_path / "data" / "news-events.json",
+            warnings=[],
+        )
+
+    monkeypatch.setattr(cli_app, "pull_news_events", fake_pull_news_events)
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "pull",
+            "news",
+            "--symbols",
+            "AAPL",
+            "--provider",
+            "finnhub",
+            "--from",
+            "2026-07-01",
+            "--to",
+            "2026-07-03",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Pulled news events: 1" in result.stdout
+
+
+def test_data_snapshot_command_reads_live_cache_by_default(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "market-prices.json").write_text(
+        '{"provider":"alpha_vantage","rows":[{"symbol":"AAPL","date":"2026-07-02",'
+        '"close":214.33,"volume":51230000,"currency":"USD"}]}',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["data", "snapshot", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Data snapshot written:" in result.stdout
+    assert "Mode: live" in result.stdout
+    assert (tmp_path / "data-snapshot-live.json").exists()

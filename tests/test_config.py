@@ -18,6 +18,7 @@ from lychee_alphadesk.core.config import (
     default_config,
     ensure_config_file,
     load_config,
+    save_config,
 )
 
 runner = CliRunner()
@@ -46,6 +47,26 @@ def test_ensure_config_file_creates_private_yaml(monkeypatch, tmp_path: Path) ->
     config = load_config(path)
     assert "alpha_vantage" in config.providers
     assert config.providers["alpha_vantage"].registration_url.startswith("https://")
+
+
+def test_load_config_migrates_provider_metadata_from_registry(tmp_path: Path) -> None:
+    config = default_config()
+    config.providers["sec_edgar"] = config.providers["sec_edgar"].model_copy(
+        update={"config_field": "user_agent", "value": "old-user-agent"}
+    )
+    config.providers["alpha_vantage"] = config.providers["alpha_vantage"].model_copy(
+        update={"value": "demo-key"}
+    )
+    path = save_config(config, tmp_path / "config.yaml")
+
+    migrated = load_config(path)
+
+    assert migrated.providers["sec_edgar"].config_field == "none"
+    assert migrated.providers["sec_edgar"].value is None
+    assert migrated.providers["alpha_vantage"].value == "demo-key"
+    assert "SEC EDGAR" not in [
+        provider.name for provider in _providers_requiring_values(migrated)
+    ]
 
 
 def test_setup_command_shows_config_path_and_provider_urls(monkeypatch, tmp_path: Path) -> None:
@@ -150,8 +171,9 @@ def test_provider_config_status_masks_configured_values() -> None:
         update={"value": "demo-secret-key"}
     )
 
-    assert cli_app._provider_config_status(provider) == "已配置: demo***-key"
-    assert cli_app._provider_config_status(default_config().providers["alpha_vantage"]) == "未配置"
+    assert cli_app._provider_config_status(provider) == "Configured: demo***-key"
+    empty_provider = default_config().providers["alpha_vantage"]
+    assert cli_app._provider_config_status(empty_provider) == "Not configured"
 
 
 def test_arrow_menu_shows_display_name_and_masked_status_only(monkeypatch) -> None:
@@ -169,7 +191,7 @@ def test_arrow_menu_shows_display_name_and_masked_status_only(monkeypatch) -> No
 
     output = buffer.getvalue()
     assert "Alpha Vantage" in output
-    assert "已配置: demo***-key" in output
+    assert "Configured: demo***-key" in output
     assert "alpha_vantage" not in output
     assert "api_key" not in output
     assert "https://" not in output
@@ -193,3 +215,6 @@ def test_provider_detail_uses_user_facing_copy_without_internal_fields(monkeypat
     assert "alpha_vantage" not in output
     assert "Required value" not in output
     assert "api_key" not in output
+    assert "用途" not in output
+    assert "申请方式" not in output
+    assert "当前状态" not in output

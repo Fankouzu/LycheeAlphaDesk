@@ -337,40 +337,40 @@ def _render_arrow_menu(providers: list[ProviderSetupInfo], selected_index: int) 
 def _print_provider_detail(provider: ProviderSetupInfo) -> None:
     console.clear()
     console.print(provider.name)
-    console.print(f"用途: {provider.domain}")
-    console.print(f"申请方式: {_provider_registration_summary(provider)}")
-    console.print(f"注册地址: {provider.registration_url}", soft_wrap=True)
-    console.print(f"当前状态: {_provider_config_status(provider)}")
+    console.print(f"Use: {provider.domain}")
+    console.print(f"Signup: {_provider_registration_summary(provider)}")
+    console.print(f"Registration URL: {provider.registration_url}", soft_wrap=True)
+    console.print(f"Status: {_provider_config_status(provider)}")
     if provider.notes:
-        console.print(f"说明: {_provider_notes(provider)}", soft_wrap=True)
+        console.print(f"Notes: {_provider_notes(provider)}", soft_wrap=True)
 
 
 def _provider_registration_summary(provider: ProviderSetupInfo) -> str:
     if provider.config_field == "user_agent":
-        return "无需 API key；Lychee AlphaDesk 会自动处理访问标识。"
+        return "No API key required; Lychee AlphaDesk handles request identity internally."
     return provider.registration
 
 
 def _provider_notes(provider: ProviderSetupInfo) -> str:
     if provider.config_field == "user_agent":
-        return "用于合规访问 SEC 数据；普通用户无需手动配置。"
+        return "Used for compliant SEC access; regular users do not need to configure it."
     return provider.notes
 
 
 def _provider_value_prompt(provider: ProviderSetupInfo) -> str:
     if provider.config_field == "api_key":
-        return f"粘贴 {provider.name} API key"
+        return f"Paste {provider.name} API key"
     if provider.config_field == "token":
-        return f"粘贴 {provider.name} token"
+        return f"Paste {provider.name} token"
     if provider.config_field == "user_agent":
-        return f"填写 {provider.name} 配置值"
-    return f"粘贴 {provider.name} 配置值"
+        return f"Paste {provider.name} configuration value"
+    return f"Paste {provider.name} configuration value"
 
 
 def _provider_config_status(provider: ProviderSetupInfo) -> str:
     if provider.value and provider.value.strip():
-        return f"已配置: {_mask_config_value(provider.value.strip())}"
-    return "未配置"
+        return f"Configured: {_mask_config_value(provider.value.strip())}"
+    return "Not configured"
 
 
 def _mask_config_value(value: str) -> str:

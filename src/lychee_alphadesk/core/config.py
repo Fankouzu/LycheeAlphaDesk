@@ -190,7 +190,21 @@ def load_config(path: Path | None = None) -> AlphaDeskConfig:
     if not target.exists():
         ensure_config_file(target)
     raw = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
-    return AlphaDeskConfig.model_validate(raw)
+    return normalize_config(AlphaDeskConfig.model_validate(raw))
+
+
+def normalize_config(config: AlphaDeskConfig) -> AlphaDeskConfig:
+    normalized = default_config()
+    for provider_id, existing_provider in config.providers.items():
+        if provider_id not in normalized.providers:
+            normalized.providers[provider_id] = existing_provider
+            continue
+
+        provider = normalized.providers[provider_id]
+        if provider.requires_value and existing_provider.value:
+            provider.value = existing_provider.value
+        normalized.providers[provider_id] = provider
+    return normalized
 
 
 def save_config(config: AlphaDeskConfig, path: Path | None = None) -> Path:

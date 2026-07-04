@@ -9,13 +9,13 @@
 ![Not a Trading Bot](https://img.shields.io/badge/not%20a%20trading%20bot-human%20approved-f59e0b)
 ![License](https://img.shields.io/badge/license-TBD-lightgrey)
 
-面向长期投资者的政策优先 AI 投资研究工作台。
+面向长期投资者的终端原生、政策优先 AI 投资研究工作台。
 
-Lychee AlphaDesk 是一个开源投研工作台，目标是把市场数据、财报、新闻、宏观指标、时间序列预测和 LLM 分析整合到一个证据优先的投资研究流程里。
+Lychee AlphaDesk 是一个开源终端投研工作台，目标是把市场数据、财报、新闻、宏观指标、时间序列预测和 LLM 分析整合到一个证据优先的投资研究流程里。
 
-它不是交易机器人，也不提供投资建议。它的目标是帮助投资者在任何人工操作之前，先完成研究、记录、审查和复盘。
+它以本地命令行和 TUI 应用运行，反应快，不需要复杂部署。它不是交易机器人，也不提供投资建议。它的目标是帮助投资者在任何人工操作之前，先完成研究、记录、审查和复盘。
 
-> 研究优先。政策优先。券商无关。人工确认。
+> 终端原生。研究优先。政策优先。券商无关。人工确认。
 
 ## ✨ 为什么做这个项目
 
@@ -38,8 +38,30 @@ Lychee AlphaDesk 是一个开源投研工作台，目标是把市场数据、财
 - **证据优先**：每个结论都应引用数据、财报、新闻，或明确标记为推断。
 - **券商无关**：IBKR、Futu、Longbridge、Tiger、CSV 导入、paper broker 都只是可选插件。
 - **数据源无关**：市场数据、新闻、财报、宏观、LLM、预测模型都通过可插拔 provider 接入。
+- **终端原生**：主产品是本地 CLI/TUI 工作台，而不是 Web dashboard。
 - **人工确认**：MVP 阶段不做自动实盘执行。
 - **欢迎不操作**：证据不足时，系统应明确输出“不操作”。
+
+## ⚡ 目标终端体验
+
+主界面是终端。下面是 v0.1 目标体验：
+
+```bash
+lad demo
+lad report --demo
+lad
+```
+
+计划中的 TUI 页面：
+
+- Today：每日结论、风险状态和不操作理由。
+- Portfolio：现金、模拟持仓、配置偏离和投资政策违反项。
+- News：事件聚类、受影响资产和来源时间戳。
+- Forecasts：TimesFM 或 mock 预测区间，并与基准模型比较。
+- Memos：投资研究备忘录和反方审查。
+- Policy：投资政策规则和校验结果。
+- Providers：数据源健康度和插件状态。
+- Audit：历史报告、数据快照和决策日志。
 
 ## 🏗️ 计划中的引擎结构
 
@@ -90,6 +112,23 @@ Lychee AlphaDesk 围绕 provider 接口设计。
 
 开源 MVP 必须在没有券商账户、没有付费 API key 的情况下运行。
 
+## 🧱 技术栈
+
+| 层 | 选择 |
+| --- | --- |
+| 语言 | Python 3.11+ |
+| 包管理 | uv |
+| CLI | Typer |
+| 终端 UI | Textual + Rich |
+| 配置 | YAML + Pydantic v2 |
+| 本地存储 | SQLite + Parquet，后续可加 DuckDB |
+| 报告 | Markdown + Jinja2 |
+| 测试 | pytest |
+| 代码质量 | ruff + mypy |
+| 文档 | 后续 MkDocs Material |
+
+MVP 不需要 Web server。
+
 ## 📜 投资政策示例
 
 ```yaml
@@ -118,21 +157,25 @@ decision_requires:
 
 ## 🚀 MVP 范围
 
-第一个公开版本聚焦研究，不聚焦执行。
+第一个公开版本聚焦研究，不聚焦执行。它应该在没有券商账户、LLM key、TimesFM 权重、付费行情数据的情况下也有价值。
 
-计划中的 MVP：
+v0.1 核心范围：
 
 - Demo 模式，包含模拟组合、模拟新闻和样例报告。
 - 本地投资政策文件。
+- 终端原生 TUI 外壳。
 - 小型 ETF 和股票观察池。
 - Markdown 每日驾驶舱报告。
-- 来自免费或开放 provider 的市场数据。
-- 来自公开 API 的宏观数据。
+- 本地审计留痕。
+
+v0.1 之后的插件：
+
+- 来自免费或开放 provider 的市场和宏观数据。
 - 新闻和事件聚类。
 - SEC 财报分析。
 - TimesFM 预测区间，并与简单基准模型比较。
 - 带反方审查的 LLM 投资研究备忘录。
-- 本地审计留痕。
+- 只读券商连接器，用于组合导入和对账。
 
 MVP 不做：
 
@@ -152,11 +195,15 @@ Lychee AlphaDesk 当前处于设计和启动阶段。
 
 | 版本 | 目标 |
 | --- | --- |
-| v0.1 | Demo 数据、投资政策文件、本地存储、Markdown 每日报告。 |
-| v0.2 | 市场、宏观、新闻、财报 provider。 |
+| v0.1 | Demo 数据、投资政策文件、本地存储、Markdown 每日报告、最小 TUI 外壳。 |
+| v0.2 | 市场、宏观、新闻、财报 provider 和 provider 健康状态页面。 |
 | v0.3 | TimesFM 预测和 LLM 投委会。 |
-| v0.4 | 最小 Web dashboard 和只读 broker plugin。 |
+| v0.4 | 组合导入、对账和只读 broker plugin。 |
 | v1.0 | 稳定插件 API、文档、示例、测试和安全默认值。 |
+
+## 📚 开发规格
+
+第一期架构和实现范围见 [docs/DEVELOPMENT_SPEC.zh-CN.md](docs/DEVELOPMENT_SPEC.zh-CN.md)，英文版见 [docs/DEVELOPMENT_SPEC.md](docs/DEVELOPMENT_SPEC.md)。
 
 ## 🛡️ 安全与免责声明
 

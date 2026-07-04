@@ -9,13 +9,13 @@
 ![Not a Trading Bot](https://img.shields.io/badge/not%20a%20trading%20bot-human%20approved-f59e0b)
 ![License](https://img.shields.io/badge/license-TBD-lightgrey)
 
-Policy-first AI investment research workbench for long-term investors.
+Terminal-native, policy-first AI investment research workbench for long-term investors.
 
-Lychee AlphaDesk is an open-source investment research desk that combines market data, filings, news, macro signals, time-series forecasting, and LLM-based analysis into an evidence-first workflow.
+Lychee AlphaDesk is an open-source terminal investment desk that combines market data, filings, news, macro signals, time-series forecasting, and LLM-based analysis into an evidence-first workflow.
 
-It is not a trading bot. It does not provide financial advice. It is designed to help investors research, document, and review decisions before any manual action.
+It runs locally as a fast command-line and TUI application. It is not a trading bot. It does not provide financial advice. It is designed to help investors research, document, and review decisions before any manual action.
 
-> Research-first. Policy-first. Broker-agnostic. Human-approved.
+> Terminal-native. Research-first. Policy-first. Broker-agnostic. Human-approved.
 
 ## ✨ Why This Exists
 
@@ -38,8 +38,30 @@ The goal is to help long-term investors build discipline, not to encourage overt
 - **Evidence-first**: every conclusion should cite data, filings, news, or explicit inference.
 - **Broker-agnostic**: IBKR, Futu, Longbridge, Tiger, CSV imports, and paper brokers are optional plugins.
 - **Provider-agnostic**: market data, news, filings, macro data, LLMs, and forecasts use pluggable providers.
+- **Terminal-native**: the main product is a local CLI/TUI workspace, not a web dashboard.
 - **Human-approved**: live execution is out of scope for the MVP.
 - **No-action friendly**: the system should say "no action" when evidence is weak.
+
+## ⚡ Target Terminal Experience
+
+The primary interface is the terminal. These commands describe the v0.1 target experience:
+
+```bash
+lad demo
+lad report --demo
+lad
+```
+
+Planned TUI sections:
+
+- Today: daily conclusion, risk status, and no-action reasoning.
+- Portfolio: cash, mock positions, allocation drift, and policy violations.
+- News: clustered events with affected assets and source timestamps.
+- Forecasts: TimesFM or mock forecast intervals compared with baselines.
+- Memos: investment research memos and skeptic reviews.
+- Policy: investment policy rules and validation results.
+- Providers: data source health and plugin status.
+- Audit: saved reports, data snapshots, and decision logs.
 
 ## 🏗️ Planned Engine
 
@@ -90,6 +112,23 @@ Lychee AlphaDesk is designed around provider interfaces.
 
 The open-source MVP must run without a broker account or paid API key.
 
+## 🧱 Technical Stack
+
+| Layer | Choice |
+| --- | --- |
+| Language | Python 3.11+ |
+| Package manager | uv |
+| CLI | Typer |
+| Terminal UI | Textual + Rich |
+| Configuration | YAML + Pydantic v2 |
+| Local storage | SQLite + Parquet, DuckDB later |
+| Reports | Markdown + Jinja2 |
+| Testing | pytest |
+| Quality | ruff + mypy |
+| Documentation | MkDocs Material later |
+
+No web server is required for the MVP.
+
 ## 📜 Example Policy
 
 ```yaml
@@ -118,21 +157,25 @@ decision_requires:
 
 ## 🚀 MVP Scope
 
-The first public version should focus on research, not execution.
+The first public version should focus on research, not execution. It should be useful without a broker account, an LLM key, TimesFM weights, or paid market data.
 
-Planned MVP:
+v0.1 core:
 
 - Demo mode with mock portfolio, mock news, and sample reports.
 - Local investment policy file.
+- Terminal-native TUI shell.
 - Small watchlist of ETFs and example stocks.
 - Daily Markdown cockpit report.
-- Market data from free or open providers.
-- Macro data from public APIs.
+- Local audit trail.
+
+Post-v0.1 plugins:
+
+- Market and macro data from free or open providers.
 - News/event clustering.
 - SEC filing analysis.
 - TimesFM forecast intervals compared with simple baselines.
 - LLM-generated research memo with a skeptic review.
-- Local audit trail.
+- Read-only broker connectors for portfolio import and reconciliation.
 
 Out of scope for MVP:
 
@@ -152,11 +195,15 @@ The initial engine specification is being prepared before implementation. The fi
 
 | Version | Goal |
 | --- | --- |
-| v0.1 | Demo data, policy file, local storage, Markdown daily report. |
-| v0.2 | Market, macro, news, filing providers. |
+| v0.1 | Demo data, policy file, local storage, Markdown daily report, minimal TUI shell. |
+| v0.2 | Market, macro, news, filing providers and provider health screens. |
 | v0.3 | TimesFM forecasts and LLM investment committee. |
-| v0.4 | Minimal web dashboard and read-only broker plugins. |
+| v0.4 | Portfolio import, reconciliation, and read-only broker plugins. |
 | v1.0 | Stable plugin API, documentation, examples, tests, and safety defaults. |
+
+## 📚 Development Spec
+
+See [docs/DEVELOPMENT_SPEC.md](docs/DEVELOPMENT_SPEC.md) for the first-phase architecture and implementation scope. A Chinese version is available at [docs/DEVELOPMENT_SPEC.zh-CN.md](docs/DEVELOPMENT_SPEC.zh-CN.md).
 
 ## 🛡️ Safety And Disclaimer
 

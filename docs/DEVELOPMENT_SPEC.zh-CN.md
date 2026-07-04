@@ -121,7 +121,7 @@ lad
 - `lad` 打开 TUI。
 - `lad demo` 检查 demo 文件和本地输出目录。
 - `lad setup` 创建 `~/.config/lychee-alphadesk/config.yaml`，并打印 provider 注册指引。
-- `lad setup wizard` 运行交互式 provider key 配置流程；TTY 环境使用上下箭头选择 provider，非 TTY 环境使用文本 fallback。TTY 主菜单只显示展示名称和脱敏配置状态；进入 provider 后再显示注册链接和面向用户的配置说明。
+- `lad setup wizard` 运行交互式 provider key 配置流程；TTY 环境使用上下箭头选择 provider，非 TTY 环境使用文本 fallback。TTY 主菜单只显示展示名称和脱敏配置状态；进入 provider 后再显示注册链接和面向用户的配置说明。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。
 - `lad setup providers` 列出 provider 注册地址和需要配置的值。
 - `lad setup set` 把 provider key 或 token 写入本机配置文件。
 - `lychee` 是推荐的 console command；`lad` 保留为短别名。

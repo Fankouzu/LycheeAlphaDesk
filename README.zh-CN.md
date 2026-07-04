@@ -180,7 +180,7 @@ lychee setup providers
 lychee setup set alpha_vantage "YOUR_API_KEY"
 ```
 
-setup 命令会告诉用户去哪里注册、需要回填什么值、值会保存到哪里。在真实终端里，wizard 使用上下箭头菜单：用 ↑/↓ 选择 provider，回车查看详情，按 `q` 结束。主菜单只显示展示名称和脱敏后的配置状态；注册链接只会在进入某个 provider 后显示。
+setup 命令会告诉用户去哪里注册、需要回填什么值、值会保存到哪里。在真实终端里，wizard 使用上下箭头菜单：用 ↑/↓ 选择 provider，回车查看详情，按 `q` 结束。主菜单只显示展示名称和脱敏后的配置状态；注册链接只会在进入某个 provider 后显示。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。
 
 建议优先接入：
 

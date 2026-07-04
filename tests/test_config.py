@@ -130,12 +130,27 @@ def test_setup_wizard_can_store_selected_provider_value(monkeypatch, tmp_path: P
     result = runner.invoke(app, ["setup", "wizard"], input="y\nalpha_vantage\ndemo-key\nn\n")
 
     assert result.exit_code == 0
+    assert "✅ Value received" in result.stdout
+    assert "❌ No value entered" not in result.stdout
     assert "Saved Alpha Vantage" in result.stdout
     assert "Required value" not in result.stdout
     assert "alpha_vantage" not in result.stdout
     assert "api_key" not in result.stdout
     config = load_config(config_file_path())
     assert config.providers["alpha_vantage"].value == "demo-key"
+
+
+def test_setup_wizard_reports_empty_provider_value(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = runner.invoke(app, ["setup", "wizard"], input="y\nalpha_vantage\n\nn\n")
+
+    assert result.exit_code == 0
+    assert "❌ No value entered" in result.stdout
+    assert "✅ Value received" not in result.stdout
+    assert "Skipped Alpha Vantage" in result.stdout
+    config = load_config(config_file_path())
+    assert config.providers["alpha_vantage"].value is None
 
 
 def test_arrow_menu_selection_wraps_between_providers() -> None:

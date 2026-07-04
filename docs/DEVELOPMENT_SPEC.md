@@ -121,7 +121,7 @@ Command behavior:
 - `lad` opens the TUI.
 - `lad demo` verifies that demo files and local output directories exist.
 - `lad setup` creates `~/.config/lychee-alphadesk/config.yaml` and prints provider registration guidance.
-- `lad setup wizard` runs an interactive provider-key setup flow with arrow-key provider selection in TTY environments and text fallback in non-TTY environments. The TTY main menu shows display names and masked setup status only; provider details show registration links and user-facing setup guidance after selection.
+- `lad setup wizard` runs an interactive provider-key setup flow with arrow-key provider selection in TTY environments and text fallback in non-TTY environments. The TTY main menu shows display names and masked setup status only; provider details show registration links and user-facing setup guidance after selection. Hidden key entry confirms whether input was received with `✅` or `❌`.
 - `lad setup providers` lists provider registration links and required setup values.
 - `lad setup set` stores provider keys or tokens in the local config file.
 - `lychee` is the recommended console command; `lad` remains a short alias.

@@ -246,8 +246,10 @@ def setup_wizard() -> None:
         _print_provider_detail(provider)
         value = _prompt_secret(_provider_value_prompt(provider))
         if not value.strip():
+            _print_value_capture_result(received=False)
             console.print(f"Skipped {provider.name}")
         else:
+            _print_value_capture_result(received=True)
             path = set_provider_value(provider.provider_id, value.strip())
             config = load_config(path)
             providers = _providers_requiring_values(config)
@@ -365,6 +367,13 @@ def _provider_value_prompt(provider: ProviderSetupInfo) -> str:
     if provider.config_field == "user_agent":
         return f"Paste {provider.name} configuration value"
     return f"Paste {provider.name} configuration value"
+
+
+def _print_value_capture_result(*, received: bool) -> None:
+    if received:
+        console.print("[green]✅ Value received[/green]")
+        return
+    console.print("[red]❌ No value entered[/red]")
 
 
 def _provider_config_status(provider: ProviderSetupInfo) -> str:

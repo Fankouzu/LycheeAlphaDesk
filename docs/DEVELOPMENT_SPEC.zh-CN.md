@@ -103,8 +103,11 @@ v0.1 必须支持：
 ```bash
 lad demo
 lad setup
+lad setup wizard
 lad setup providers
 lad setup set alpha_vantage YOUR_API_KEY
+lychee setup
+lychee setup wizard
 lad data health --demo
 lad data snapshot --demo
 lad report --demo
@@ -118,8 +121,10 @@ lad
 - `lad` 打开 TUI。
 - `lad demo` 检查 demo 文件和本地输出目录。
 - `lad setup` 创建 `~/.config/lychee-alphadesk/config.yaml`，并打印 provider 注册指引。
+- `lad setup wizard` 运行交互式 provider key 配置流程。
 - `lad setup providers` 列出 provider 注册地址和需要配置的值。
 - `lad setup set` 把 provider key、token 或 User-Agent 写入本机配置文件。
+- `lychee` 是推荐的 console command；`lad` 保留为短别名。
 - `lad data health --demo` 打印 provider 级数据质量检查。
 - `lad data snapshot --demo` 写入统一 JSON 快照，包含市场、新闻、公告和预测数据。
 - `lad report --demo` 使用内置 demo provider 生成 Markdown 日报。

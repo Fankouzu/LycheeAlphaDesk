@@ -1,3 +1,4 @@
+import tomllib
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -10,6 +11,12 @@ from lychee_alphadesk.core.config import (
 )
 
 runner = CliRunner()
+
+
+def test_pyproject_exposes_lychee_console_script() -> None:
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+    assert pyproject["project"]["scripts"]["lychee"] == "lychee_alphadesk.cli.app:main"
 
 
 def test_config_file_path_uses_xdg_config_home(monkeypatch) -> None:
@@ -38,9 +45,10 @@ def test_setup_command_shows_config_path_and_provider_urls(monkeypatch, tmp_path
 
     assert result.exit_code == 0
     assert str(tmp_path / "lychee-alphadesk" / "config.yaml") in result.stdout
-    assert "lad setup providers" in result.stdout
+    assert "lychee setup providers" in result.stdout
     assert "Alpha Vantage" in result.stdout
     assert "https://www.alphavantage.co/support/#api-key" in result.stdout
+    assert "Run `lychee setup wizard` for the interactive setup flow." in result.stdout
 
 
 def test_setup_set_writes_provider_secret(monkeypatch, tmp_path: Path) -> None:
@@ -61,3 +69,25 @@ def test_setup_set_rejects_unknown_provider(monkeypatch, tmp_path: Path) -> None
 
     assert result.exit_code == 1
     assert "Unknown provider" in result.stdout
+
+
+def test_setup_wizard_can_skip_all_providers(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = runner.invoke(app, ["setup", "wizard"], input="n\n")
+
+    assert result.exit_code == 0
+    assert "Lychee AlphaDesk Setup Wizard" in result.stdout
+    assert "Skipped provider key configuration" in result.stdout
+    assert (tmp_path / "lychee-alphadesk" / "config.yaml").exists()
+
+
+def test_setup_wizard_can_store_selected_provider_value(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = runner.invoke(app, ["setup", "wizard"], input="y\nalpha_vantage\ndemo-key\nn\n")
+
+    assert result.exit_code == 0
+    assert "Saved alpha_vantage" in result.stdout
+    config = load_config(config_file_path())
+    assert config.providers["alpha_vantage"].value == "demo-key"

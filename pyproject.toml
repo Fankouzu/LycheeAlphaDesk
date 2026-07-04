@@ -18,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 lad = "lychee_alphadesk.cli.app:main"
+lychee = "lychee_alphadesk.cli.app:main"
 
 [dependency-groups]
 dev = [

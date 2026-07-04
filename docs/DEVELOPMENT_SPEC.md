@@ -103,8 +103,11 @@ Required v0.1 commands:
 ```bash
 lad demo
 lad setup
+lad setup wizard
 lad setup providers
 lad setup set alpha_vantage YOUR_API_KEY
+lychee setup
+lychee setup wizard
 lad data health --demo
 lad data snapshot --demo
 lad report --demo
@@ -118,8 +121,10 @@ Command behavior:
 - `lad` opens the TUI.
 - `lad demo` verifies that demo files and local output directories exist.
 - `lad setup` creates `~/.config/lychee-alphadesk/config.yaml` and prints provider registration guidance.
+- `lad setup wizard` runs an interactive provider-key setup flow.
 - `lad setup providers` lists provider registration links and required setup values.
 - `lad setup set` stores provider keys, tokens, or User-Agent values in the local config file.
+- `lychee` is the recommended console command; `lad` remains a short alias.
 - `lad data health --demo` prints provider-level quality checks.
 - `lad data snapshot --demo` writes a unified JSON snapshot with market, news, filing, and forecast data.
 - `lad report --demo` generates a Markdown daily report from bundled demo providers.

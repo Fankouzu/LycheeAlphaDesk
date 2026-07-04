@@ -1,13 +1,16 @@
+import sys
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from rich.console import Console
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from lychee_alphadesk.core.audit import init_audit_db, list_audit_records
 from lychee_alphadesk.core.config import (
     AlphaDeskConfig,
+    ProviderSetupInfo,
     ensure_config_file,
     load_config,
     set_provider_value,
@@ -192,8 +195,9 @@ def setup(ctx: typer.Context) -> None:
     path = ensure_config_file()
     config = load_config(path)
     console.print(f"Config file: {path}", soft_wrap=True)
-    console.print("Use `lad setup providers` to list registration links.")
-    console.print("Use `lad setup set <provider_id> <value>` after getting a key.")
+    console.print("Run `lychee setup wizard` for the interactive setup flow.")
+    console.print("Use `lychee setup providers` to list registration links.")
+    console.print("Use `lychee setup set <provider_id> <value>` after getting a key.")
     _print_provider_setup_table(config)
 
 
@@ -218,6 +222,50 @@ def setup_set(provider_id: str, value: str) -> None:
         raise typer.Exit(code=1) from error
 
     console.print(f"Saved {provider_id} in {path}", soft_wrap=True)
+
+
+@setup_app.command("wizard")
+def setup_wizard() -> None:
+    """Run an interactive provider-key setup wizard."""
+    path = ensure_config_file()
+    config = load_config(path)
+    console.print("Lychee AlphaDesk Setup Wizard")
+    console.print(f"Config file: {path}", soft_wrap=True)
+    console.print("You can skip any provider and configure it later.")
+
+    if not Confirm.ask("Configure provider keys now?", default=True):
+        console.print("Skipped provider key configuration")
+        return
+
+    providers = _providers_requiring_values(config)
+    while True:
+        _print_wizard_menu(providers)
+        selected = Prompt.ask("Choose provider number or ID, or q to finish", default="q")
+        if selected.lower() in {"q", "quit", "done", "finish"}:
+            break
+
+        provider = _resolve_provider_choice(selected, providers)
+        if provider is None:
+            console.print(f"Unknown provider choice: {selected}")
+            continue
+
+        console.print(f"Provider: {provider.provider_id} | {provider.name}")
+        console.print(f"Registration: {provider.registration}")
+        console.print(f"Register here: {provider.registration_url}", soft_wrap=True)
+        console.print(f"Required value: {provider.config_field}")
+        value = _prompt_secret(f"Paste value for {provider.provider_id}")
+        if not value.strip():
+            console.print(f"Skipped {provider.provider_id}")
+        else:
+            path = set_provider_value(provider.provider_id, value.strip())
+            config = load_config(path)
+            providers = _providers_requiring_values(config)
+            console.print(f"Saved {provider.provider_id} in {path}", soft_wrap=True)
+
+        if not Confirm.ask("Configure another provider?", default=True):
+            break
+
+    console.print("Setup wizard complete")
 
 
 def _print_provider_setup_table(config: AlphaDeskConfig) -> None:
@@ -248,6 +296,54 @@ def _print_provider_setup_table(config: AlphaDeskConfig) -> None:
             provider.registration_url,
         )
     console.print(table)
+
+
+def _providers_requiring_values(config: AlphaDeskConfig) -> list[ProviderSetupInfo]:
+    return [
+        provider
+        for provider in sorted(
+            config.providers.values(), key=lambda item: (item.priority, item.provider_id)
+        )
+        if provider.requires_value
+    ]
+
+
+def _print_wizard_menu(providers: list[ProviderSetupInfo]) -> None:
+    table = Table(title="Provider Key Menu")
+    table.add_column("#")
+    table.add_column("Provider ID")
+    table.add_column("Name")
+    table.add_column("Required")
+    table.add_column("Status")
+    table.add_column("Registration URL")
+    for index, provider in enumerate(providers, start=1):
+        status = "configured" if provider.value else "missing"
+        table.add_row(
+            str(index),
+            provider.provider_id,
+            provider.name,
+            provider.config_field,
+            status,
+            provider.registration_url,
+        )
+    console.print(table)
+
+
+def _resolve_provider_choice(
+    selected: str, providers: list[ProviderSetupInfo]
+) -> ProviderSetupInfo | None:
+    if selected.isdigit():
+        index = int(selected)
+        if 1 <= index <= len(providers):
+            return providers[index - 1]
+    for provider in providers:
+        if provider.provider_id == selected:
+            return provider
+    return None
+
+
+def _prompt_secret(prompt: str) -> str:
+    return Prompt.ask(prompt, password=sys.stdin.isatty())
 
 
 app.add_typer(policy_app, name="policy")

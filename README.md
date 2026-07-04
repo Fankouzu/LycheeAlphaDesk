@@ -23,16 +23,25 @@ It runs locally as a fast command-line and TUI application. It is not a trading 
 ```bash
 git clone https://github.com/Fankouzu/LycheeAlphaDesk.git
 cd LycheeAlphaDesk
-uv sync --all-groups --no-editable
-uv run --no-editable lad demo
-uv run --no-editable lad data health --demo
-uv run --no-editable lad data snapshot --demo
-uv run --no-editable lad policy check examples/demo/policy.yaml
-uv run --no-editable lad report --demo
-uv run --no-editable lad audit list
+uv tool install .
+lychee setup
+lychee data health --demo
+lychee data snapshot --demo
+lychee policy check examples/demo/policy.yaml
+lychee report --demo
+lychee audit list
 ```
 
 The generated data snapshot is written to `.alphadesk/data-snapshot-demo.json`. The generated demo report is written to `.alphadesk/daily-report-demo.md`.
+
+For local development without installing the tool globally:
+
+```bash
+uv sync --all-groups --no-editable
+uv run --no-editable lychee data health --demo
+```
+
+`lad` remains available as a short alias, but `lychee` is the recommended command.
 
 ## ✨ Why This Exists
 
@@ -64,9 +73,9 @@ The goal is to help long-term investors build discipline, not to encourage overt
 The primary interface is the terminal. These commands describe the v0.1 target experience:
 
 ```bash
-lad demo
-lad report --demo
-lad
+lychee demo
+lychee report --demo
+lychee
 ```
 
 Planned TUI sections:
@@ -159,13 +168,14 @@ Lychee AlphaDesk is a command-line tool, so provider keys should be configured t
 Use `lad setup` to create the config file and see provider registration links:
 
 ```bash
-uv run --no-editable lad setup
-uv run --no-editable lad setup providers
-uv run --no-editable lad setup set alpha_vantage "YOUR_API_KEY"
-uv run --no-editable lad setup set sec_edgar "LycheeAlphaDesk/0.1 your-email@example.com"
+lychee setup
+lychee setup wizard
+lychee setup providers
+lychee setup set alpha_vantage "YOUR_API_KEY"
+lychee setup set sec_edgar "LycheeAlphaDesk/0.1 your-email@example.com"
 ```
 
-The setup command prints where to register, what value is required, and where the value is stored. Providers that do not require keys can be skipped.
+The setup command prints where to register, what value is required, and where the value is stored. The wizard walks through provider selection, registration links, key entry, and skip decisions. Providers that do not require keys can be skipped.
 
 Recommended first integrations:
 

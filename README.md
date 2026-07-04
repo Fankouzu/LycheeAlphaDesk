@@ -175,7 +175,7 @@ lychee setup set alpha_vantage "YOUR_API_KEY"
 lychee setup set sec_edgar "LycheeAlphaDesk/0.1 your-email@example.com"
 ```
 
-The setup command prints where to register, what value is required, and where the value is stored. The wizard walks through provider selection, registration links, key entry, and skip decisions. Providers that do not require keys can be skipped.
+The setup command prints where to register, what value is required, and where the value is stored. In a real terminal, the wizard uses an arrow-key menu: use ↑/↓ to choose a provider, Enter to select, and `q` to finish. Providers that do not require keys can be skipped.
 
 Recommended first integrations:
 

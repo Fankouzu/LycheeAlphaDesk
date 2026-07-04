@@ -175,7 +175,7 @@ lychee setup set alpha_vantage "YOUR_API_KEY"
 lychee setup set sec_edgar "LycheeAlphaDesk/0.1 your-email@example.com"
 ```
 
-setup 命令会告诉用户去哪里注册、需要回填什么值、值会保存到哪里。wizard 会引导用户选择 provider、打开注册链接、填写 key，并允许跳过。不需要 key 的 provider 可以跳过。
+setup 命令会告诉用户去哪里注册、需要回填什么值、值会保存到哪里。在真实终端里，wizard 使用上下箭头菜单：用 ↑/↓ 选择 provider，回车确认，按 `q` 结束。不需要 key 的 provider 可以跳过。
 
 建议优先接入：
 

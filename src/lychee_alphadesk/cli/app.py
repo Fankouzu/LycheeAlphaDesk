@@ -239,15 +239,9 @@ def setup_wizard() -> None:
 
     providers = _providers_requiring_values(config)
     while True:
-        _print_wizard_menu(providers)
-        selected = Prompt.ask("Choose provider number or ID, or q to finish", default="q")
-        if selected.lower() in {"q", "quit", "done", "finish"}:
-            break
-
-        provider = _resolve_provider_choice(selected, providers)
+        provider = _choose_provider_from_menu(providers)
         if provider is None:
-            console.print(f"Unknown provider choice: {selected}")
-            continue
+            break
 
         console.print(f"Provider: {provider.provider_id} | {provider.name}")
         console.print(f"Registration: {provider.registration}")
@@ -298,6 +292,86 @@ def _print_provider_setup_table(config: AlphaDeskConfig) -> None:
     console.print(table)
 
 
+def _choose_provider_from_menu(providers: list[ProviderSetupInfo]) -> ProviderSetupInfo | None:
+    if not providers:
+        console.print("No providers require setup")
+        return None
+
+    if sys.stdin.isatty() and sys.stdout.isatty() and _raw_tty_available():
+        return _choose_provider_with_arrow_keys(providers)
+
+    _print_wizard_menu(providers)
+    selected = Prompt.ask("Choose provider number or ID, or q to finish", default="q")
+    if selected.lower() in {"q", "quit", "done", "finish"}:
+        return None
+    provider = _resolve_provider_choice(selected, providers)
+    if provider is None:
+        console.print(f"Unknown provider choice: {selected}")
+    return provider
+
+
+def _choose_provider_with_arrow_keys(
+    providers: list[ProviderSetupInfo],
+) -> ProviderSetupInfo | None:
+    selected_index = 0
+    while True:
+        _render_arrow_menu(providers, selected_index)
+        key = _read_key()
+        if key in {"q", "Q", "\x03"}:
+            console.print("Provider selection cancelled")
+            return None
+        if key in {"\r", "\n"}:
+            return providers[selected_index]
+        if key == "up":
+            selected_index = _move_menu_selection(selected_index, "up", len(providers))
+        elif key == "down":
+            selected_index = _move_menu_selection(selected_index, "down", len(providers))
+
+
+def _render_arrow_menu(providers: list[ProviderSetupInfo], selected_index: int) -> None:
+    console.clear()
+    console.print("Provider Key Menu")
+    console.print("Use ↑/↓ to move, Enter to select, q to finish.")
+    for index, provider in enumerate(providers):
+        marker = ">" if index == selected_index else " "
+        status = "configured" if provider.value else "missing"
+        console.print(
+            f"{marker} {provider.provider_id:<15} {provider.name:<24} "
+            f"{provider.config_field:<10} {status:<10} {provider.registration_url}",
+            soft_wrap=True,
+        )
+
+
+def _raw_tty_available() -> bool:
+    try:
+        import termios  # noqa: F401
+        import tty  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _read_key() -> str:
+    import termios
+    import tty
+
+    file_descriptor = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(file_descriptor)
+    try:
+        tty.setraw(file_descriptor)
+        first = sys.stdin.read(1)
+        if first == "\x1b":
+            second = sys.stdin.read(1)
+            third = sys.stdin.read(1)
+            if second == "[" and third == "A":
+                return "up"
+            if second == "[" and third == "B":
+                return "down"
+        return first
+    finally:
+        termios.tcsetattr(file_descriptor, termios.TCSADRAIN, old_settings)
+
+
 def _providers_requiring_values(config: AlphaDeskConfig) -> list[ProviderSetupInfo]:
     return [
         provider
@@ -340,6 +414,16 @@ def _resolve_provider_choice(
         if provider.provider_id == selected:
             return provider
     return None
+
+
+def _move_menu_selection(current_index: int, direction: str, total: int) -> int:
+    if total <= 0:
+        return 0
+    if direction == "up":
+        return (current_index - 1) % total
+    if direction == "down":
+        return (current_index + 1) % total
+    return current_index
 
 
 def _prompt_secret(prompt: str) -> str:

@@ -3,9 +3,16 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from lychee_alphadesk.cli.app import app
+from lychee_alphadesk.cli.app import (
+    _choose_provider_from_menu,
+    _move_menu_selection,
+    _providers_requiring_values,
+    _resolve_provider_choice,
+    app,
+)
 from lychee_alphadesk.core.config import (
     config_file_path,
+    default_config,
     ensure_config_file,
     load_config,
 )
@@ -91,3 +98,25 @@ def test_setup_wizard_can_store_selected_provider_value(monkeypatch, tmp_path: P
     assert "Saved alpha_vantage" in result.stdout
     config = load_config(config_file_path())
     assert config.providers["alpha_vantage"].value == "demo-key"
+
+
+def test_arrow_menu_selection_wraps_between_providers() -> None:
+    providers = _providers_requiring_values(default_config())
+
+    assert _move_menu_selection(0, "up", len(providers)) == len(providers) - 1
+    assert _move_menu_selection(len(providers) - 1, "down", len(providers)) == 0
+    assert _move_menu_selection(1, "up", len(providers)) == 0
+    assert _move_menu_selection(1, "down", len(providers)) == 2
+    assert _move_menu_selection(0, "down", 0) == 0
+
+
+def test_provider_menu_handles_empty_provider_list() -> None:
+    assert _choose_provider_from_menu([]) is None
+
+
+def test_provider_choice_fallback_still_accepts_number_and_id() -> None:
+    providers = _providers_requiring_values(default_config())
+
+    assert _resolve_provider_choice("2", providers) == providers[1]
+    assert _resolve_provider_choice("alpha_vantage", providers).provider_id == "alpha_vantage"
+    assert _resolve_provider_choice("not-real", providers) is None

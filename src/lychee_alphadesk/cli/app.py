@@ -1,4 +1,7 @@
+import json
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Annotated
 
@@ -275,10 +278,17 @@ def setup_llm(ctx: typer.Context) -> None:
 
 
 @llm_setup_app.command("set")
-def setup_llm_set(base_url: str, api_key: str) -> None:
+def setup_llm_set(
+    base_url: str,
+    api_key: str,
+    model: Annotated[
+        str | None,
+        typer.Argument(help="Optional model name, such as gpt-4.1-mini."),
+    ] = None,
+) -> None:
     """Save an OpenAI-compatible LLM endpoint in the config file."""
     try:
-        path = set_openai_compatible_llm(base_url, api_key)
+        path = set_openai_compatible_llm(base_url, api_key, model)
     except ValueError as error:
         console.print(str(error))
         raise typer.Exit(code=1) from error
@@ -308,8 +318,13 @@ def setup_llm_wizard() -> None:
         return
     _print_value_capture_result(received=True)
 
+    model = _choose_openai_compatible_model(base_url, api_key.strip())
+    if not model:
+        _print_value_capture_result(received=False)
+        return
+
     try:
-        saved_path = set_openai_compatible_llm(base_url, api_key.strip())
+        saved_path = set_openai_compatible_llm(base_url, api_key.strip(), model)
     except ValueError as error:
         console.print(str(error))
         raise typer.Exit(code=1) from error
@@ -352,8 +367,112 @@ def _print_llm_setup_status(config: AlphaDeskConfig) -> None:
     console.print(provider.name)
     console.print(f"Base URL: {_plain_config_status(provider.base_url)}", soft_wrap=True)
     console.print(f"API key: {_secret_config_status(provider.api_key)}")
+    console.print(f"Model: {_plain_config_status(provider.model)}", soft_wrap=True)
     console.print("Run `lychee setup llm wizard` for interactive LLM setup.")
-    console.print("Use `lychee setup llm set <base_url> <api_key>` to set values directly.")
+    console.print(
+        "Use `lychee setup llm set <base_url> <api_key> MODEL_NAME` to set values directly."
+    )
+    console.print(
+        "MODEL_NAME is optional, but recommended when you already know the model ID."
+    )
+
+
+def _choose_openai_compatible_model(base_url: str, api_key: str) -> str:
+    models = _fetch_openai_compatible_models(base_url, api_key)
+    if not models:
+        console.print("Could not read models from /v1/models. Enter a model name manually.")
+        return Prompt.ask("Model name").strip()
+
+    if sys.stdin.isatty() and sys.stdout.isatty() and _raw_tty_available():
+        selected_model = _choose_model_with_arrow_keys(models)
+    else:
+        selected_model = _choose_model_with_prompt(models)
+    console.print(f"Selected model: {selected_model}")
+    return selected_model
+
+
+def _fetch_openai_compatible_models(base_url: str, api_key: str) -> list[str]:
+    endpoint = f"{base_url.rstrip('/')}/models"
+    request = urllib.request.Request(
+        endpoint,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        return []
+    return _parse_openai_compatible_models(payload)
+
+
+def _parse_openai_compatible_models(payload: object) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return []
+
+    models: list[str] = []
+    seen: set[str] = set()
+    for item in data:
+        model_id: str | None = None
+        if isinstance(item, dict):
+            value = item.get("id")
+            if isinstance(value, str):
+                model_id = value.strip()
+        elif isinstance(item, str):
+            model_id = item.strip()
+
+        if model_id and model_id not in seen:
+            models.append(model_id)
+            seen.add(model_id)
+    return models
+
+
+def _choose_model_with_prompt(models: list[str]) -> str:
+    table = Table(title="Available models")
+    table.add_column("#")
+    table.add_column("Model")
+    for index, model in enumerate(models, start=1):
+        table.add_row(str(index), model)
+    console.print(table)
+
+    selected = Prompt.ask("Choose model number, or type a model name", default="1")
+    return _resolve_model_choice(selected, models)
+
+
+def _choose_model_with_arrow_keys(models: list[str]) -> str:
+    selected_index = 0
+    while True:
+        _render_model_arrow_menu(models, selected_index)
+        key = _read_key()
+        if key in {"\r", "\n"}:
+            return models[selected_index]
+        if key == "up":
+            selected_index = _move_menu_selection(selected_index, "up", len(models))
+        elif key == "down":
+            selected_index = _move_menu_selection(selected_index, "down", len(models))
+
+
+def _render_model_arrow_menu(models: list[str], selected_index: int) -> None:
+    console.clear()
+    console.print("Available models")
+    console.print("Use ↑/↓ to move, Enter to select.")
+    for index, model in enumerate(models):
+        marker = ">" if index == selected_index else " "
+        console.print(f"{marker} {model}")
+
+
+def _resolve_model_choice(selected: str, models: list[str]) -> str:
+    normalized = selected.strip()
+    if normalized.isdigit():
+        index = int(normalized)
+        if 1 <= index <= len(models):
+            return models[index - 1]
+    return normalized
 
 
 def _plain_config_status(value: str | None) -> str:

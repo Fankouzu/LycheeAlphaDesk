@@ -180,12 +180,12 @@ lychee setup providers
 lychee setup set alpha_vantage "YOUR_API_KEY"
 lychee setup llm
 lychee setup llm wizard
-lychee setup llm set "https://api.example.com/v1" "YOUR_API_KEY"
+lychee setup llm set "https://api.example.com/v1" "YOUR_API_KEY" "MODEL_NAME"
 ```
 
 setup 命令只显示配置文件路径和下一步命令。使用 `lychee setup providers` 查看 provider 注册地址和需要回填的值。在真实终端里，wizard 使用上下箭头菜单：用 ↑/↓ 选择 provider，回车查看详情，按 `q` 结束。主菜单只显示展示名称和脱敏后的配置状态；注册链接只会在进入某个 provider 后显示。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。
 
-LLM provider 与市场数据 provider 分开配置。第一版 LLM setup 只支持一个自定义 OpenAI-compatible endpoint，填写 `base_url` 和 API key 后写入 `~/.config/lychee-alphadesk/config.yaml`。状态输出会脱敏 API key。
+LLM provider 与市场数据 provider 分开配置。第一版 LLM setup 只支持一个自定义 OpenAI-compatible endpoint，填写 `base_url`、API key 和模型名后写入 `~/.config/lychee-alphadesk/config.yaml`。wizard 会尝试读取 `{base_url}/models` 并让用户选择模型；如果接口不可用，就提示用户手动输入模型名。状态输出会脱敏 API key。
 
 建议优先接入：
 

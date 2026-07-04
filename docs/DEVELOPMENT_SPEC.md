@@ -108,7 +108,7 @@ lad setup providers
 lad setup set alpha_vantage YOUR_API_KEY
 lad setup llm
 lad setup llm wizard
-lad setup llm set https://api.example.com/v1 YOUR_API_KEY
+lad setup llm set https://api.example.com/v1 YOUR_API_KEY MODEL_NAME
 lychee setup
 lychee setup wizard
 lychee setup llm
@@ -129,8 +129,8 @@ Command behavior:
 - `lad setup providers` lists provider registration links and required setup values.
 - `lad setup set` stores provider keys or tokens in the local config file.
 - `lad setup llm` shows LLM provider status separately from market-data providers.
-- `lad setup llm wizard` stores a custom OpenAI-compatible `base_url` and API key with hidden key entry and `✅` / `❌` feedback.
-- `lad setup llm set` stores the same OpenAI-compatible LLM values non-interactively.
+- `lad setup llm wizard` stores a custom OpenAI-compatible `base_url`, API key, and model name with hidden key entry and `✅` / `❌` feedback. It first reads `{base_url}/models`; if the endpoint is unavailable or returns no usable model IDs, it prompts for a manual model name.
+- `lad setup llm set` stores the same OpenAI-compatible LLM values non-interactively, with the model name accepted as an optional third value.
 - `lychee` is the recommended console command; `lad` remains a short alias.
 - `lad data health --demo` prints provider-level quality checks.
 - `lad data snapshot --demo` writes a unified JSON snapshot with market, news, filing, and forecast data.

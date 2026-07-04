@@ -29,6 +29,7 @@ class OpenAICompatibleLLMConfig(BaseModel):
     name: str = "OpenAI-compatible custom endpoint"
     base_url: str | None = None
     api_key: str | None = None
+    model: str | None = None
 
 
 class LLMSettings(BaseModel):
@@ -245,9 +246,15 @@ def set_provider_value(provider_id: str, value: str, path: Path | None = None) -
     return save_config(config, target)
 
 
-def set_openai_compatible_llm(base_url: str, api_key: str, path: Path | None = None) -> Path:
+def set_openai_compatible_llm(
+    base_url: str,
+    api_key: str,
+    model: str | None = None,
+    path: Path | None = None,
+) -> Path:
     cleaned_base_url = base_url.strip()
     cleaned_api_key = api_key.strip()
+    cleaned_model = model.strip() if model else None
     if not cleaned_base_url:
         raise ValueError("Base URL is required")
     if not cleaned_base_url.startswith(("http://", "https://")):
@@ -259,4 +266,5 @@ def set_openai_compatible_llm(base_url: str, api_key: str, path: Path | None = N
     config = load_config(target)
     config.llm.openai_compatible.base_url = cleaned_base_url
     config.llm.openai_compatible.api_key = cleaned_api_key
+    config.llm.openai_compatible.model = cleaned_model
     return save_config(config, target)

@@ -108,7 +108,7 @@ lad setup providers
 lad setup set alpha_vantage YOUR_API_KEY
 lad setup llm
 lad setup llm wizard
-lad setup llm set https://api.example.com/v1 YOUR_API_KEY
+lad setup llm set https://api.example.com/v1 YOUR_API_KEY MODEL_NAME
 lychee setup
 lychee setup wizard
 lychee setup llm
@@ -129,8 +129,8 @@ lad
 - `lad setup providers` 列出 provider 注册地址和需要配置的值。
 - `lad setup set` 把 provider key 或 token 写入本机配置文件。
 - `lad setup llm` 单独显示 LLM provider 配置状态，不和市场数据 provider 混在一起。
-- `lad setup llm wizard` 写入自定义 OpenAI-compatible `base_url` 和 API key，API key 使用隐藏输入并用 `✅` / `❌` 反馈是否收到内容。
-- `lad setup llm set` 以非交互方式写入同样的 OpenAI-compatible LLM 配置。
+- `lad setup llm wizard` 写入自定义 OpenAI-compatible `base_url`、API key 和模型名，API key 使用隐藏输入并用 `✅` / `❌` 反馈是否收到内容。它会先读取 `{base_url}/models`；如果接口不可用或没有返回可用模型 ID，就提示用户手动输入模型名。
+- `lad setup llm set` 以非交互方式写入同样的 OpenAI-compatible LLM 配置，模型名作为可选的第三个值传入。
 - `lychee` 是推荐的 console command；`lad` 保留为短别名。
 - `lad data health --demo` 打印 provider 级数据质量检查。
 - `lad data snapshot --demo` 写入统一 JSON 快照，包含市场、新闻、公告和预测数据。

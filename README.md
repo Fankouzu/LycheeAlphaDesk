@@ -180,12 +180,12 @@ lychee setup providers
 lychee setup set alpha_vantage "YOUR_API_KEY"
 lychee setup llm
 lychee setup llm wizard
-lychee setup llm set "https://api.example.com/v1" "YOUR_API_KEY"
+lychee setup llm set "https://api.example.com/v1" "YOUR_API_KEY" "MODEL_NAME"
 ```
 
 The setup command prints the config path and next-step commands. Use `lychee setup providers` to list registration links and required values. In a real terminal, the wizard uses an arrow-key menu: use ↑/↓ to choose a provider, Enter to view provider details, and `q` to finish. The main menu only shows display names and masked configuration status; registration links appear only after opening a provider. Hidden key entry confirms whether a value was received with `✅` or `❌`.
 
-LLM providers are configured separately from market-data providers. The initial LLM setup supports one custom OpenAI-compatible endpoint with a `base_url` and API key stored in `~/.config/lychee-alphadesk/config.yaml`. API keys are masked in status output.
+LLM providers are configured separately from market-data providers. The initial LLM setup supports one custom OpenAI-compatible endpoint with a `base_url`, API key, and model name stored in `~/.config/lychee-alphadesk/config.yaml`. The wizard tries to read `{base_url}/models` from OpenAI-compatible APIs and lets the user select a model when available; if the endpoint is unavailable, it prompts for a manual model name. API keys are masked in status output.
 
 Recommended first integrations:
 

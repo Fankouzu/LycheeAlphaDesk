@@ -34,6 +34,12 @@ lychee audit list
 
 The generated data snapshot is written to `.alphadesk/data-snapshot-demo.json`. The generated demo report is written to `.alphadesk/daily-report-demo.md`.
 
+After pulling updates from the repository, refresh the installed CLI package with:
+
+```bash
+uv tool install . --force --reinstall-package lychee-alphadesk
+```
+
 For local development without installing the tool globally:
 
 ```bash

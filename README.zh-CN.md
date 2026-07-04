@@ -34,6 +34,12 @@ lychee audit list
 
 生成的数据快照会写入 `.alphadesk/data-snapshot-demo.json`。生成的 demo 报告会写入 `.alphadesk/daily-report-demo.md`。
 
+如果已经安装过工具，`git pull` 更新仓库后请刷新本地 CLI 包：
+
+```bash
+uv tool install . --force --reinstall-package lychee-alphadesk
+```
+
 如果只是本地开发，不想全局安装：
 
 ```bash

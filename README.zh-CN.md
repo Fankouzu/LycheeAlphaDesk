@@ -207,7 +207,7 @@ lychee
 - 新闻：Marketaux、Finnhub 或 NewsAPI，可用 `--provider` 指定；`auto` 会使用第一个已配置 provider。
 - 公告：SEC EDGAR 美股近期 filings。
 
-live TUI dashboard 会读取本地 cache，并展示数量、provider 和最新缓存价格。它不会下单，也不会输出投资建议。
+live TUI dashboard 会读取本地 cache，并展示数量、provider 和最新缓存价格。`lychee` 主界面也包含键盘可选 Action 菜单，覆盖和 CLI 一致的核心流程：拉取行情、拉取新闻、拉取 SEC filings、检查健康状态、写入 snapshot、刷新 dashboard。主界面禁用 Textual 内置 command palette，请使用可见 Action 菜单。它不会下单，也不会输出投资建议。
 
 建议优先接入：
 

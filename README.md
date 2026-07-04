@@ -207,7 +207,7 @@ Current live providers:
 - News: Marketaux, Finnhub, or NewsAPI, selected with `--provider`; `auto` uses the first configured provider.
 - Filings: SEC EDGAR recent filings for US-listed symbols.
 
-The live TUI dashboard reads the local cache and shows counts, providers, and latest cached prices. It does not place trades and does not produce investment advice.
+The live TUI dashboard reads the local cache and shows counts, providers, and latest cached prices. The `lychee` home screen also includes a keyboard action menu for the same core workflows as the CLI: pull market prices, pull news, pull SEC filings, check health, write a snapshot, and refresh the dashboard. The Textual built-in command palette is disabled in the home screen; use the visible action menu instead. It does not place trades and does not produce investment advice.
 
 Recommended first integrations:
 

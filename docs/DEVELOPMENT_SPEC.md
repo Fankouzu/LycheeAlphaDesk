@@ -121,7 +121,7 @@ lad
 
 Command behavior:
 
-- `lad` opens the TUI.
+- `lad` opens the TUI with a keyboard action menu for data pulls, health checks, snapshots, dashboard refresh, setup guidance, and quit.
 - `lad demo` verifies that demo files and local output directories exist.
 - `lad setup` opens the unified interactive configuration center for data providers and LLM providers.
 - `lad setup set` stores one provider key or token in the local config file for automation and agent use.
@@ -136,6 +136,7 @@ Command behavior:
 - `lad data pull filings` writes recent SEC EDGAR filings into the local live cache.
 - `lad data health` checks live cache presence and row counts.
 - `lad data snapshot` writes a unified JSON snapshot from the live cache.
+- The TUI home action menu must expose the same core data workflows as the CLI. The Textual built-in command palette is not a business-command surface and should stay disabled on the home screen to avoid terminal glyph-width issues.
 - `lad report --demo` generates a Markdown daily report from bundled demo providers.
 - `lad policy check` validates the policy file and prints violations or warnings.
 - `lad audit list` lists generated reports and decision records.

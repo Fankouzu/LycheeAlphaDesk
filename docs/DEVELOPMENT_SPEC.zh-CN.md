@@ -121,7 +121,7 @@ lad
 
 命令行为：
 
-- `lad` 打开 TUI。
+- `lad` 打开 TUI，主界面包含键盘 Action 菜单，可执行数据拉取、健康检查、snapshot、dashboard 刷新、setup 指引和退出。
 - `lad demo` 检查 demo 文件和本地输出目录。
 - `lad setup` 打开统一交互式配置中心，数据 provider 和 LLM provider 都从这里配置。
 - `lad setup set` 为自动化脚本和 agent 单项写入一个 provider key 或 token。
@@ -136,6 +136,7 @@ lad
 - `lad data pull filings` 将 SEC EDGAR 近期 filings 写入本地 live cache。
 - `lad data health` 检查 live cache 是否存在以及行数状态。
 - `lad data snapshot` 基于 live cache 写入统一 JSON 快照。
+- TUI 主界面 Action 菜单必须暴露和 CLI 一致的核心数据流程。Textual 内置 command palette 不是业务命令入口，并且应在主界面保持禁用，以避免终端 glyph 宽度显示问题。
 - `lad report --demo` 使用内置 demo provider 生成 Markdown 日报。
 - `lad policy check` 校验投资政策文件，并打印违反项或警告。
 - `lad audit list` 列出已生成的报告和决策记录。

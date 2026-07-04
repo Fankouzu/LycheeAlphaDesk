@@ -2,8 +2,10 @@ import asyncio
 import json
 from pathlib import Path
 
-from textual.widgets import Static
+from textual.widgets import Input, OptionList, Static
 
+import lychee_alphadesk.tui.app as tui_app
+from lychee_alphadesk.core.live_data import PullResult
 from lychee_alphadesk.tui.app import AlphaDeskApp
 
 
@@ -37,5 +39,69 @@ def test_dashboard_shows_cached_live_data_summary(tmp_path: Path) -> None:
             assert "Live cache" in text
             assert "AAPL" in text
             assert "214.33" in text
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_has_keyboard_action_menu(tmp_path: Path) -> None:
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            menu = app.query_one("#action-menu", OptionList)
+            assert menu.highlighted == 0
+            assert "Pull market prices" in str(menu.get_option_at_index(0).prompt)
+
+            await pilot.press("down")
+            await pilot.pause()
+
+            assert menu.highlighted == 1
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_market_menu_action_pulls_prices(
+    monkeypatch, tmp_path: Path
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_pull_market_prices(**kwargs: object) -> PullResult:
+        calls.append(kwargs["symbols"])  # type: ignore[arg-type]
+        return PullResult(
+            domain="market",
+            provider="alpha_vantage",
+            count=2,
+            output_path=tmp_path / "data" / "market-prices.json",
+            warnings=[],
+        )
+
+    monkeypatch.setattr(tui_app, "pull_market_prices", fake_pull_market_prices)
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            app.query_one("#symbols-input", Input)
+
+            await pilot.press(*"AAPL,TSLA")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert calls == [["AAPL", "TSLA"]]
+            status = app.query_one("#action-status", Static)
+            assert "Pulled market prices: 2" in str(status.content)
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_disables_textual_command_palette(tmp_path: Path) -> None:
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.press("ctrl+p")
+            await pilot.pause()
+
+            assert app.screen.id != "--command-palette"
 
     asyncio.run(run_case())

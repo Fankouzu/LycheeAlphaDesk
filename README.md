@@ -2,13 +2,22 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+![GitHub Repo stars](https://img.shields.io/github/stars/Fankouzu/LycheeAlphaDesk?style=social)
+![Status](https://img.shields.io/badge/status-design%20%26%20bootstrap-7c3aed)
+![Broker Agnostic](https://img.shields.io/badge/broker--agnostic-yes-2563eb)
+![Policy First](https://img.shields.io/badge/policy--first-yes-059669)
+![Not a Trading Bot](https://img.shields.io/badge/not%20a%20trading%20bot-human%20approved-f59e0b)
+![License](https://img.shields.io/badge/license-TBD-lightgrey)
+
 Policy-first AI investment research workbench for long-term investors.
 
 Lychee AlphaDesk is an open-source investment research desk that combines market data, filings, news, macro signals, time-series forecasting, and LLM-based analysis into an evidence-first workflow.
 
 It is not a trading bot. It does not provide financial advice. It is designed to help investors research, document, and review decisions before any manual action.
 
-## Why This Exists
+> Research-first. Policy-first. Broker-agnostic. Human-approved.
+
+## ✨ Why This Exists
 
 Most AI investing tools start with predictions or trading signals. Lychee AlphaDesk starts with investment policy.
 
@@ -23,7 +32,7 @@ Before the system can suggest research, rebalancing, or an order draft, it must 
 
 The goal is to help long-term investors build discipline, not to encourage overtrading.
 
-## Core Ideas
+## 🧭 Core Ideas
 
 - **Policy-first**: investment rules override model output.
 - **Evidence-first**: every conclusion should cite data, filings, news, or explicit inference.
@@ -32,7 +41,7 @@ The goal is to help long-term investors build discipline, not to encourage overt
 - **Human-approved**: live execution is out of scope for the MVP.
 - **No-action friendly**: the system should say "no action" when evidence is weak.
 
-## Planned Engine
+## 🏗️ Planned Engine
 
 ```mermaid
 flowchart LR
@@ -50,7 +59,7 @@ flowchart LR
   Decision --> Report[Daily Cockpit Report]
 ```
 
-## Planned Modules
+## 🧩 Planned Modules
 
 | Module | Purpose |
 | --- | --- |
@@ -64,7 +73,7 @@ flowchart LR
 | Decision Engine | Produces no-action, research-required, risk-alert, rebalance, or manual order-draft outputs. |
 | Audit Log | Stores source links, data snapshots, prompt versions, model outputs, and decision records. |
 
-## Provider Architecture
+## 🔌 Provider Architecture
 
 Lychee AlphaDesk is designed around provider interfaces.
 
@@ -81,7 +90,7 @@ Lychee AlphaDesk is designed around provider interfaces.
 
 The open-source MVP must run without a broker account or paid API key.
 
-## Example Policy
+## 📜 Example Policy
 
 ```yaml
 base_currency: USD
@@ -107,7 +116,7 @@ decision_requires:
   - human_approval
 ```
 
-## MVP Scope
+## 🚀 MVP Scope
 
 The first public version should focus on research, not execution.
 
@@ -133,13 +142,13 @@ Out of scope for MVP:
 - Paid exchange data subscriptions.
 - Financial advice or guaranteed return claims.
 
-## Project Status
+## 🛠️ Project Status
 
 Lychee AlphaDesk is in the design and bootstrap stage.
 
 The initial engine specification is being prepared before implementation. The first milestone is a demo-first research workflow that can run locally without brokerage credentials.
 
-## Roadmap
+## 🗺️ Roadmap
 
 | Version | Goal |
 | --- | --- |
@@ -149,12 +158,12 @@ The initial engine specification is being prepared before implementation. The fi
 | v0.4 | Minimal web dashboard and read-only broker plugins. |
 | v1.0 | Stable plugin API, documentation, examples, tests, and safety defaults. |
 
-## Safety And Disclaimer
+## 🛡️ Safety And Disclaimer
 
 Lychee AlphaDesk is for research, education, and personal workflow automation.
 
 It is not investment advice, legal advice, tax advice, or accounting advice. Markets involve risk. AI models can be wrong. Data can be stale, incomplete, or incorrect. Any real investment decision must be reviewed and approved by a human.
 
-## License
+## 📄 License
 
 License to be decided before the first implementation release.

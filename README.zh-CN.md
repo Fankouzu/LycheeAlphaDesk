@@ -2,13 +2,22 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+![GitHub Repo stars](https://img.shields.io/github/stars/Fankouzu/LycheeAlphaDesk?style=social)
+![Status](https://img.shields.io/badge/status-design%20%26%20bootstrap-7c3aed)
+![Broker Agnostic](https://img.shields.io/badge/broker--agnostic-yes-2563eb)
+![Policy First](https://img.shields.io/badge/policy--first-yes-059669)
+![Not a Trading Bot](https://img.shields.io/badge/not%20a%20trading%20bot-human%20approved-f59e0b)
+![License](https://img.shields.io/badge/license-TBD-lightgrey)
+
 面向长期投资者的政策优先 AI 投资研究工作台。
 
 Lychee AlphaDesk 是一个开源投研工作台，目标是把市场数据、财报、新闻、宏观指标、时间序列预测和 LLM 分析整合到一个证据优先的投资研究流程里。
 
 它不是交易机器人，也不提供投资建议。它的目标是帮助投资者在任何人工操作之前，先完成研究、记录、审查和复盘。
 
-## 为什么做这个项目
+> 研究优先。政策优先。券商无关。人工确认。
+
+## ✨ 为什么做这个项目
 
 很多 AI 投资工具从预测或交易信号开始。Lychee AlphaDesk 从投资政策开始。
 
@@ -23,7 +32,7 @@ Lychee AlphaDesk 是一个开源投研工作台，目标是把市场数据、财
 
 这个项目的目标是帮助长期投资者建立纪律，而不是鼓励过度交易。
 
-## 核心理念
+## 🧭 核心理念
 
 - **政策优先**：投资规则优先级高于模型输出。
 - **证据优先**：每个结论都应引用数据、财报、新闻，或明确标记为推断。
@@ -32,7 +41,7 @@ Lychee AlphaDesk 是一个开源投研工作台，目标是把市场数据、财
 - **人工确认**：MVP 阶段不做自动实盘执行。
 - **欢迎不操作**：证据不足时，系统应明确输出“不操作”。
 
-## 计划中的引擎结构
+## 🏗️ 计划中的引擎结构
 
 ```mermaid
 flowchart LR
@@ -50,7 +59,7 @@ flowchart LR
   Decision --> Report[每日驾驶舱报告]
 ```
 
-## 计划模块
+## 🧩 计划模块
 
 | 模块 | 作用 |
 | --- | --- |
@@ -64,7 +73,7 @@ flowchart LR
 | 决策引擎 | 输出不操作、需要研究、风险警报、再平衡或人工订单草稿。 |
 | 审计日志 | 保存来源链接、数据快照、prompt 版本、模型输出和决策记录。 |
 
-## Provider 架构
+## 🔌 Provider 架构
 
 Lychee AlphaDesk 围绕 provider 接口设计。
 
@@ -81,7 +90,7 @@ Lychee AlphaDesk 围绕 provider 接口设计。
 
 开源 MVP 必须在没有券商账户、没有付费 API key 的情况下运行。
 
-## 投资政策示例
+## 📜 投资政策示例
 
 ```yaml
 base_currency: USD
@@ -107,7 +116,7 @@ decision_requires:
   - human_approval
 ```
 
-## MVP 范围
+## 🚀 MVP 范围
 
 第一个公开版本聚焦研究，不聚焦执行。
 
@@ -133,13 +142,13 @@ MVP 不做：
 - 付费交易所行情订阅。
 - 投资建议或收益承诺。
 
-## 项目状态
+## 🛠️ 项目状态
 
 Lychee AlphaDesk 当前处于设计和启动阶段。
 
 项目会先完成引擎规格，再进入实现。第一个里程碑是一个 demo-first 的本地研究流程，不需要券商账户即可运行。
 
-## 路线图
+## 🗺️ 路线图
 
 | 版本 | 目标 |
 | --- | --- |
@@ -149,12 +158,12 @@ Lychee AlphaDesk 当前处于设计和启动阶段。
 | v0.4 | 最小 Web dashboard 和只读 broker plugin。 |
 | v1.0 | 稳定插件 API、文档、示例、测试和安全默认值。 |
 
-## 安全与免责声明
+## 🛡️ 安全与免责声明
 
 Lychee AlphaDesk 仅用于研究、教育和个人工作流自动化。
 
 它不是投资建议、法律建议、税务建议或会计建议。市场存在风险。AI 模型可能出错。数据可能过期、不完整或错误。任何真实投资决策都必须由人类审查和确认。
 
-## License
+## 📄 License
 
 License 会在第一个实现版本发布前确定。

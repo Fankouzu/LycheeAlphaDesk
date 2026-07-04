@@ -184,7 +184,7 @@ wheels = [
 
 [[package]]
 name = "lychee-alphadesk"
-version = "0.1.0a11"
+version = "0.1.0a12"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },

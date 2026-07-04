@@ -3,6 +3,7 @@ import select
 import sys
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
@@ -28,6 +29,7 @@ from lychee_alphadesk.core.reports import generate_demo_report
 from lychee_alphadesk.tui.app import run_tui
 
 console = Console()
+ESC_SEQUENCE_TIMEOUT_SECONDS = 0.25
 app = typer.Typer(
     help="Lychee AlphaDesk terminal-native investment research workbench.",
     invoke_without_command=True,
@@ -576,32 +578,42 @@ def _read_key() -> str:
     try:
         tty.setraw(file_descriptor)
         first = sys.stdin.read(1)
-        if first == "\x03":
-            return "ctrl_c"
-        if first in {"\r", "\n"}:
-            return "enter"
-        if first == "\t":
-            return "tab"
-        if first == "\x1b":
-            if not select.select([file_descriptor], [], [], 0.05)[0]:
-                return "escape"
-            second = sys.stdin.read(1)
-            if not select.select([file_descriptor], [], [], 0.05)[0]:
-                return "escape"
-            third = sys.stdin.read(1)
-            if second == "[" and third == "A":
-                return "up"
-            if second == "[" and third == "B":
-                return "down"
-            if second == "[" and third == "C":
-                return "right"
-            if second == "[" and third == "D":
-                return "left"
-            if second == "[" and third == "Z":
-                return "shift_tab"
-        return first
+        return _normalize_keypress(first, lambda: _read_available_char(file_descriptor))
     finally:
         termios.tcsetattr(file_descriptor, termios.TCSADRAIN, old_settings)
+
+
+def _read_available_char(file_descriptor: int) -> str:
+    if not select.select([file_descriptor], [], [], ESC_SEQUENCE_TIMEOUT_SECONDS)[0]:
+        return ""
+    return sys.stdin.read(1)
+
+
+def _normalize_keypress(first: str, read_next: Callable[[], str]) -> str:
+    if first == "\x03":
+        return "ctrl_c"
+    if first in {"\r", "\n"}:
+        return "enter"
+    if first == "\t":
+        return "tab"
+    if first != "\x1b":
+        return first
+
+    second = read_next()
+    if not second:
+        return "escape"
+    third = read_next()
+    if second == "[" and third == "A":
+        return "up"
+    if second == "[" and third == "B":
+        return "down"
+    if second == "[" and third == "C":
+        return "right"
+    if second == "[" and third == "D":
+        return "left"
+    if second == "[" and third == "Z":
+        return "shift_tab"
+    return "escape"
 
 
 def _providers_requiring_values(config: AlphaDeskConfig) -> list[ProviderSetupInfo]:

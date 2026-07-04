@@ -275,6 +275,21 @@ def test_arrow_menu_selection_wraps_between_providers() -> None:
     assert _move_menu_selection(0, "down", 0) == 0
 
 
+def test_keypress_parser_distinguishes_arrow_keys_from_escape() -> None:
+    def reader(chars: list[str]):
+        char_iter = iter(chars)
+        return lambda: next(char_iter, "")
+
+    assert cli_app._normalize_keypress("\x1b", reader(["[", "A"])) == "up"
+    assert cli_app._normalize_keypress("\x1b", reader(["[", "B"])) == "down"
+    assert cli_app._normalize_keypress("\x1b", reader(["[", "C"])) == "right"
+    assert cli_app._normalize_keypress("\x1b", reader(["[", "D"])) == "left"
+    assert cli_app._normalize_keypress("\x1b", reader(["[", "Z"])) == "shift_tab"
+    assert cli_app._normalize_keypress("\x1b", reader([])) == "escape"
+    assert cli_app._normalize_keypress("\n", reader([])) == "enter"
+    assert cli_app._normalize_keypress("\t", reader([])) == "tab"
+
+
 def test_provider_menu_handles_empty_provider_list() -> None:
     assert _choose_provider_from_menu([]) is None
 

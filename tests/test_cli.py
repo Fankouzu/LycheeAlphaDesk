@@ -34,6 +34,8 @@ def test_report_demo_generates_markdown_report(tmp_path: Path) -> None:
     report = report_path.read_text(encoding="utf-8")
     assert "# Lychee AlphaDesk Demo Daily Report" in report
     assert "This report uses demo data" in report
+    assert "## Data Quality Status" in report
+    assert "market-data-present" in report
     assert "Not investment advice" in report
 
 
@@ -46,3 +48,21 @@ def test_audit_list_shows_generated_report(tmp_path: Path) -> None:
     assert audit_result.exit_code == 0
     assert "daily-report-demo.md" in audit_result.stdout
     assert "demo" in audit_result.stdout
+
+
+def test_data_snapshot_command_writes_unified_demo_snapshot(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["data", "snapshot", "--demo", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Data snapshot written:" in result.stdout
+    assert "Prices: 3" in result.stdout
+    assert (tmp_path / "data-snapshot-demo.json").exists()
+
+
+def test_data_health_command_shows_provider_quality() -> None:
+    result = runner.invoke(app, ["data", "health", "--demo"])
+
+    assert result.exit_code == 0
+    assert "demo-market-data" in result.stdout
+    assert "market-data-present" in result.stdout
+    assert "pass" in result.stdout

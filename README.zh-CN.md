@@ -25,12 +25,14 @@ git clone https://github.com/Fankouzu/LycheeAlphaDesk.git
 cd LycheeAlphaDesk
 uv sync --all-groups --no-editable
 uv run --no-editable lad demo
+uv run --no-editable lad data health --demo
+uv run --no-editable lad data snapshot --demo
 uv run --no-editable lad policy check examples/demo/policy.yaml
 uv run --no-editable lad report --demo
 uv run --no-editable lad audit list
 ```
 
-生成的 demo 报告会写入 `.alphadesk/daily-report-demo.md`。
+生成的数据快照会写入 `.alphadesk/data-snapshot-demo.json`。生成的 demo 报告会写入 `.alphadesk/daily-report-demo.md`。
 
 ## ✨ 为什么做这个项目
 
@@ -77,6 +79,23 @@ lad
 - Policy：投资政策规则和校验结果。
 - Providers：数据源健康度和插件状态。
 - Audit：历史报告、数据快照和决策日志。
+
+## 📡 数据引擎
+
+第一期数据引擎重点是先让数据可见、可审计，然后再接入真实 provider 插件。
+
+```bash
+uv run --no-editable lad data health --demo
+uv run --no-editable lad data snapshot --demo
+```
+
+当前 demo snapshot 聚合：
+
+- 市场价格和成交量。
+- 新闻事件。
+- 财报和公告摘要。
+- Mock 预测区间。
+- Provider 级数据质量检查。
 
 ## 🏗️ 计划中的引擎结构
 
@@ -204,7 +223,7 @@ MVP 不做：
 
 Lychee AlphaDesk 当前处于可运行 demo 启动阶段。
 
-第一个里程碑是一个 demo-first 的本地研究流程，不需要券商账户即可运行。当前代码库已经包含初始 `lad` CLI、内置 demo 数据、投资政策校验、Markdown 报告生成、审计记录、测试和 CI。
+第一个里程碑是一个 demo-first 的本地研究流程，不需要券商账户即可运行。当前代码库已经包含初始 `lad` CLI、内置 demo 数据、数据快照、provider 健康检查、投资政策校验、Markdown 报告生成、审计记录、测试和 CI。
 
 ## 🗺️ 路线图
 

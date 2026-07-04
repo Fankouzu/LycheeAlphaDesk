@@ -6,6 +6,7 @@ from rich.console import Console
 from rich.table import Table
 
 from lychee_alphadesk.core.audit import init_audit_db, list_audit_records
+from lychee_alphadesk.core.data_engine import build_demo_data_snapshot, write_snapshot_json
 from lychee_alphadesk.core.demo import REQUIRED_DEMO_FILES, check_demo_workspace
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
 from lychee_alphadesk.core.policy import load_policy, validate_policy
@@ -19,6 +20,7 @@ app = typer.Typer(
 )
 policy_app = typer.Typer(help="Investment policy commands.")
 audit_app = typer.Typer(help="Audit trail commands.")
+data_app = typer.Typer(help="Market, news, filing, and forecast data commands.")
 
 
 @app.callback()
@@ -122,8 +124,59 @@ def audit_list(
     console.print(table)
 
 
+@data_app.command("snapshot")
+def data_snapshot(
+    demo: Annotated[
+        bool,
+        typer.Option("--demo", help="Build a data snapshot from bundled demo providers."),
+    ] = False,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Snapshot output directory."),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """Write a unified JSON data snapshot."""
+    if not demo:
+        console.print("Only --demo data snapshots are available in v0.1.")
+        raise typer.Exit(code=1)
+
+    snapshot = build_demo_data_snapshot(DEMO_ROOT)
+    output_path = write_snapshot_json(snapshot, output_dir)
+    console.print(f"Data snapshot written: {output_path}")
+    console.print(f"Providers: {', '.join(snapshot.provider_names)}")
+    console.print(f"Prices: {snapshot.counts['prices']}")
+    console.print(f"News events: {snapshot.counts['news_events']}")
+    console.print(f"Filings: {snapshot.counts['filings']}")
+    console.print(f"Forecasts: {snapshot.counts['forecasts']}")
+
+
+@data_app.command("health")
+def data_health(
+    demo: Annotated[
+        bool,
+        typer.Option("--demo", help="Check bundled demo provider health."),
+    ] = False,
+) -> None:
+    """Show provider data quality checks."""
+    if not demo:
+        console.print("Only --demo data health checks are available in v0.1.")
+        raise typer.Exit(code=1)
+
+    snapshot = build_demo_data_snapshot(DEMO_ROOT)
+    console.print(f"Providers: {', '.join(snapshot.provider_names)}")
+    table = Table(title="Lychee AlphaDesk Data Health")
+    table.add_column("Check")
+    table.add_column("Status")
+    table.add_column("Provider")
+    table.add_column("Message")
+    for check in snapshot.quality_checks:
+        table.add_row(check.name, check.status, check.provider, check.message)
+    console.print(table)
+
+
 app.add_typer(policy_app, name="policy")
 app.add_typer(audit_app, name="audit")
+app.add_typer(data_app, name="data")
 
 
 def main() -> None:

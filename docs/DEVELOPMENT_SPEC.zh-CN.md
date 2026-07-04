@@ -29,6 +29,8 @@ v0.1 应交付：
 - Provider 接口。
 - Demo providers。
 - 数据质量检查。
+- 统一数据快照命令。
+- Provider 健康检查命令。
 - Markdown 每日报告。
 - 本地审计日志。
 - 最小 Textual TUI 外壳。
@@ -99,6 +101,8 @@ v0.1 必须支持：
 
 ```bash
 lad demo
+lad data health --demo
+lad data snapshot --demo
 lad report --demo
 lad policy check examples/demo/policy.yaml
 lad audit list
@@ -109,6 +113,8 @@ lad
 
 - `lad` 打开 TUI。
 - `lad demo` 检查 demo 文件和本地输出目录。
+- `lad data health --demo` 打印 provider 级数据质量检查。
+- `lad data snapshot --demo` 写入统一 JSON 快照，包含市场、新闻、公告和预测数据。
 - `lad report --demo` 使用内置 demo provider 生成 Markdown 日报。
 - `lad policy check` 校验投资政策文件，并打印违反项或警告。
 - `lad audit list` 列出已生成的报告和决策记录。

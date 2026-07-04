@@ -29,6 +29,8 @@ v0.1 should deliver:
 - Provider interfaces.
 - Demo providers.
 - Data quality checks.
+- Unified data snapshot command.
+- Provider health command.
 - Markdown daily report.
 - Local audit trail.
 - Minimal Textual TUI shell.
@@ -99,6 +101,8 @@ Required v0.1 commands:
 
 ```bash
 lad demo
+lad data health --demo
+lad data snapshot --demo
 lad report --demo
 lad policy check examples/demo/policy.yaml
 lad audit list
@@ -109,6 +113,8 @@ Command behavior:
 
 - `lad` opens the TUI.
 - `lad demo` verifies that demo files and local output directories exist.
+- `lad data health --demo` prints provider-level quality checks.
+- `lad data snapshot --demo` writes a unified JSON snapshot with market, news, filing, and forecast data.
 - `lad report --demo` generates a Markdown daily report from bundled demo providers.
 - `lad policy check` validates the policy file and prints violations or warnings.
 - `lad audit list` lists generated reports and decision records.

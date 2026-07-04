@@ -25,12 +25,14 @@ git clone https://github.com/Fankouzu/LycheeAlphaDesk.git
 cd LycheeAlphaDesk
 uv sync --all-groups --no-editable
 uv run --no-editable lad demo
+uv run --no-editable lad data health --demo
+uv run --no-editable lad data snapshot --demo
 uv run --no-editable lad policy check examples/demo/policy.yaml
 uv run --no-editable lad report --demo
 uv run --no-editable lad audit list
 ```
 
-The generated demo report is written to `.alphadesk/daily-report-demo.md`.
+The generated data snapshot is written to `.alphadesk/data-snapshot-demo.json`. The generated demo report is written to `.alphadesk/daily-report-demo.md`.
 
 ## ✨ Why This Exists
 
@@ -77,6 +79,23 @@ Planned TUI sections:
 - Policy: investment policy rules and validation results.
 - Providers: data source health and plugin status.
 - Audit: saved reports, data snapshots, and decision logs.
+
+## 📡 Data Engine
+
+The first data engine milestone focuses on making data visible and auditable before adding real provider plugins.
+
+```bash
+uv run --no-editable lad data health --demo
+uv run --no-editable lad data snapshot --demo
+```
+
+The demo snapshot currently aggregates:
+
+- Market prices and volume.
+- News events.
+- Filing and announcement summaries.
+- Mock forecast intervals.
+- Provider-level quality checks.
 
 ## 🏗️ Planned Engine
 
@@ -204,7 +223,7 @@ Out of scope for MVP:
 
 Lychee AlphaDesk is in the runnable demo bootstrap stage.
 
-The first milestone is a demo-first research workflow that can run locally without brokerage credentials. The current codebase includes the initial `lad` CLI, bundled demo data, policy validation, Markdown report generation, audit records, tests, and CI.
+The first milestone is a demo-first research workflow that can run locally without brokerage credentials. The current codebase includes the initial `lad` CLI, bundled demo data, data snapshots, provider health checks, policy validation, Markdown report generation, audit records, tests, and CI.
 
 ## 🗺️ Roadmap
 

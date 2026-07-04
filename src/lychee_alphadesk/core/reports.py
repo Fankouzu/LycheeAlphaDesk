@@ -6,18 +6,10 @@ from pathlib import Path
 from jinja2 import Template
 
 from lychee_alphadesk.core.audit import AuditRecord, write_audit_record
+from lychee_alphadesk.core.data_engine import DataQualityCheck, build_demo_data_snapshot
 from lychee_alphadesk.core.paths import DEMO_ROOT
 from lychee_alphadesk.core.policy import PolicyValidationResult, load_policy, validate_policy
-from lychee_alphadesk.providers.demo import (
-    DemoFilingProvider,
-    DemoForecastProvider,
-    DemoMarketDataProvider,
-    DemoNewsProvider,
-    FilingSummary,
-    ForecastInterval,
-    NewsEvent,
-    PriceRow,
-)
+from lychee_alphadesk.providers.demo import FilingSummary, ForecastInterval, NewsEvent, PriceRow
 
 
 @dataclass(frozen=True)
@@ -73,6 +65,14 @@ No action. The demo portfolio passes the conservative v0.1 policy gates, and all
 | {{ row.symbol }} | {{ row.date }} | {{ "%.2f"|format(row.close) }} | {{ row.volume }} | {{ row.currency }} |
 {% endfor %}
 
+## Data Quality Status
+
+| Check | Status | Provider | Message |
+| --- | --- | --- | --- |
+{% for check in quality_checks -%}
+| {{ check.name }} | {{ check.status }} | {{ check.provider }} | {{ check.message }} |
+{% endfor %}
+
 ## News And Events
 
 {% for event in events -%}
@@ -121,27 +121,19 @@ def generate_demo_report(output_dir: Path, demo_root: Path = DEMO_ROOT) -> DemoR
     policy = load_policy(demo_root / "policy.yaml")
     policy_result = validate_policy(policy)
     positions = load_demo_portfolio(demo_root / "portfolio.csv")
-    prices = DemoMarketDataProvider(demo_root / "market_data.csv").latest_prices()
-    events = DemoNewsProvider(demo_root / "news.jsonl").events()
-    filings = DemoFilingProvider(demo_root / "filings.jsonl").filings()
-    forecasts = DemoForecastProvider().forecast_intervals([row.symbol for row in prices])
-    provider_names = [
-        DemoMarketDataProvider.name,
-        DemoNewsProvider.name,
-        DemoFilingProvider.name,
-        DemoForecastProvider.name,
-    ]
+    snapshot = build_demo_data_snapshot(demo_root)
 
     report_path = output_dir / "daily-report-demo.md"
     report_path.write_text(
         render_demo_report(
             positions=positions,
-            prices=prices,
-            events=events,
-            filings=filings,
-            forecasts=forecasts,
+            prices=snapshot.prices,
+            events=snapshot.news_events,
+            filings=snapshot.filings,
+            forecasts=snapshot.forecasts,
+            quality_checks=snapshot.quality_checks,
             policy_result=policy_result,
-            provider_names=provider_names,
+            provider_names=snapshot.provider_names,
         ),
         encoding="utf-8",
     )
@@ -151,7 +143,7 @@ def generate_demo_report(output_dir: Path, demo_root: Path = DEMO_ROOT) -> DemoR
         report_id="daily-report-demo",
         mode="demo",
         report_path=report_path,
-        providers=provider_names,
+        providers=snapshot.provider_names,
         warnings=policy_result.warnings,
         errors=policy_result.errors,
     )
@@ -169,6 +161,7 @@ def render_demo_report(
     events: list[NewsEvent],
     filings: list[FilingSummary],
     forecasts: dict[str, ForecastInterval],
+    quality_checks: list[DataQualityCheck],
     policy_result: PolicyValidationResult,
     provider_names: list[str],
 ) -> str:
@@ -178,6 +171,7 @@ def render_demo_report(
         events=events,
         filings=filings,
         forecasts=forecasts,
+        quality_checks=quality_checks,
         policy_result=policy_result,
         provider_names=provider_names,
     )

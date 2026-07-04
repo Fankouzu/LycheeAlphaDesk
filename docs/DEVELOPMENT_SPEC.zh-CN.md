@@ -121,7 +121,7 @@ lad
 - `lad setup` 打开统一交互式配置中心，数据 provider 和 LLM provider 都从这里配置。
 - `lad setup set` 为自动化脚本和 agent 单项写入一个 provider key 或 token。
 - `lad setup llm set` 为自动化脚本和 agent 单项写入一个 OpenAI-compatible LLM `base_url`、API key 和可选模型名。
-- 交互式配置中心在 TTY 环境使用键盘导航。面向人的菜单必须使用 ↑/↓/←/→/Tab 移动选择，Enter 确认，Esc 返回或退出。菜单不得使用数字或字母作为选项选择操作。非 TTY 环境不得 fallback 到文本菜单，应使用非交互式 setup 命令。provider 菜单只显示展示名称和脱敏配置状态；进入 provider 后再显示注册链接和面向用户的配置说明。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。
+- 交互式配置中心在 TTY 环境使用 Textual `OptionList` 控件和键盘导航。面向人的菜单必须使用 ↑/↓/←/→/Tab 移动选择，Enter 确认，Esc 返回或退出。菜单不得使用数字或字母作为选项选择操作，并且这条流程不得继续使用手写 raw-key parser。非 TTY 环境不得 fallback 到文本菜单，应使用非交互式 setup 命令。provider 菜单只显示展示名称和脱敏配置状态；进入 provider 后再显示注册链接和面向用户的配置说明。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。
 - LLM 配置区会写入自定义 OpenAI-compatible `base_url`、API key 和模型名。它会先读取 `{base_url}/models`；如果接口不可用或没有返回可用模型 ID，就提示用户手动输入模型名。
 - `lychee` 是推荐的 console command；`lad` 保留为短别名。
 - `lad data health --demo` 打印 provider 级数据质量检查。

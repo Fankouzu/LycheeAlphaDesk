@@ -95,6 +95,24 @@ def test_dashboard_market_menu_action_pulls_prices(
     asyncio.run(run_case())
 
 
+def test_dashboard_symbol_prompt_handles_empty_submit(tmp_path: Path) -> None:
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            app.query_one("#symbols-input", Input)
+
+            await pilot.press("enter")
+            await pilot.pause()
+
+            status = app.query_one("#action-status", Static)
+            assert "No symbols entered." in str(status.content)
+            app.query_one("#symbols-input", Input)
+
+    asyncio.run(run_case())
+
+
 def test_dashboard_disables_textual_command_palette(tmp_path: Path) -> None:
     async def run_case() -> None:
         app = AlphaDeskApp(output_dir=tmp_path)

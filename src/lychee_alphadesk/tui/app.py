@@ -153,7 +153,10 @@ class AlphaDeskApp(App[None]):
     async def _show_symbol_prompt(self, action: ActionId, placeholder: str) -> None:
         self.pending_action = action
         await self._replace_action_panel(
-            Static("Enter comma-separated symbols, then press Enter."),
+            Static(
+                "Enter comma-separated symbols, then press Enter.",
+                id="action-status",
+            ),
             Input(placeholder=placeholder, id="symbols-input"),
         )
         self.set_focus(self.query_one("#symbols-input", Input))

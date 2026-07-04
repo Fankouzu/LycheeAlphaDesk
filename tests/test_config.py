@@ -10,7 +10,6 @@ from lychee_alphadesk.cli.app import (
     _choose_provider_from_menu,
     _move_menu_selection,
     _providers_requiring_values,
-    _resolve_provider_choice,
     app,
 )
 from lychee_alphadesk.core.config import (
@@ -22,6 +21,12 @@ from lychee_alphadesk.core.config import (
 )
 
 runner = CliRunner()
+
+
+def _feed_keyboard(monkeypatch, keys: list[str]) -> None:
+    key_iter = iter(keys)
+    monkeypatch.setattr(cli_app, "_keyboard_navigation_available", lambda: True)
+    monkeypatch.setattr(cli_app, "_read_key", lambda: next(key_iter))
 
 
 def test_pyproject_exposes_lychee_console_script() -> None:
@@ -69,16 +74,34 @@ def test_load_config_migrates_provider_metadata_from_registry(tmp_path: Path) ->
     ]
 
 
-def test_setup_command_opens_configuration_center(monkeypatch, tmp_path: Path) -> None:
+def test_setup_command_requires_keyboard_navigation_in_non_tty(
+    monkeypatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
-    result = runner.invoke(app, ["setup"], input="q\n")
+    result = runner.invoke(app, ["setup"])
+
+    assert result.exit_code == 2
+    assert "requires an interactive terminal" in result.stdout
+    assert "lychee setup set" in result.stdout
+    assert "lychee setup llm set" in result.stdout
+
+
+def test_setup_command_opens_keyboard_configuration_center(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    _feed_keyboard(monkeypatch, ["escape"])
+
+    result = runner.invoke(app, ["setup"])
 
     assert result.exit_code == 0
     assert str(tmp_path / "lychee-alphadesk" / "config.yaml") in result.stdout
     assert "Lychee AlphaDesk Configuration Center" in result.stdout
+    assert "Use ↑/↓/←/→/Tab to move" in result.stdout
     assert "Data providers" in result.stdout
     assert "LLM provider" in result.stdout
+    assert "Choose setup area" not in result.stdout
     assert "Alpha Vantage" not in result.stdout
     assert "https://www.alphavantage.co/support/#api-key" not in result.stdout
     assert "lychee setup wizard" not in result.stdout
@@ -87,11 +110,12 @@ def test_setup_command_opens_configuration_center(monkeypatch, tmp_path: Path) -
 
 def test_setup_center_can_configure_data_provider(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    _feed_keyboard(monkeypatch, ["enter", "enter", "escape", "escape"])
 
     result = runner.invoke(
         app,
         ["setup"],
-        input="1\nalpha_vantage\ndemo-key\nn\nq\n",
+        input="demo-key\n",
     )
 
     assert result.exit_code == 0
@@ -111,11 +135,12 @@ def test_setup_center_can_configure_llm_provider(
         lambda base_url, api_key: ["gpt-demo-a", "gpt-demo-b"],
         raising=False,
     )
+    _feed_keyboard(monkeypatch, ["down", "enter", "down", "enter", "escape"])
 
     result = runner.invoke(
         app,
         ["setup"],
-        input="2\nhttps://llm.example.com/v1\nsk-demo-secret\n2\nq\n",
+        input="https://llm.example.com/v1\nsk-demo-secret\n",
     )
 
     assert result.exit_code == 0
@@ -209,11 +234,12 @@ def test_setup_center_falls_back_to_manual_llm_model_name(
         lambda base_url, api_key: [],
         raising=False,
     )
+    _feed_keyboard(monkeypatch, ["down", "enter", "escape"])
 
     result = runner.invoke(
         app,
         ["setup"],
-        input="2\nhttps://llm.example.com/v1\nsk-demo-secret\nmanual-model\nq\n",
+        input="https://llm.example.com/v1\nsk-demo-secret\nmanual-model\n",
     )
 
     assert result.exit_code == 0
@@ -224,8 +250,9 @@ def test_setup_center_falls_back_to_manual_llm_model_name(
 
 def test_setup_center_reports_empty_provider_value(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    _feed_keyboard(monkeypatch, ["enter", "enter", "escape", "escape"])
 
-    result = runner.invoke(app, ["setup"], input="1\nalpha_vantage\n\nn\nq\n")
+    result = runner.invoke(app, ["setup"], input="\n")
 
     assert result.exit_code == 0
     assert "❌ No value entered" in result.stdout
@@ -242,19 +269,14 @@ def test_arrow_menu_selection_wraps_between_providers() -> None:
     assert _move_menu_selection(len(providers) - 1, "down", len(providers)) == 0
     assert _move_menu_selection(1, "up", len(providers)) == 0
     assert _move_menu_selection(1, "down", len(providers)) == 2
+    assert _move_menu_selection(1, "left", len(providers)) == 0
+    assert _move_menu_selection(1, "right", len(providers)) == 2
+    assert _move_menu_selection(1, "tab", len(providers)) == 2
     assert _move_menu_selection(0, "down", 0) == 0
 
 
 def test_provider_menu_handles_empty_provider_list() -> None:
     assert _choose_provider_from_menu([]) is None
-
-
-def test_provider_choice_fallback_still_accepts_number_and_id() -> None:
-    providers = _providers_requiring_values(default_config())
-
-    assert _resolve_provider_choice("2", providers) == providers[1]
-    assert _resolve_provider_choice("alpha_vantage", providers).provider_id == "alpha_vantage"
-    assert _resolve_provider_choice("not-real", providers) is None
 
 
 def test_sec_edgar_is_not_part_of_provider_key_setup() -> None:
@@ -296,8 +318,10 @@ def test_arrow_menu_shows_display_name_and_masked_status_only(monkeypatch) -> No
     output = buffer.getvalue()
     assert "Alpha Vantage" in output
     assert "Configured: demo***-key" in output
+    assert "Use ↑/↓/←/→/Tab" in output
     assert "alpha_vantage" not in output
     assert "api_key" not in output
+    assert "q to" not in output
     assert "https://" not in output
 
 

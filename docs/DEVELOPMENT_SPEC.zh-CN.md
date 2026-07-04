@@ -121,7 +121,7 @@ lad
 - `lad setup` 打开统一交互式配置中心，数据 provider 和 LLM provider 都从这里配置。
 - `lad setup set` 为自动化脚本和 agent 单项写入一个 provider key 或 token。
 - `lad setup llm set` 为自动化脚本和 agent 单项写入一个 OpenAI-compatible LLM `base_url`、API key 和可选模型名。
-- 交互式配置中心在 TTY 环境使用上下箭头选择 provider，在非 TTY 环境使用文本 fallback。provider 菜单只显示展示名称和脱敏配置状态；进入 provider 后再显示注册链接和面向用户的配置说明。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。
+- 交互式配置中心在 TTY 环境使用键盘导航。面向人的菜单必须使用 ↑/↓/←/→/Tab 移动选择，Enter 确认，Esc 返回或退出。菜单不得使用数字或字母作为选项选择操作。非 TTY 环境不得 fallback 到文本菜单，应使用非交互式 setup 命令。provider 菜单只显示展示名称和脱敏配置状态；进入 provider 后再显示注册链接和面向用户的配置说明。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。
 - LLM 配置区会写入自定义 OpenAI-compatible `base_url`、API key 和模型名。它会先读取 `{base_url}/models`；如果接口不可用或没有返回可用模型 ID，就提示用户手动输入模型名。
 - `lychee` 是推荐的 console command；`lad` 保留为短别名。
 - `lad data health --demo` 打印 provider 级数据质量检查。
@@ -129,6 +129,17 @@ lad
 - `lad report --demo` 使用内置 demo provider 生成 Markdown 日报。
 - `lad policy check` 校验投资政策文件，并打印违反项或警告。
 - `lad audit list` 列出已生成的报告和决策记录。
+
+## 交互规范
+
+这是整个项目的永久交互规则：
+
+- 面向人的交互式界面必须 keyboard-navigation-first。
+- 菜单和选项选择必须使用 ↑/↓/←/→/Tab 移动，Enter 确认，Esc 返回或退出。
+- 菜单不得使用数字、字母或输入命令别名作为选项选择方式。
+- 只有真实值才允许文本输入，例如 API key、URL、模型名、证券代码或文件路径。
+- 面向自动化脚本和 coding agent 的非交互命令允许存在，但必须通过显式命令参数传值，而不是隐藏的菜单选择。
+- 非 TTY 环境不得提供数字或字母式文本菜单 fallback。
 
 ## 6. TUI 范围
 

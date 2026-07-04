@@ -121,7 +121,7 @@ Command behavior:
 - `lad setup` opens the unified interactive configuration center for data providers and LLM providers.
 - `lad setup set` stores one provider key or token in the local config file for automation and agent use.
 - `lad setup llm set` stores one OpenAI-compatible LLM `base_url`, API key, and optional model name non-interactively for automation and agent use.
-- The interactive configuration center uses arrow-key provider selection in TTY environments and text fallback in non-TTY environments. Provider menus show display names and masked setup status only; provider details show registration links and user-facing setup guidance after selection. Hidden key entry confirms whether input was received with `✅` or `❌`.
+- The interactive configuration center uses keyboard navigation in TTY environments. Human-facing menus must use ↑/↓/←/→/Tab for movement, Enter for selection, and Esc for back/exit. Menus must never use numbers or letters as option-selection controls. Non-TTY environments must not fall back to text menus; they should use the non-interactive setup commands. Provider menus show display names and masked setup status only; provider details show registration links and user-facing setup guidance after selection. Hidden key entry confirms whether input was received with `✅` or `❌`.
 - The LLM section stores a custom OpenAI-compatible `base_url`, API key, and model name. It first reads `{base_url}/models`; if the endpoint is unavailable or returns no usable model IDs, it prompts for a manual model name.
 - `lychee` is the recommended console command; `lad` remains a short alias.
 - `lad data health --demo` prints provider-level quality checks.
@@ -129,6 +129,17 @@ Command behavior:
 - `lad report --demo` generates a Markdown daily report from bundled demo providers.
 - `lad policy check` validates the policy file and prints violations or warnings.
 - `lad audit list` lists generated reports and decision records.
+
+## Interaction Standard
+
+This is a permanent interaction rule for the whole project:
+
+- Human-facing interactive screens must be keyboard-navigation-first.
+- Menus and option selection must use ↑/↓/←/→/Tab to move, Enter to select, and Esc to go back or exit.
+- Menus must not use numbers, letters, or typed command aliases as option selectors.
+- Typed text is allowed only for actual values, such as API keys, URLs, model names, symbols, or file paths.
+- Non-interactive commands are allowed for automation and coding agents, but they must be explicit command arguments rather than hidden menu selections.
+- Non-TTY environments must not receive numeric or letter-based text-menu fallbacks.
 
 ## 6. TUI Scope
 

@@ -1,4 +1,5 @@
 import json
+import select
 import sys
 import urllib.error
 import urllib.request
@@ -7,7 +8,7 @@ from typing import Annotated
 
 import typer
 from rich.console import Console
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Prompt
 from rich.table import Table
 
 from lychee_alphadesk.core.audit import init_audit_db, list_audit_records
@@ -251,29 +252,40 @@ def setup_llm_set(
 def _run_configuration_center(path: Path) -> None:
     console.print("Lychee AlphaDesk Configuration Center")
     console.print(f"Config file: {path}", soft_wrap=True)
+    if not _keyboard_navigation_available():
+        console.print(
+            "Interactive setup requires an interactive terminal with keyboard navigation.",
+            soft_wrap=True,
+        )
+        console.print("For automation, use `lychee setup set <provider_id> <value>`.")
+        console.print(
+            "For LLM automation, use `lychee setup llm set <base_url> <api_key> MODEL_NAME`.",
+            soft_wrap=True,
+        )
+        raise typer.Exit(code=2)
+
     while True:
         config = load_config(path)
-        _print_configuration_center_menu(config)
-        selected = Prompt.ask("Choose setup area, or q to finish", default="q")
-        if selected.lower() in {"q", "quit", "done", "finish"}:
+        selected = _choose_setup_area(config)
+        if selected is None:
             console.print("Setup complete")
             return
-        if selected == "1":
+        if selected == "data":
             _configure_data_providers()
-        elif selected == "2":
+        elif selected == "llm":
             _configure_llm_provider(path)
-        else:
-            console.print(f"Unknown setup choice: {selected}")
 
 
-def _print_configuration_center_menu(config: AlphaDeskConfig) -> None:
-    table = Table(title="Setup")
-    table.add_column("#")
-    table.add_column("Area")
-    table.add_column("Status")
-    table.add_row("1", "Data providers", _data_provider_status(config))
-    table.add_row("2", "LLM provider", _llm_provider_status(config))
-    console.print(table)
+def _choose_setup_area(config: AlphaDeskConfig) -> str | None:
+    return _choose_keyboard_menu(
+        "Setup",
+        [
+            ("data", "Data providers", _data_provider_status(config)),
+            ("llm", "LLM provider", _llm_provider_status(config)),
+        ],
+        select_label="select setup area",
+        escape_label="finish",
+    )
 
 
 def _data_provider_status(config: AlphaDeskConfig) -> str:
@@ -315,9 +327,6 @@ def _configure_data_providers() -> None:
             providers = _providers_requiring_values(config)
             console.print(f"Saved {provider.name} in {path}", soft_wrap=True)
 
-        if not Confirm.ask("Configure another provider?", default=True):
-            return
-
 
 def _configure_llm_provider(path: Path) -> None:
     console.print("OpenAI-compatible custom endpoint")
@@ -358,10 +367,9 @@ def _choose_openai_compatible_model(base_url: str, api_key: str) -> str:
         console.print("Could not read models from /v1/models. Enter a model name manually.")
         return Prompt.ask("Model name").strip()
 
-    if sys.stdin.isatty() and sys.stdout.isatty() and _raw_tty_available():
-        selected_model = _choose_model_with_arrow_keys(models)
-    else:
-        selected_model = _choose_model_with_prompt(models)
+    selected_model = _choose_model_with_arrow_keys(models)
+    if selected_model is None:
+        return ""
     console.print(f"Selected model: {selected_model}")
     return selected_model
 
@@ -407,47 +415,61 @@ def _parse_openai_compatible_models(payload: object) -> list[str]:
     return models
 
 
-def _choose_model_with_prompt(models: list[str]) -> str:
-    table = Table(title="Available models")
-    table.add_column("#")
-    table.add_column("Model")
-    for index, model in enumerate(models, start=1):
-        table.add_row(str(index), model)
-    console.print(table)
-
-    selected = Prompt.ask("Choose model number, or type a model name", default="1")
-    return _resolve_model_choice(selected, models)
-
-
-def _choose_model_with_arrow_keys(models: list[str]) -> str:
+def _choose_model_with_arrow_keys(models: list[str]) -> str | None:
     selected_index = 0
     while True:
         _render_model_arrow_menu(models, selected_index)
         key = _read_key()
-        if key in {"\r", "\n"}:
+        if key in {"escape", "ctrl_c"}:
+            console.print("Model selection cancelled")
+            return None
+        if key in {"\r", "\n", "enter"}:
             return models[selected_index]
-        if key == "up":
-            selected_index = _move_menu_selection(selected_index, "up", len(models))
-        elif key == "down":
-            selected_index = _move_menu_selection(selected_index, "down", len(models))
+        selected_index = _move_menu_selection(selected_index, key, len(models))
 
 
 def _render_model_arrow_menu(models: list[str], selected_index: int) -> None:
     console.clear()
     console.print("Available models")
-    console.print("Use ↑/↓ to move, Enter to select.")
+    console.print("Use ↑/↓/←/→/Tab to move, Enter to select, Esc to go back.")
     for index, model in enumerate(models):
         marker = ">" if index == selected_index else " "
         console.print(f"{marker} {model}")
 
 
-def _resolve_model_choice(selected: str, models: list[str]) -> str:
-    normalized = selected.strip()
-    if normalized.isdigit():
-        index = int(normalized)
-        if 1 <= index <= len(models):
-            return models[index - 1]
-    return normalized
+def _choose_keyboard_menu(
+    title: str,
+    rows: list[tuple[str, str, str]],
+    *,
+    select_label: str,
+    escape_label: str,
+) -> str | None:
+    selected_index = 0
+    while True:
+        _render_keyboard_menu(title, rows, selected_index, select_label, escape_label)
+        key = _read_key()
+        if key in {"escape", "ctrl_c"}:
+            return None
+        if key in {"\r", "\n", "enter"}:
+            return rows[selected_index][0]
+        selected_index = _move_menu_selection(selected_index, key, len(rows))
+
+
+def _render_keyboard_menu(
+    title: str,
+    rows: list[tuple[str, str, str]],
+    selected_index: int,
+    select_label: str,
+    escape_label: str,
+) -> None:
+    console.clear()
+    console.print(title)
+    console.print(
+        f"Use ↑/↓/←/→/Tab to move, Enter to {select_label}, Esc to {escape_label}."
+    )
+    for index, (_, label, status) in enumerate(rows):
+        marker = ">" if index == selected_index else " "
+        console.print(f"{marker} {label:<30} {status}")
 
 
 def _choose_provider_from_menu(providers: list[ProviderSetupInfo]) -> ProviderSetupInfo | None:
@@ -455,17 +477,7 @@ def _choose_provider_from_menu(providers: list[ProviderSetupInfo]) -> ProviderSe
         console.print("No providers require setup")
         return None
 
-    if sys.stdin.isatty() and sys.stdout.isatty() and _raw_tty_available():
-        return _choose_provider_with_arrow_keys(providers)
-
-    _print_wizard_menu(providers)
-    selected = Prompt.ask("Choose provider number, or q to finish", default="q")
-    if selected.lower() in {"q", "quit", "done", "finish"}:
-        return None
-    provider = _resolve_provider_choice(selected, providers)
-    if provider is None:
-        console.print(f"Unknown provider choice: {selected}")
-    return provider
+    return _choose_provider_with_arrow_keys(providers)
 
 
 def _choose_provider_with_arrow_keys(
@@ -475,21 +487,18 @@ def _choose_provider_with_arrow_keys(
     while True:
         _render_arrow_menu(providers, selected_index)
         key = _read_key()
-        if key in {"q", "Q", "\x03"}:
+        if key in {"escape", "ctrl_c"}:
             console.print("Provider selection cancelled")
             return None
-        if key in {"\r", "\n"}:
+        if key in {"\r", "\n", "enter"}:
             return providers[selected_index]
-        if key == "up":
-            selected_index = _move_menu_selection(selected_index, "up", len(providers))
-        elif key == "down":
-            selected_index = _move_menu_selection(selected_index, "down", len(providers))
+        selected_index = _move_menu_selection(selected_index, key, len(providers))
 
 
 def _render_arrow_menu(providers: list[ProviderSetupInfo], selected_index: int) -> None:
     console.clear()
     console.print("Provider Key Menu")
-    console.print("Use ↑/↓ to move, Enter to view details, q to finish.")
+    console.print("Use ↑/↓/←/→/Tab to move, Enter to view details, Esc to go back.")
     for index, provider in enumerate(providers):
         marker = ">" if index == selected_index else " "
         console.print(f"{marker} {provider.name:<30} {_provider_config_status(provider)}")
@@ -567,13 +576,29 @@ def _read_key() -> str:
     try:
         tty.setraw(file_descriptor)
         first = sys.stdin.read(1)
+        if first == "\x03":
+            return "ctrl_c"
+        if first in {"\r", "\n"}:
+            return "enter"
+        if first == "\t":
+            return "tab"
         if first == "\x1b":
+            if not select.select([file_descriptor], [], [], 0.05)[0]:
+                return "escape"
             second = sys.stdin.read(1)
+            if not select.select([file_descriptor], [], [], 0.05)[0]:
+                return "escape"
             third = sys.stdin.read(1)
             if second == "[" and third == "A":
                 return "up"
             if second == "[" and third == "B":
                 return "down"
+            if second == "[" and third == "C":
+                return "right"
+            if second == "[" and third == "D":
+                return "left"
+            if second == "[" and third == "Z":
+                return "shift_tab"
         return first
     finally:
         termios.tcsetattr(file_descriptor, termios.TCSADRAIN, old_settings)
@@ -589,41 +614,18 @@ def _providers_requiring_values(config: AlphaDeskConfig) -> list[ProviderSetupIn
     ]
 
 
-def _print_wizard_menu(providers: list[ProviderSetupInfo]) -> None:
-    table = Table(title="Provider Key Menu")
-    table.add_column("#")
-    table.add_column("Name")
-    table.add_column("Status")
-    for index, provider in enumerate(providers, start=1):
-        table.add_row(
-            str(index),
-            provider.name,
-            _provider_config_status(provider),
-        )
-    console.print(table)
-
-
-def _resolve_provider_choice(
-    selected: str, providers: list[ProviderSetupInfo]
-) -> ProviderSetupInfo | None:
-    if selected.isdigit():
-        index = int(selected)
-        if 1 <= index <= len(providers):
-            return providers[index - 1]
-    for provider in providers:
-        if provider.provider_id == selected:
-            return provider
-    return None
-
-
 def _move_menu_selection(current_index: int, direction: str, total: int) -> int:
     if total <= 0:
         return 0
-    if direction == "up":
+    if direction in {"up", "left", "shift_tab"}:
         return (current_index - 1) % total
-    if direction == "down":
+    if direction in {"down", "right", "tab"}:
         return (current_index + 1) % total
     return current_index
+
+
+def _keyboard_navigation_available() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty() and _raw_tty_available()
 
 
 def _prompt_secret(prompt: str) -> str:

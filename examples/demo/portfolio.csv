@@ -1,0 +1,5 @@
+symbol,name,quantity,target_weight,asset_type
+CASH,USD Cash,3000,0.40,cash
+SPY,SPDR S&P 500 ETF Trust,4,0.25,etf
+QQQ,Invesco QQQ Trust,2,0.20,etf
+2800.HK,Tracker Fund of Hong Kong,100,0.15,etf

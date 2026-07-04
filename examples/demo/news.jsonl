@@ -1,0 +1,2 @@
+{"timestamp":"2026-07-02T13:30:00Z","headline":"US equity indexes hold near highs before payrolls","summary":"Demo macro event for testing daily cockpit news clustering and source attribution.","symbols":["SPY","QQQ"],"source_url":"https://example.com/demo/us-equity-indexes"}
+{"timestamp":"2026-07-02T09:00:00Z","headline":"Hong Kong market tracks regional risk appetite","summary":"Demo regional event for testing non-US watchlist coverage.","symbols":["2800.HK"],"source_url":"https://example.com/demo/hong-kong-market"}

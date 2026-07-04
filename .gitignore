@@ -1,0 +1,11 @@
+.alphadesk/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+dist/
+build/
+*.egg-info/

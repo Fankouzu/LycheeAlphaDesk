@@ -1,0 +1,2 @@
+{"date":"2026-07-01","company":"Demo US ETF Issuer","form":"Prospectus Update","summary":"Expense, index methodology, and risk disclosure summary for demo filing analysis.","source_url":"https://example.com/demo/sec-filing"}
+{"date":"2026-07-01","company":"Demo HK ETF Issuer","form":"Announcement","summary":"Synthetic HKEX-style announcement used to test filing ingestion.","source_url":"https://example.com/demo/hkex-announcement"}

@@ -1,0 +1,53 @@
+[project]
+name = "lychee-alphadesk"
+version = "0.1.0a0"
+description = "Terminal-native, policy-first AI investment research workbench."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Lychee AlphaDesk contributors" }
+]
+dependencies = [
+  "jinja2>=3.1.4",
+  "pydantic>=2.8.0",
+  "pyyaml>=6.0.2",
+  "rich>=13.7.1",
+  "textual>=0.80.0",
+  "typer>=0.12.5",
+]
+
+[project.scripts]
+lad = "lychee_alphadesk.cli.app:main"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.11.2",
+  "pytest>=8.3.2",
+  "ruff>=0.6.8",
+  "types-PyYAML>=6.0.12.20240917",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]

@@ -1,0 +1,21 @@
+base_currency: USD
+live_trading: false
+
+risk_limits:
+  min_cash_weight: 0.30
+  max_single_asset_weight: 0.25
+  max_experimental_weight: 0.00
+
+blocked_products:
+  - margin
+  - options
+  - futures
+  - leveraged_etf
+  - inverse_etf
+  - crypto
+
+decision_requires:
+  - data_quality_check
+  - source_links
+  - counterargument
+  - human_approval

@@ -3,7 +3,8 @@
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 ![GitHub Repo stars](https://img.shields.io/github/stars/Fankouzu/LycheeAlphaDesk?style=social)
-![Status](https://img.shields.io/badge/status-design%20%26%20bootstrap-7c3aed)
+![CI](https://github.com/Fankouzu/LycheeAlphaDesk/actions/workflows/ci.yml/badge.svg)
+![Status](https://img.shields.io/badge/status-runnable%20demo-059669)
 ![Broker Agnostic](https://img.shields.io/badge/broker--agnostic-yes-2563eb)
 ![Policy First](https://img.shields.io/badge/policy--first-yes-059669)
 ![Not a Trading Bot](https://img.shields.io/badge/not%20a%20trading%20bot-human%20approved-f59e0b)
@@ -16,6 +17,20 @@ Lychee AlphaDesk 是一个开源终端投研工作台，目标是把市场数据
 它以本地命令行和 TUI 应用运行，反应快，不需要复杂部署。它不是交易机器人，也不提供投资建议。它的目标是帮助投资者在任何人工操作之前，先完成研究、记录、审查和复盘。
 
 > 终端原生。研究优先。政策优先。券商无关。人工确认。
+
+## 🚀 快速开始
+
+```bash
+git clone https://github.com/Fankouzu/LycheeAlphaDesk.git
+cd LycheeAlphaDesk
+uv sync --all-groups --no-editable
+uv run --no-editable lad demo
+uv run --no-editable lad policy check examples/demo/policy.yaml
+uv run --no-editable lad report --demo
+uv run --no-editable lad audit list
+```
+
+生成的 demo 报告会写入 `.alphadesk/daily-report-demo.md`。
 
 ## ✨ 为什么做这个项目
 
@@ -155,7 +170,7 @@ decision_requires:
   - human_approval
 ```
 
-## 🚀 MVP 范围
+## 🎯 MVP 范围
 
 第一个公开版本聚焦研究，不聚焦执行。它应该在没有券商账户、LLM key、TimesFM 权重、付费行情数据的情况下也有价值。
 
@@ -187,9 +202,9 @@ MVP 不做：
 
 ## 🛠️ 项目状态
 
-Lychee AlphaDesk 当前处于设计和启动阶段。
+Lychee AlphaDesk 当前处于可运行 demo 启动阶段。
 
-项目会先完成引擎规格，再进入实现。第一个里程碑是一个 demo-first 的本地研究流程，不需要券商账户即可运行。
+第一个里程碑是一个 demo-first 的本地研究流程，不需要券商账户即可运行。当前代码库已经包含初始 `lad` CLI、内置 demo 数据、投资政策校验、Markdown 报告生成、审计记录、测试和 CI。
 
 ## 🗺️ 路线图
 

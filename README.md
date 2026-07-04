@@ -3,7 +3,8 @@
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 ![GitHub Repo stars](https://img.shields.io/github/stars/Fankouzu/LycheeAlphaDesk?style=social)
-![Status](https://img.shields.io/badge/status-design%20%26%20bootstrap-7c3aed)
+![CI](https://github.com/Fankouzu/LycheeAlphaDesk/actions/workflows/ci.yml/badge.svg)
+![Status](https://img.shields.io/badge/status-runnable%20demo-059669)
 ![Broker Agnostic](https://img.shields.io/badge/broker--agnostic-yes-2563eb)
 ![Policy First](https://img.shields.io/badge/policy--first-yes-059669)
 ![Not a Trading Bot](https://img.shields.io/badge/not%20a%20trading%20bot-human%20approved-f59e0b)
@@ -16,6 +17,20 @@ Lychee AlphaDesk is an open-source terminal investment desk that combines market
 It runs locally as a fast command-line and TUI application. It is not a trading bot. It does not provide financial advice. It is designed to help investors research, document, and review decisions before any manual action.
 
 > Terminal-native. Research-first. Policy-first. Broker-agnostic. Human-approved.
+
+## 🚀 Quickstart
+
+```bash
+git clone https://github.com/Fankouzu/LycheeAlphaDesk.git
+cd LycheeAlphaDesk
+uv sync --all-groups --no-editable
+uv run --no-editable lad demo
+uv run --no-editable lad policy check examples/demo/policy.yaml
+uv run --no-editable lad report --demo
+uv run --no-editable lad audit list
+```
+
+The generated demo report is written to `.alphadesk/daily-report-demo.md`.
 
 ## ✨ Why This Exists
 
@@ -155,7 +170,7 @@ decision_requires:
   - human_approval
 ```
 
-## 🚀 MVP Scope
+## 🎯 MVP Scope
 
 The first public version should focus on research, not execution. It should be useful without a broker account, an LLM key, TimesFM weights, or paid market data.
 
@@ -187,9 +202,9 @@ Out of scope for MVP:
 
 ## 🛠️ Project Status
 
-Lychee AlphaDesk is in the design and bootstrap stage.
+Lychee AlphaDesk is in the runnable demo bootstrap stage.
 
-The initial engine specification is being prepared before implementation. The first milestone is a demo-first research workflow that can run locally without brokerage credentials.
+The first milestone is a demo-first research workflow that can run locally without brokerage credentials. The current codebase includes the initial `lad` CLI, bundled demo data, policy validation, Markdown report generation, audit records, tests, and CI.
 
 ## 🗺️ Roadmap
 

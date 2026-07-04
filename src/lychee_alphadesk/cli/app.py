@@ -30,6 +30,7 @@ from lychee_alphadesk.tui.app import run_tui
 
 console = Console()
 ESC_SEQUENCE_TIMEOUT_SECONDS = 0.25
+ESC_SEQUENCE_MAX_LENGTH = 12
 app = typer.Typer(
     help="Lychee AlphaDesk terminal-native investment research workbench.",
     invoke_without_command=True,
@@ -599,20 +600,46 @@ def _normalize_keypress(first: str, read_next: Callable[[], str]) -> str:
     if first != "\x1b":
         return first
 
-    second = read_next()
-    if not second:
+    sequence = _read_escape_sequence(read_next)
+    if not sequence:
         return "escape"
-    third = read_next()
-    if second == "[" and third == "A":
-        return "up"
-    if second == "[" and third == "B":
-        return "down"
-    if second == "[" and third == "C":
-        return "right"
-    if second == "[" and third == "D":
-        return "left"
-    if second == "[" and third == "Z":
+    return _normalize_escape_sequence(sequence)
+
+
+def _read_escape_sequence(read_next: Callable[[], str]) -> str:
+    chars: list[str] = []
+    while len(chars) < ESC_SEQUENCE_MAX_LENGTH:
+        char = read_next()
+        if not char:
+            break
+        chars.append(char)
+        if _escape_sequence_is_complete("".join(chars)):
+            break
+    return "".join(chars)
+
+
+def _escape_sequence_is_complete(sequence: str) -> bool:
+    if not sequence:
+        return False
+    if sequence[0] == "[":
+        return sequence[-1].isalpha() or sequence[-1] == "~"
+    if sequence[0] == "O":
+        return len(sequence) >= 2
+    return True
+
+
+def _normalize_escape_sequence(sequence: str) -> str:
+    if sequence == "[Z":
         return "shift_tab"
+    final = sequence[-1]
+    if final == "A":
+        return "up"
+    if final == "B":
+        return "down"
+    if final == "C":
+        return "right"
+    if final == "D":
+        return "left"
     return "escape"
 
 

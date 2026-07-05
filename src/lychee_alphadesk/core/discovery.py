@@ -3,8 +3,18 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from lychee_alphadesk.core.config import AlphaDeskConfig, load_config
+
 DISCOVERY_CACHE_FILENAME = "discovery-today.json"
 DEFAULT_MARKETS = ["US", "HK", "CN"]
+LLM_REQUIRED_MESSAGE = (
+    "LLM provider is not configured. Run "
+    "`lychee setup llm set <base_url> <api_key> MODEL_NAME` before Today Discovery."
+)
+
+
+class DiscoveryLLMRequiredError(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -64,29 +74,34 @@ def parse_markets(value: str) -> list[str]:
     return normalized or DEFAULT_MARKETS.copy()
 
 
-def build_today_discovery_report(markets: list[str] | None = None) -> DiscoveryReport:
+def build_today_discovery_report(
+    markets: list[str] | None = None,
+    config: AlphaDeskConfig | None = None,
+) -> DiscoveryReport:
+    active_config = config or load_config()
+    require_active_llm(active_config)
     selected_markets = markets or DEFAULT_MARKETS.copy()
     themes = [
         theme
-        for theme in _fallback_themes()
+        for theme in _starter_themes()
         if set(theme.markets).intersection(selected_markets)
     ]
     candidates = [
         candidate
-        for candidate in _fallback_candidates()
+        for candidate in _starter_candidates()
         if candidate.market in selected_markets
     ]
     return DiscoveryReport(
-        mode="fallback",
+        mode="llm-required-starter",
         created_at=datetime.now(UTC).isoformat(timespec="seconds"),
         markets=selected_markets,
         sources=[
             DiscoverySource(
-                provider="fallback-starter-universe",
+                provider="starter-universe",
                 market=market,
                 description=(
-                    "Starter discovery scaffold for first-run research; live provider "
-                    "synthesis will replace this as integrations mature."
+                    "Starter discovery scaffold for first-run research. It is only "
+                    "available after an LLM provider is configured."
                 ),
             )
             for market in selected_markets
@@ -94,8 +109,6 @@ def build_today_discovery_report(markets: list[str] | None = None) -> DiscoveryR
         themes=themes,
         candidates=candidates,
         warnings=[
-            "LLM synthesis is not active in this first discovery slice; "
-            "using a deterministic fallback report.",
             "Candidates are research targets only and are not buy/sell recommendations.",
         ],
         next_actions=[
@@ -106,6 +119,13 @@ def build_today_discovery_report(markets: list[str] | None = None) -> DiscoveryR
         ],
         disclaimer="Not investment advice. Use this report to decide what to research next.",
     )
+
+
+def require_active_llm(config: AlphaDeskConfig) -> None:
+    llm = config.llm.openai_compatible
+    if llm.base_url and llm.api_key and llm.model:
+        return
+    raise DiscoveryLLMRequiredError(LLM_REQUIRED_MESSAGE)
 
 
 def write_discovery_report(report: DiscoveryReport, output_dir: Path) -> Path:
@@ -146,7 +166,7 @@ def discovery_report_summary(report: DiscoveryReport, output_path: Path | None =
     return "\n".join(lines)
 
 
-def _fallback_themes() -> list[DiscoveryTheme]:
+def _starter_themes() -> list[DiscoveryTheme]:
     return [
         DiscoveryTheme(
             name="AI infrastructure watch",
@@ -203,7 +223,7 @@ def _fallback_themes() -> list[DiscoveryTheme]:
     ]
 
 
-def _fallback_candidates() -> list[DiscoveryCandidate]:
+def _starter_candidates() -> list[DiscoveryCandidate]:
     return [
         DiscoveryCandidate(
             display_name="NVIDIA",

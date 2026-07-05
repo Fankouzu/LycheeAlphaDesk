@@ -18,6 +18,7 @@ from lychee_alphadesk.core.config import (
 from lychee_alphadesk.core.data_engine import build_demo_data_snapshot, write_snapshot_json
 from lychee_alphadesk.core.demo import REQUIRED_DEMO_FILES, check_demo_workspace
 from lychee_alphadesk.core.discovery import (
+    DiscoveryLLMRequiredError,
     build_today_discovery_report,
     discovery_report_summary,
     parse_markets,
@@ -232,7 +233,11 @@ def discover_today(
     except ValueError as error:
         console.print(str(error))
         raise typer.Exit(code=1) from error
-    report = build_today_discovery_report(selected_markets)
+    try:
+        report = build_today_discovery_report(selected_markets)
+    except DiscoveryLLMRequiredError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
     output_path = write_discovery_report(report, output_dir)
     console.print(f"Today Discovery written: {output_path}", soft_wrap=True)
     console.print(discovery_report_summary(report))

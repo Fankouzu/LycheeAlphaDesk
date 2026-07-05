@@ -5,6 +5,7 @@ from pathlib import Path
 from textual.widgets import Input, OptionList, Static
 
 import lychee_alphadesk.tui.app as tui_app
+from lychee_alphadesk.core.config import set_openai_compatible_llm
 from lychee_alphadesk.core.live_data import PullResult
 from lychee_alphadesk.tui.app import AlphaDeskApp
 
@@ -60,7 +61,37 @@ def test_dashboard_has_keyboard_action_menu(tmp_path: Path) -> None:
     asyncio.run(run_case())
 
 
-def test_dashboard_today_discovery_action_writes_report(tmp_path: Path) -> None:
+def test_dashboard_today_discovery_requires_llm_configuration(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+
+            status = app.query_one("#action-status", Static)
+            text = str(status.content)
+            assert "LLM provider is not configured" in text
+            assert "lychee setup llm set" in text
+            assert not (tmp_path / "data" / "discovery-today.json").exists()
+            assert not app.query(Input)
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_today_discovery_action_writes_report_when_llm_configured(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    set_openai_compatible_llm(
+        "https://llm.example.com/v1",
+        "sk-demo-secret",
+        "demo-model",
+    )
+
     async def run_case() -> None:
         app = AlphaDeskApp(output_dir=tmp_path)
         async with app.run_test() as pilot:

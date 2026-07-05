@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 
 import lychee_alphadesk.cli.app as cli_app
 from lychee_alphadesk.cli.app import app
+from lychee_alphadesk.core.config import set_openai_compatible_llm
 from lychee_alphadesk.core.live_data import PullResult
 
 runner = CliRunner()
@@ -71,7 +72,29 @@ def test_data_health_command_shows_provider_quality() -> None:
     assert "pass" in result.stdout
 
 
-def test_discover_today_command_writes_fallback_report(tmp_path: Path) -> None:
+def test_discover_today_requires_llm_configuration(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+
+    result = runner.invoke(app, ["discover", "today", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "LLM provider is not configured" in result.stdout
+    assert "lychee setup llm set" in result.stdout
+    assert not (tmp_path / "data" / "discovery-today.json").exists()
+
+
+def test_discover_today_command_writes_report_when_llm_configured(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    set_openai_compatible_llm(
+        "https://llm.example.com/v1",
+        "sk-demo-secret",
+        "demo-model",
+    )
+
     result = runner.invoke(app, ["discover", "today", "--output-dir", str(tmp_path)])
 
     assert result.exit_code == 0
@@ -84,7 +107,7 @@ def test_discover_today_command_writes_fallback_report(tmp_path: Path) -> None:
     report_path = tmp_path / "data" / "discovery-today.json"
     assert report_path.exists()
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["mode"] == "fallback"
+    assert report["mode"] == "llm-required-starter"
     assert report["markets"] == ["US", "HK", "CN"]
     assert report["themes"][0]["name"] == "AI infrastructure watch"
     assert report["candidates"][0]["recommendation"] == "research"

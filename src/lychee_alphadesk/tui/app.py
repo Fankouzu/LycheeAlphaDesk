@@ -10,6 +10,7 @@ from textual.widgets.option_list import Option
 
 from lychee_alphadesk.core.data_engine import write_snapshot_json
 from lychee_alphadesk.core.discovery import (
+    DiscoveryLLMRequiredError,
     build_today_discovery_report,
     discovery_report_summary,
     write_discovery_report,
@@ -171,7 +172,14 @@ class AlphaDeskApp(App[None]):
         self.set_focus(self.query_one("#symbols-input", Input))
 
     async def _show_today_discovery(self) -> None:
-        report = build_today_discovery_report()
+        try:
+            report = build_today_discovery_report()
+        except DiscoveryLLMRequiredError as error:
+            await self._replace_action_panel(
+                Static(f"Action failed: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
         output_path = write_discovery_report(report, self.output_dir)
         await self._replace_action_panel(
             Static(

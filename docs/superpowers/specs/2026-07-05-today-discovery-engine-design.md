@@ -116,7 +116,7 @@ Disallowed LLM tasks:
 - unsupported claims without source evidence
 - hiding uncertainty or missing data
 
-If no LLM provider is configured, the engine should still run a deterministic fallback: show starter market context, configured-provider status, raw news clusters, and a clearly labeled "LLM analysis unavailable" message.
+If no LLM provider is configured, the engine must fail with setup guidance. It must not silently generate fallback analysis because that would make a beginner think AI synthesis has happened when it has not.
 
 ## TUI Requirements
 
@@ -164,7 +164,7 @@ The first code milestone should focus on a useful local loop:
 2. Add `Today Discovery` as the first TUI action.
 3. Produce a local JSON cache under `.alphadesk/data/`.
 4. Generate a readable terminal report from cached discovery data.
-5. Support fallback mode when only demo/no-key providers are available.
+5. Fail clearly when the LLM provider is not configured or inactive.
 6. Add tests for the report model, CLI command, and TUI menu ordering.
 
 Do not add broker execution, automatic trading, high-frequency workflows, or portfolio recommendations in this milestone.
@@ -177,7 +177,7 @@ Documentation and implementation should be verified with:
 - Unit tests for discovery report serialization.
 - CLI tests for `lychee discover today`.
 - TUI tests confirming `Today Discovery` is the first action.
-- Fallback tests with no LLM provider configured.
+- Error-path tests with no LLM provider configured.
 - Provider warning tests for missing or degraded market coverage.
 
 ## Open Follow-up

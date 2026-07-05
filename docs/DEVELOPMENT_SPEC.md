@@ -135,7 +135,7 @@ Command behavior:
 - `lad data health --demo` prints provider-level quality checks.
 - `lad data snapshot --demo` writes a unified JSON snapshot with market, news, filing, and forecast data.
 - `lychee discover today` runs a discovery-first workflow across US, HK, and China A-share markets without requiring symbols up front.
-- `lad discover today --markets us,hk,cn` writes a local discovery report cache with themes, watch candidates, evidence references, warnings, and next actions. The first slice may use a deterministic fallback report while provider-backed synthesis is being added.
+- `lad discover today --markets us,hk,cn` writes a local discovery report cache with themes, watch candidates, evidence references, warnings, and next actions. The command must fail if no LLM provider is configured; silent fallback reports are not allowed.
 - `lad data pull market` writes Alpha Vantage daily prices into the local live cache.
 - `lad data pull news` writes Marketaux, Finnhub, or NewsAPI events into the local live cache.
 - `lad data pull filings` writes recent SEC EDGAR filings into the local live cache.
@@ -210,7 +210,7 @@ The discovery report must include:
 
 The LLM may summarize, cluster, extract, compare, and suggest next research steps. It must not produce direct buy/sell calls, target prices, automatic allocations, or live trading instructions.
 
-If no LLM provider is configured, the command must still produce a deterministic fallback report with raw themes, provider status, and an "LLM analysis unavailable" warning.
+If no LLM provider is configured, the command must fail with setup guidance and must not write a discovery cache.
 
 ## 7. Provider Interfaces
 

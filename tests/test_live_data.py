@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from lychee_alphadesk.core.live_data import (
     pull_sec_filings,
     run_cached_data_health,
 )
+from lychee_alphadesk.core.research_db import init_research_db
 
 
 def test_pull_market_prices_writes_alpha_vantage_cache(tmp_path: Path) -> None:
@@ -47,6 +49,49 @@ def test_pull_market_prices_writes_alpha_vantage_cache(tmp_path: Path) -> None:
         "volume": 51230000,
         "currency": "USD",
     }
+
+
+def test_pull_market_prices_migrates_existing_research_db_without_cache_table(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["alpha_vantage"].value = "demo-alpha-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    db_path = init_research_db(tmp_path)
+    with sqlite3.connect(db_path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    assert "research_candidates" in tables
+    assert "cache_entries" not in tables
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        return {
+            "Time Series (Daily)": {
+                "2026-07-02": {"4. close": "214.33", "5. volume": "51230000"},
+            },
+        }
+
+    result = pull_market_prices(
+        symbols=["AAPL"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        fetch_json=fetch_json,
+        now=datetime(2026, 7, 6, 14, 0, tzinfo=UTC),
+    )
+
+    assert result.count == 1
+    with sqlite3.connect(db_path) as connection:
+        migrated_tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    assert "cache_entries" in migrated_tables
 
 
 def test_pull_market_prices_skips_fresh_open_market_cache(tmp_path: Path) -> None:

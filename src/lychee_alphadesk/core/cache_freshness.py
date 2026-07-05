@@ -196,6 +196,7 @@ def get_cache_entry(output_dir: Path, layer: str, cache_key: str) -> CacheEntry 
     db_path = cache_db_path(output_dir)
     if not db_path.exists():
         return None
+    _init_cache_db(output_dir)
     with sqlite3.connect(db_path) as connection:
         row = connection.execute(
             """

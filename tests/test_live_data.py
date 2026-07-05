@@ -51,6 +51,198 @@ def test_pull_market_prices_writes_alpha_vantage_cache(tmp_path: Path) -> None:
     }
 
 
+def test_pull_market_prices_auto_uses_eastmoney_for_hk_symbols(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["alpha_vantage"].value = "demo-alpha-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    seen_urls: list[str] = []
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        seen_urls.append(url)
+        if "alphavantage.co" in url:
+            return {
+                "Time Series (Daily)": {
+                    "2026-07-02": {"4. close": "90.50", "5. volume": "3000000"},
+                },
+            }
+        assert "push2his.eastmoney.com" in url
+        assert "116.03456" in url
+        return {
+            "data": {
+                "code": "03456",
+                "market": 116,
+                "name": "易方达港交所科技",
+                "decimal": 3,
+                "klines": [
+                    "2026-07-01,7.700,7.750,7.800,7.650,600000,4650000",
+                    "2026-07-02,7.750,7.900,7.955,7.750,647200,5128971",
+                ],
+            }
+        }
+
+    result = pull_market_prices(
+        symbols=["BABA", "3456.HK"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        fetch_json=fetch_json,
+    )
+
+    assert result.count == 2
+    assert any("alphavantage.co" in url for url in seen_urls)
+    assert any("push2his.eastmoney.com" in url for url in seen_urls)
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["provider"] == "auto"
+    assert cache["rows"] == [
+        {
+            "symbol": "BABA",
+            "date": "2026-07-02",
+            "close": 90.5,
+            "volume": 3000000,
+            "currency": "USD",
+        },
+        {
+            "symbol": "3456.HK",
+            "date": "2026-07-02",
+            "close": 7.9,
+            "volume": 647200,
+            "currency": "HKD",
+        },
+    ]
+
+
+def test_pull_market_prices_auto_keeps_alpha_rows_when_eastmoney_fails(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["alpha_vantage"].value = "demo-alpha-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        if "alphavantage.co" in url:
+            return {
+                "Time Series (Daily)": {
+                    "2026-07-02": {"4. close": "90.50", "5. volume": "3000000"},
+                },
+            }
+        raise RuntimeError("Eastmoney unavailable")
+
+    result = pull_market_prices(
+        symbols=["BABA", "3456.HK"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        fetch_json=fetch_json,
+    )
+
+    assert result.count == 1
+    assert "Eastmoney unavailable" in result.warnings[0]
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["rows"][0]["symbol"] == "BABA"
+
+
+def test_pull_market_prices_preserves_existing_rows_when_refresh_returns_no_rows(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    cache_path = data_dir / "market-prices.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "provider": "auto",
+                "rows": [
+                    {
+                        "symbol": "BABA",
+                        "date": "2026-07-02",
+                        "close": 90.5,
+                        "volume": 3000000,
+                        "currency": "USD",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        raise RuntimeError("Eastmoney unavailable")
+
+    result = pull_market_prices(
+        symbols=["3456.HK"],
+        output_dir=tmp_path,
+        provider_id="auto",
+        fetch_json=fetch_json,
+        force=True,
+    )
+
+    assert result.count == 0
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["rows"] == [
+        {
+            "symbol": "BABA",
+            "date": "2026-07-02",
+            "close": 90.5,
+            "volume": 3000000,
+            "currency": "USD",
+        }
+    ]
+
+
+def test_pull_market_prices_auto_falls_back_to_yahoo_chart(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["alpha_vantage"].value = "demo-alpha-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        if "alphavantage.co" in url:
+            return {}
+        if "push2his.eastmoney.com" in url:
+            raise RuntimeError("Eastmoney unavailable")
+        assert "query1.finance.yahoo.com" in url
+        assert headers is not None
+        assert "Mozilla" in headers["User-Agent"]
+        symbol = "BABA" if "BABA" in url else "3456.HK"
+        close = 96.14 if symbol == "BABA" else 7.9
+        currency = "USD" if symbol == "BABA" else "HKD"
+        return {
+            "chart": {
+                "result": [
+                    {
+                        "meta": {"symbol": symbol, "currency": currency},
+                        "timestamp": [1782950400],
+                        "indicators": {
+                            "quote": [
+                                {
+                                    "close": [close],
+                                    "volume": [3000000],
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+        }
+
+    result = pull_market_prices(
+        symbols=["BABA", "3456.HK"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        fetch_json=fetch_json,
+    )
+
+    assert result.count == 2
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert [row["symbol"] for row in cache["rows"]] == ["BABA", "3456.HK"]
+    assert cache["rows"][0]["close"] == 96.14
+    assert cache["rows"][1]["currency"] == "HKD"
+
+
 def test_pull_market_prices_migrates_existing_research_db_without_cache_table(
     tmp_path: Path,
 ) -> None:
@@ -152,6 +344,41 @@ def test_pull_market_prices_skips_fresh_open_market_cache(tmp_path: Path) -> Non
     assert "行情缓存仍在保质期内" in result.warnings[0]
 
 
+def test_pull_sec_filings_uses_common_baba_cik_when_ticker_fetch_fails(
+    tmp_path: Path,
+) -> None:
+    seen_urls: list[str] = []
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        seen_urls.append(url)
+        if url.endswith("company_tickers.json"):
+            raise RuntimeError("SEC unavailable")
+        assert "CIK0001577552.json" in url
+        return {
+            "filings": {
+                "recent": {
+                    "form": ["20-F"],
+                    "filingDate": ["2026-06-30"],
+                    "accessionNumber": ["0001104659-26-000001"],
+                    "primaryDocument": ["baba-20260630x20f.htm"],
+                }
+            }
+        }
+
+    result = pull_sec_filings(
+        symbols=["BABA"],
+        output_dir=tmp_path,
+        fetch_json=fetch_json,
+    )
+
+    assert result.count == 1
+    assert "SEC 代码映射拉取失败" in result.warnings[0]
+    assert any("CIK0001577552.json" in url for url in seen_urls)
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["rows"][0]["company"] == "Alibaba Group Holding Limited"
+    assert cache["rows"][0]["form"] == "20-F"
+
+
 def test_pull_market_prices_force_refreshes_fresh_cache(tmp_path: Path) -> None:
     config = default_config()
     config.providers["alpha_vantage"].value = "demo-alpha-key"
@@ -201,6 +428,108 @@ def test_pull_market_prices_force_refreshes_fresh_cache(tmp_path: Path) -> None:
 
     assert calls == 1
     assert result.refreshed is True
+    assert result.count == 1
+
+
+def test_pull_market_prices_refreshes_zero_row_final_cache(tmp_path: Path) -> None:
+    config = default_config()
+    config.providers["alpha_vantage"].value = "demo-alpha-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    cache_path = data_dir / "market-prices.json"
+    cache_path.write_text(
+        json.dumps({"provider": "auto", "rows": []}),
+        encoding="utf-8",
+    )
+    now = datetime(2026, 7, 6, 22, 0, tzinfo=UTC)
+    record_cache_entry(
+        output_dir=tmp_path,
+        layer="market",
+        cache_key="market:auto:BABA",
+        provider="auto",
+        artifact_path=cache_path,
+        created_at=now - timedelta(hours=1),
+        expires_at=now + timedelta(days=1),
+        ttl_seconds=900,
+        row_count=0,
+        market="US",
+        session_state="closed",
+        is_final_for_session=True,
+    )
+    calls = 0
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        nonlocal calls
+        calls += 1
+        return {
+            "Time Series (Daily)": {
+                "2026-07-02": {"4. close": "90.50", "5. volume": "3000000"},
+            },
+        }
+
+    result = pull_market_prices(
+        symbols=["BABA"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        fetch_json=fetch_json,
+        now=now,
+    )
+
+    assert calls == 1
+    assert result.count == 1
+
+
+def test_pull_market_prices_refreshes_when_cache_file_lacks_requested_symbol(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["alpha_vantage"].value = "demo-alpha-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    cache_path = data_dir / "market-prices.json"
+    cache_path.write_text(
+        json.dumps({"provider": "auto", "rows": []}),
+        encoding="utf-8",
+    )
+    now = datetime(2026, 7, 6, 22, 0, tzinfo=UTC)
+    record_cache_entry(
+        output_dir=tmp_path,
+        layer="market",
+        cache_key="market:auto:BABA",
+        provider="auto",
+        artifact_path=cache_path,
+        created_at=now - timedelta(hours=1),
+        expires_at=now + timedelta(days=1),
+        ttl_seconds=900,
+        row_count=1,
+        market="US",
+        session_state="closed",
+        is_final_for_session=True,
+    )
+    calls = 0
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        nonlocal calls
+        calls += 1
+        return {
+            "Time Series (Daily)": {
+                "2026-07-02": {"4. close": "90.50", "5. volume": "3000000"},
+            },
+        }
+
+    result = pull_market_prices(
+        symbols=["BABA"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        fetch_json=fetch_json,
+        now=now,
+    )
+
+    assert calls == 1
     assert result.count == 1
 
 

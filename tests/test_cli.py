@@ -267,6 +267,77 @@ def test_research_deepen_command_handles_empty_queue(tmp_path: Path) -> None:
     assert "研究队列为空" in result.stdout
 
 
+def test_research_fill_gaps_command_runs_gap_fill_and_redeepens(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _write_cli_research_seed(tmp_path)
+
+    def fake_pull_market_prices(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == ["STX"]
+        output_path = tmp_path / "data" / "market-prices.json"
+        output_path.parent.mkdir(exist_ok=True)
+        output_path.write_text(
+            json.dumps(
+                {
+                    "provider": "alpha_vantage",
+                    "rows": [
+                        {
+                            "symbol": "STX",
+                            "date": "2026-07-02",
+                            "close": 110.5,
+                            "volume": 3210000,
+                            "currency": "USD",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("market", "alpha_vantage", 1, output_path, [])
+
+    def fake_pull_sec_filings(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == ["STX"]
+        output_path = tmp_path / "data" / "filings.json"
+        output_path.parent.mkdir(exist_ok=True)
+        output_path.write_text(
+            json.dumps(
+                {
+                    "provider": "sec_edgar",
+                    "rows": [
+                        {
+                            "date": "2026-07-01",
+                            "company": "Seagate",
+                            "form": "10-K",
+                            "summary": "STX 在 2026-07-01 提交了 10-K。",
+                            "source_url": "https://example.com/filing",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("filings", "sec_edgar", 1, output_path, [])
+
+    monkeypatch.setattr(
+        "lychee_alphadesk.core.research.pull_market_prices",
+        fake_pull_market_prices,
+    )
+    monkeypatch.setattr(
+        "lychee_alphadesk.core.research.pull_sec_filings",
+        fake_pull_sec_filings,
+    )
+
+    result = runner.invoke(app, ["research", "fill-gaps", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "自动补数据完成" in result.stdout
+    assert "STX" in result.stdout
+    assert "补齐后研究深挖包已写入" in result.stdout
+
+
 def test_discover_today_reports_market_news_preparation_error(
     monkeypatch,
     tmp_path: Path,

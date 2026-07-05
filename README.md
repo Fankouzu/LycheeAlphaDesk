@@ -251,6 +251,14 @@ lychee research deepen
 
 `research deepen` reads the SQLite research queue and local live cache, then writes `.alphadesk/research/research-packets-*.json`. Each packet includes candidate identity, evidence IDs, expanded news evidence, cached prices/news/filings, data gaps, and next verification actions. It does not produce buy/sell calls; it helps decide what evidence to collect next.
 
+Automatically fill data that can be pulled from research gaps:
+
+```bash
+lychee research fill-gaps
+```
+
+`research fill-gaps` reads the queue and local cache, pulls missing market prices and missing SEC filings for US stock candidates, then writes a fresh research packet. Price filling uses `auto` by default: US symbols use Alpha Vantage, HK/China symbols use Eastmoney daily bars, and Yahoo chart is used as a cross-market fallback when the primary source fails. Candidates without symbols are not guessed automatically; they are marked as needing symbol mapping first.
+
 Current market-level and symbol-level cache commands:
 
 ```bash
@@ -268,7 +276,7 @@ lychee
 
 Current live providers:
 
-- Market prices: Alpha Vantage daily time series.
+- Market prices: Alpha Vantage daily time series; automatic gap filling can use Eastmoney daily bars for HK/China symbols and Yahoo chart as a cross-market fallback.
 - News: Marketaux, Finnhub, or NewsAPI, selected with `--provider`; without `--symbols` it pulls market-level news, and with `--symbols` it pulls symbol-level news. `auto` uses the first configured provider that fits the request type.
 - Filings: SEC EDGAR recent filings for US-listed symbols.
 

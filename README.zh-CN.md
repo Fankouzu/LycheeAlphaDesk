@@ -251,6 +251,14 @@ lychee research deepen
 
 `research deepen` 会读取 SQLite 研究队列和本地 live cache，生成 `.alphadesk/research/research-packets-*.json`。每个研究包包含候选身份、证据 ID、可展开的新闻证据、已缓存行情/新闻/公告、数据缺口和下一步核验动作。它不会给出买入/卖出结论，只帮助你决定下一步该补什么证据。
 
+根据深挖包自动补齐可拉取的数据：
+
+```bash
+lychee research fill-gaps
+```
+
+`research fill-gaps` 会读取研究队列和本地缓存，自动拉取缺失的行情，以及美股股票缺失的 SEC 公告，然后重新生成研究深挖包。行情补齐默认使用 `auto`：美股优先走 Alpha Vantage，港股/A 股走 Eastmoney 日 K 接口；主数据源失败时使用 Yahoo chart 兜底。没有证券代码的候选不会被系统乱猜，会标记为需要先做代码映射。
+
 当前可用的市场级与 symbol 级 cache 命令：
 
 ```bash
@@ -268,7 +276,7 @@ lychee
 
 当前 live provider：
 
-- 行情：Alpha Vantage 日线行情。
+- 行情：Alpha Vantage 日线行情；自动补缺口时可用 Eastmoney 覆盖港股/A 股日 K，并用 Yahoo chart 做跨市场兜底。
 - 新闻：Marketaux、Finnhub 或 NewsAPI，可用 `--provider` 指定；不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`auto` 会按请求类型使用第一个已配置且适用的 provider。
 - 公告：SEC EDGAR 美股近期 filings。
 

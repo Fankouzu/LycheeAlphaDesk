@@ -72,6 +72,8 @@ def evaluate_market_cache(
         return CacheDecision(True, "没有可用的行情缓存。", None)
     if not entry.artifact_path.exists():
         return CacheDecision(True, "行情缓存记录存在，但缓存文件缺失。", entry)
+    if entry.row_count == 0:
+        return CacheDecision(True, "行情缓存记录为空，需要重新刷新。", entry)
 
     states = [_state_for_symbol(symbol, current) for symbol in symbols]
     if _needs_post_close_final_refresh(states, entry):

@@ -43,7 +43,7 @@ from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
 from lychee_alphadesk.core.policy import load_policy, validate_policy
 from lychee_alphadesk.core.reports import generate_demo_report
-from lychee_alphadesk.core.research import deepen_research_queue
+from lychee_alphadesk.core.research import deepen_research_queue, fill_research_data_gaps
 from lychee_alphadesk.core.research_db import (
     list_research_queue,
     write_discovery_research_run,
@@ -425,6 +425,63 @@ def research_deepen(
         )
 
 
+@research_app.command("fill-gaps")
+def research_fill_gaps(
+    status: Annotated[
+        str | None,
+        typer.Option("--status", help="按研究状态选择候选；默认处理 new。"),
+    ] = "new",
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多处理多少个研究候选。"),
+    ] = 5,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略已有缓存，强制重新拉取可自动补齐的数据。"),
+    ] = False,
+) -> None:
+    """根据研究深挖包缺口自动补齐可拉取的数据。"""
+    fill_result = fill_research_data_gaps(
+        output_dir=output_dir,
+        status=status,
+        limit=limit,
+        force=force,
+    )
+    if fill_result.candidates_checked == 0:
+        console.print("研究队列为空。请先运行 `lychee discover today`。")
+        return
+
+    console.print(f"自动补数据完成，已检查候选: {fill_result.candidates_checked}")
+    table = Table(title="Lychee AlphaDesk 自动补缺口")
+    table.add_column("动作")
+    table.add_column("状态")
+    table.add_column("代码", overflow="fold")
+    table.add_column("行数")
+    table.add_column("说明", overflow="fold")
+    for action in fill_result.actions:
+        table.add_row(
+            _display_gap_action_type(action.action_type),
+            _display_gap_action_status(action.status),
+            _display_values(action.symbols),
+            str(action.count),
+            action.message,
+        )
+    console.print(table)
+    for warning in fill_result.warnings:
+        console.print(f"警告: {warning}", soft_wrap=True)
+
+    deepen_result = deepen_research_queue(output_dir=output_dir, status=status, limit=limit)
+    if deepen_result.artifact_path is not None:
+        console.print(
+            f"补齐后研究深挖包已写入: {deepen_result.artifact_path}",
+            soft_wrap=True,
+        )
+
+
 @data_pull_app.command("market")
 def data_pull_market(
     symbols: Annotated[
@@ -581,6 +638,25 @@ def _display_values(value: object) -> str:
     if separator == "；":
         return separator.join(str(item).rstrip("。") for item in value) + "。"
     return separator.join(str(item) for item in value)
+
+
+def _display_gap_action_type(action_type: str) -> str:
+    return {
+        "market_prices": "行情",
+        "sec_filings": "SEC 公告",
+        "symbol_mapping": "代码映射",
+    }.get(action_type, action_type)
+
+
+def _display_gap_action_status(status: str) -> str:
+    return {
+        "pulled": "已拉取",
+        "cached": "已使用缓存",
+        "partial": "部分完成",
+        "skipped": "跳过",
+        "failed": "失败",
+        "needs_input": "需人工处理",
+    }.get(status, status)
 
 
 @setup_app.callback()

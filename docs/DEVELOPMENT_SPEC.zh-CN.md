@@ -151,6 +151,7 @@ lad
 - `lad policy check` 校验投资政策文件，并打印违反项或警告。
 - `lad research queue` 列出 SQLite 研究库中的关注候选，包含状态、市场、代码、主题、证据数量和下一步动作数量。
 - `lad research deepen` 从研究队列生成二阶段研究深挖包，写入本地 SQLite `research_packets` 表和 `.alphadesk/research/research-packets-*.json`，包含候选身份、证据 ID、可展开证据、已缓存数据、数据缺口和下一步核验动作。
+- `lad research fill-gaps` 根据研究队列和深挖包暴露的数据缺口，自动补齐可拉取的数据；第一版支持缺失行情和美股股票 SEC 公告，补齐后必须重新生成研究深挖包。行情补齐默认使用 `auto`，美股走 Alpha Vantage，港股/A 股走 Eastmoney 日 K，主数据源失败时使用 Yahoo chart 兜底。缺少 symbol 的候选必须标记为待映射，不得自动猜测。
 - `lad audit list` 列出已生成的报告和决策记录。
 
 ## 数据新鲜度策略
@@ -260,6 +261,16 @@ Research Deepen 是 discovery 之后的二阶段研究准备层。它读取 SQLi
 - 明确的非投资建议免责声明。
 
 Research Deepen 不得输出直接买入/卖出结论、目标价、自动仓位配置或实盘交易指令。
+
+研究数据工作流必须形成闭环：
+
+1. 开发或调整数据/研究能力。
+2. 使用真实命令拉取或读取真实缓存数据。
+3. 重新生成研究深挖包。
+4. 检查 data_gaps 是否减少、证据是否可追溯、输出是否仍然不构成投资建议。
+5. 如果数据仍不满足研究需要，继续开发补齐能力，而不是把缺口留给用户猜。
+
+自动补缺口第一版仅处理确定性动作：已有 symbol 的行情、US stock 的 SEC filings。行情 provider 必须支持逐 symbol 容错：一个市场或 provider 失败不得丢弃其它 symbol 已成功拉取的数据。缺少 symbol 的候选进入映射队列，后续应由 symbol mapping provider 或 LLM-assisted mapping 在有证据约束下处理。
 
 ## 7. Provider 接口
 

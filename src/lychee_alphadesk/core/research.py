@@ -1,10 +1,16 @@
 import json
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from lychee_alphadesk.core.evidence import EvidenceItem, build_news_evidence_pack
-from lychee_alphadesk.core.live_data import build_cached_data_snapshot
+from lychee_alphadesk.core.live_data import (
+    PullResult,
+    build_cached_data_snapshot,
+    pull_market_prices,
+    pull_sec_filings,
+)
 from lychee_alphadesk.core.research_db import (
     ResearchQueueItem,
     init_research_db,
@@ -13,6 +19,9 @@ from lychee_alphadesk.core.research_db import (
     write_research_packet,
 )
 from lychee_alphadesk.providers.demo import FilingSummary, NewsEvent, PriceRow
+
+PullMarket = Callable[..., PullResult]
+PullFilings = Callable[..., PullResult]
 
 
 @dataclass(frozen=True)
@@ -36,6 +45,33 @@ class ResearchDeepenResult:
     @property
     def count(self) -> int:
         return len(self.packets)
+
+
+@dataclass(frozen=True)
+class ResearchGapFillAction:
+    action_type: str
+    status: str
+    symbols: list[str]
+    count: int
+    output_path: Path | None
+    warnings: list[str]
+    message: str
+
+
+@dataclass(frozen=True)
+class ResearchGapFillResult:
+    candidates_checked: int
+    market_symbols: list[str]
+    filing_symbols: list[str]
+    symbol_mapping_candidates: list[str]
+    actions: list[ResearchGapFillAction]
+
+    @property
+    def warnings(self) -> list[str]:
+        warnings: list[str] = []
+        for action in self.actions:
+            warnings.extend(action.warnings)
+        return warnings
 
 
 def deepen_research_queue(
@@ -84,6 +120,69 @@ def deepen_research_queue(
             artifact_path=artifact_path,
         )
     return ResearchDeepenResult(created_at, packets, artifact_path, research_db_path(output_dir))
+
+
+def fill_research_data_gaps(
+    *,
+    output_dir: Path,
+    status: str | None = "new",
+    limit: int = 5,
+    market_provider: str = "auto",
+    force: bool = False,
+    pull_market: PullMarket = pull_market_prices,
+    pull_filings: PullFilings = pull_sec_filings,
+) -> ResearchGapFillResult:
+    queue = list_research_queue(output_dir, status=status, limit=limit)
+    if not queue:
+        return ResearchGapFillResult(0, [], [], [], [])
+
+    snapshot = build_cached_data_snapshot(output_dir)
+    market_symbols = _symbols_missing_prices(queue, snapshot.prices, force=force)
+    filing_symbols = _symbols_missing_filings(queue, snapshot.filings, force=force)
+    symbol_mapping_candidates = [
+        item.display_name for item in queue if not _normalized_symbol(item)
+    ]
+
+    actions: list[ResearchGapFillAction] = []
+    actions.append(
+        _pull_market_gap_action(
+            symbols=market_symbols,
+            output_dir=output_dir,
+            provider=market_provider,
+            force=force,
+            pull_market=pull_market,
+        )
+    )
+    actions.append(
+        _pull_filings_gap_action(
+            symbols=filing_symbols,
+            output_dir=output_dir,
+            pull_filings=pull_filings,
+        )
+    )
+    if symbol_mapping_candidates:
+        actions.append(
+            ResearchGapFillAction(
+                action_type="symbol_mapping",
+                status="needs_input",
+                symbols=[],
+                count=len(symbol_mapping_candidates),
+                output_path=None,
+                warnings=[
+                    "以下候选缺少可直接拉取的证券代码: "
+                    + ", ".join(symbol_mapping_candidates)
+                ],
+                message="需要先映射到可交易标的或指数/ETF。",
+            )
+        )
+
+    return ResearchGapFillResult(
+        candidates_checked=len(queue),
+        market_symbols=market_symbols,
+        filing_symbols=filing_symbols,
+        symbol_mapping_candidates=symbol_mapping_candidates,
+        actions=actions,
+    )
 
 
 def _build_research_packet(
@@ -150,6 +249,171 @@ def _build_research_packet(
         market=item.market,
         packet=packet,
     )
+
+
+def _symbols_missing_prices(
+    queue: list[ResearchQueueItem],
+    prices: list[PriceRow],
+    *,
+    force: bool,
+) -> list[str]:
+    cached_symbols = {price.symbol.upper() for price in prices}
+    symbols: list[str] = []
+    for item in queue:
+        symbol = _normalized_symbol(item)
+        if symbol and (force or symbol not in cached_symbols):
+            symbols.append(symbol)
+    return _unique_preserving_order(symbols)
+
+
+def _symbols_missing_filings(
+    queue: list[ResearchQueueItem],
+    filings: list[FilingSummary],
+    *,
+    force: bool,
+) -> list[str]:
+    symbols: list[str] = []
+    for item in queue:
+        symbol = _normalized_symbol(item)
+        if (
+            symbol
+            and item.market == "US"
+            and item.asset_type.lower() == "stock"
+            and (force or not _related_filings(symbol, item.display_name, filings))
+        ):
+            symbols.append(symbol)
+    return _unique_preserving_order(symbols)
+
+
+def _pull_market_gap_action(
+    *,
+    symbols: list[str],
+    output_dir: Path,
+    provider: str,
+    force: bool,
+    pull_market: PullMarket,
+) -> ResearchGapFillAction:
+    if not symbols:
+        return ResearchGapFillAction(
+            action_type="market_prices",
+            status="skipped",
+            symbols=[],
+            count=0,
+            output_path=None,
+            warnings=[],
+            message="行情缓存没有需要自动补齐的 symbol。",
+        )
+    try:
+        result = pull_market(
+            symbols=symbols,
+            output_dir=output_dir,
+            provider_id=provider,
+            force=force,
+        )
+    except (RuntimeError, ValueError) as error:
+        return ResearchGapFillAction(
+            action_type="market_prices",
+            status="failed",
+            symbols=symbols,
+            count=0,
+            output_path=None,
+            warnings=[str(error)],
+            message="行情补齐失败。",
+        )
+    return ResearchGapFillAction(
+        action_type="market_prices",
+        status=_gap_pull_status(result, requested_count=len(symbols)),
+        symbols=symbols,
+        count=result.count,
+        output_path=result.output_path,
+        warnings=result.warnings,
+        message=_gap_pull_message(
+            result,
+            requested_count=len(symbols),
+            success_message="行情缓存已补齐。",
+            partial_message="行情缓存已部分补齐。",
+            failed_message="行情补齐未完成。",
+        ),
+    )
+
+
+def _pull_filings_gap_action(
+    *,
+    symbols: list[str],
+    output_dir: Path,
+    pull_filings: PullFilings,
+) -> ResearchGapFillAction:
+    if not symbols:
+        return ResearchGapFillAction(
+            action_type="sec_filings",
+            status="skipped",
+            symbols=[],
+            count=0,
+            output_path=None,
+            warnings=[],
+            message="SEC 公告缓存没有需要自动补齐的美股股票。",
+        )
+    try:
+        result = pull_filings(symbols=symbols, output_dir=output_dir)
+    except (RuntimeError, ValueError) as error:
+        return ResearchGapFillAction(
+            action_type="sec_filings",
+            status="failed",
+            symbols=symbols,
+            count=0,
+            output_path=None,
+            warnings=[str(error)],
+            message="SEC 公告补齐失败。",
+        )
+    return ResearchGapFillAction(
+        action_type="sec_filings",
+        status=_gap_pull_status(result, requested_count=len(symbols)),
+        symbols=symbols,
+        count=result.count,
+        output_path=result.output_path,
+        warnings=result.warnings,
+        message=_gap_pull_message(
+            result,
+            requested_count=len(symbols),
+            success_message="SEC 公告缓存已补齐。",
+            partial_message="SEC 公告缓存已部分补齐。",
+            failed_message="SEC 公告补齐未完成。",
+        ),
+    )
+
+
+def _gap_pull_status(result: PullResult, *, requested_count: int) -> str:
+    if not result.refreshed:
+        return "cached"
+    if result.count == 0 and result.warnings:
+        return "failed"
+    if result.count < requested_count:
+        return "partial"
+    return "pulled"
+
+
+def _gap_pull_message(
+    result: PullResult,
+    *,
+    requested_count: int,
+    success_message: str,
+    partial_message: str,
+    failed_message: str,
+) -> str:
+    status = _gap_pull_status(result, requested_count=requested_count)
+    if status == "failed":
+        return failed_message
+    if status == "partial":
+        return partial_message
+    return success_message
+
+
+def _normalized_symbol(item: ResearchQueueItem) -> str | None:
+    return item.symbol.upper() if item.symbol else None
+
+
+def _unique_preserving_order(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
 
 
 def _write_research_packets_artifact(

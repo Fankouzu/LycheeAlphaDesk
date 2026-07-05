@@ -151,6 +151,7 @@ Command behavior:
 - `lad policy check` validates the policy file and prints violations or warnings.
 - `lad research queue` lists watch candidates from the SQLite research database with status, market, symbol, theme, evidence count, and next-action count.
 - `lad research deepen` creates second-stage research packets from the research queue, writing them to the local SQLite `research_packets` table and `.alphadesk/research/research-packets-*.json` with candidate identity, evidence IDs, expanded evidence, cached data, data gaps, and next verification actions.
+- `lad research fill-gaps` automatically fills deterministic data gaps exposed by the queue and research packets. The first version supports missing market prices and missing SEC filings for US stock candidates, then regenerates a research packet. Price filling uses `auto` by default: US symbols use Alpha Vantage, HK/China symbols use Eastmoney daily bars, and Yahoo chart is used as a fallback when the primary source fails. Candidates without symbols must be marked for mapping instead of guessed.
 - `lad audit list` lists generated reports and decision records.
 
 ## Data Freshness Policy
@@ -260,6 +261,16 @@ Each research packet must include:
 - A clear non-advice disclaimer.
 
 Research Deepen must not output direct buy/sell calls, target prices, automatic allocations, or live trading instructions.
+
+The research-data workflow must be a closed loop:
+
+1. Develop or adjust data/research capability.
+2. Run real commands against real cached/provider data.
+3. Regenerate research packets.
+4. Check whether data_gaps decrease, evidence remains traceable, and output still avoids investment advice.
+5. If data is still insufficient for the research task, continue development instead of leaving the user to guess the missing steps.
+
+The first automatic gap filler only performs deterministic actions: market prices for candidates with symbols and SEC filings for US stock candidates. Market providers must tolerate per-symbol failures: one market/provider failure must not discard successfully fetched rows for other symbols. Symbol-less candidates enter a mapping queue and should later be handled by a symbol mapping provider or evidence-constrained LLM-assisted mapping.
 
 ## 7. Provider Interfaces
 

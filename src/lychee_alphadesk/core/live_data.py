@@ -39,6 +39,7 @@ COMMON_SEC_COMPANIES: dict[str, tuple[int, str]] = {
     "NVDA": (1045810, "NVIDIA Corp."),
     "TSLA": (1318605, "Tesla, Inc."),
     "AMZN": (1018724, "Amazon.com, Inc."),
+    "BABA": (1577552, "Alibaba Group Holding Limited"),
     "GOOGL": (1652044, "Alphabet Inc."),
     "GOOG": (1652044, "Alphabet Inc."),
     "META": (1326801, "Meta Platforms, Inc."),
@@ -66,8 +67,8 @@ def pull_market_prices(
     force: bool = False,
     now: datetime | None = None,
 ) -> PullResult:
-    if provider_id != "alpha_vantage":
-        raise ValueError("当前版本仅支持通过 alpha_vantage 拉取行情")
+    if provider_id not in {"alpha_vantage", "auto", "eastmoney"}:
+        raise ValueError("当前版本仅支持通过 alpha_vantage、eastmoney 或 auto 拉取行情")
 
     if not symbols:
         raise ValueError("请至少输入一个证券代码。")
@@ -81,42 +82,72 @@ def pull_market_prices(
     )
     if not freshness.should_refresh and freshness.entry is not None:
         cache = _read_cache(output_dir, "market-prices.json")
-        return PullResult(
-            "market",
-            freshness.entry.provider,
-            len(cache.rows),
-            freshness.entry.artifact_path,
-            [freshness.reason],
-            refreshed=False,
-        )
+        if _market_cache_covers_symbols(cache.rows, symbols):
+            return PullResult(
+                "market",
+                freshness.entry.provider,
+                len(cache.rows),
+                freshness.entry.artifact_path,
+                [freshness.reason],
+                refreshed=False,
+            )
+        cache_gap_warning = "行情缓存未覆盖本次请求的全部代码，需要重新刷新。"
+    else:
+        cache_gap_warning = ""
 
-    config = load_config(config_path)
-    api_key = _configured_value(config.providers["alpha_vantage"].value, "Alpha Vantage")
     rows: list[PriceRow] = []
-    warnings: list[str] = []
+    warnings: list[str] = [cache_gap_warning] if cache_gap_warning else []
     fetcher = fetch_json or _fetch_json
+    api_key: str | None = None
 
     for symbol in symbols:
-        url = "https://www.alphavantage.co/query?" + urllib.parse.urlencode(
-            {
-                "function": "TIME_SERIES_DAILY",
-                "symbol": symbol,
-                "apikey": api_key,
-                "outputsize": "compact",
-            }
-        )
-        payload = _fetch_provider_json(fetcher, url, None)
-        row = _parse_alpha_vantage_daily(symbol, payload)
+        selected_provider = _market_provider_for_symbol(provider_id, symbol)
+        if selected_provider == "alpha_vantage":
+            if api_key is None:
+                config = load_config(config_path)
+                api_key = _configured_value(
+                    config.providers["alpha_vantage"].value,
+                    "Alpha Vantage",
+                )
+            try:
+                row = _pull_alpha_vantage_daily(symbol, api_key, fetcher)
+            except RuntimeError as error:
+                row = None
+                primary_warning = f"{symbol} Alpha Vantage 行情拉取失败: {error}"
+            else:
+                primary_warning = ""
+        else:
+            try:
+                row = _pull_eastmoney_daily(symbol, fetcher)
+            except RuntimeError as error:
+                row = None
+                primary_warning = f"{symbol} Eastmoney 行情拉取失败: {error}"
+            else:
+                primary_warning = ""
         if row is None:
-            warnings.append(f"Alpha Vantage 没有返回 {symbol} 的日线行情")
+            try:
+                row = _pull_yahoo_chart(symbol, fetcher)
+            except RuntimeError as error:
+                if primary_warning:
+                    warnings.append(f"{primary_warning}；Yahoo fallback 失败: {error}")
+                else:
+                    warnings.append(
+                        f"{_provider_display_name(selected_provider)} 没有返回 {symbol} 的行情；"
+                        f"Yahoo fallback 失败: {error}"
+                    )
+                continue
+        if row is None:
+            warnings.append(f"{_provider_display_name(selected_provider)} 没有返回 {symbol} 的行情")
         else:
             rows.append(row)
 
+    new_rows = [asdict(row) for row in rows]
+    cache_rows = _merge_market_cache_rows(output_dir, new_rows)
     output_path = _write_cache(
         output_dir=output_dir,
         filename="market-prices.json",
         provider=provider_id,
-        rows=[asdict(row) for row in rows],
+        rows=cache_rows,
         warnings=warnings,
         now=now,
     )
@@ -389,6 +420,79 @@ def _configured_value(value: str | None, provider_name: str) -> str:
     raise ValueError(f"{provider_name} 尚未配置。请先运行 `lychee setup`。")
 
 
+def _market_provider_for_symbol(provider_id: str, symbol: str) -> str:
+    if provider_id != "auto":
+        return provider_id
+    return "eastmoney" if _is_eastmoney_symbol(symbol) else "alpha_vantage"
+
+
+def _is_eastmoney_symbol(symbol: str) -> bool:
+    normalized = symbol.upper()
+    return normalized.endswith((".HK", ".SH", ".SS", ".SZ"))
+
+
+def _provider_display_name(provider_id: str) -> str:
+    return {
+        "alpha_vantage": "Alpha Vantage",
+        "eastmoney": "Eastmoney",
+        "auto": "Auto",
+    }.get(provider_id, provider_id)
+
+
+def _pull_alpha_vantage_daily(
+    symbol: str,
+    api_key: str,
+    fetcher: JsonFetcher,
+) -> PriceRow | None:
+    url = "https://www.alphavantage.co/query?" + urllib.parse.urlencode(
+        {
+            "function": "TIME_SERIES_DAILY",
+            "symbol": symbol,
+            "apikey": api_key,
+            "outputsize": "compact",
+        }
+    )
+    payload = _fetch_provider_json(fetcher, url, None)
+    return _parse_alpha_vantage_daily(symbol, payload)
+
+
+def _pull_eastmoney_daily(
+    symbol: str,
+    fetcher: JsonFetcher,
+) -> PriceRow | None:
+    secid = _eastmoney_secid(symbol)
+    if secid is None:
+        return None
+    url = "https://push2his.eastmoney.com/api/qt/stock/kline/get?" + urllib.parse.urlencode(
+        {
+            "secid": secid,
+            "fields1": "f1,f2,f3,f4,f5,f6",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+            "klt": "101",
+            "fqt": "1",
+            "end": "20500101",
+            "lmt": "5",
+        }
+    )
+    payload = _fetch_provider_json(fetcher, url, None)
+    return _parse_eastmoney_daily(symbol, payload)
+
+
+def _pull_yahoo_chart(symbol: str, fetcher: JsonFetcher) -> PriceRow | None:
+    url = (
+        "https://query1.finance.yahoo.com/v8/finance/chart/"
+        + urllib.parse.quote(symbol.upper(), safe="")
+        + "?"
+        + urllib.parse.urlencode({"range": "5d", "interval": "1d"})
+    )
+    payload = _fetch_provider_json(
+        fetcher,
+        url,
+        {"User-Agent": "Mozilla/5.0 LycheeAlphaDesk/0.1"},
+    )
+    return _parse_yahoo_chart(symbol, payload)
+
+
 def _parse_alpha_vantage_daily(symbol: str, payload: object) -> PriceRow | None:
     if not isinstance(payload, dict):
         return None
@@ -410,6 +514,106 @@ def _parse_alpha_vantage_daily(symbol: str, payload: object) -> PriceRow | None:
         volume=int(float(volume)),
         currency=_infer_symbol_currency(symbol),
     )
+
+
+def _parse_eastmoney_daily(
+    symbol: str,
+    payload: object,
+) -> PriceRow | None:
+    if not isinstance(payload, dict):
+        return None
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return None
+    klines = data.get("klines")
+    if not isinstance(klines, list) or not klines:
+        return None
+    latest = klines[-1]
+    if not isinstance(latest, str):
+        return None
+    parts = latest.split(",")
+    if len(parts) < 6:
+        return None
+    date = parts[0] or datetime.now(UTC).date().isoformat()
+    return PriceRow(
+        symbol=symbol.upper(),
+        date=date or datetime.now(UTC).date().isoformat(),
+        close=float(parts[2]),
+        volume=int(float(parts[5])),
+        currency=_infer_symbol_currency(symbol),
+    )
+
+
+def _parse_yahoo_chart(symbol: str, payload: object) -> PriceRow | None:
+    if not isinstance(payload, dict):
+        return None
+    chart = payload.get("chart")
+    if not isinstance(chart, dict):
+        return None
+    results = chart.get("result")
+    if not isinstance(results, list) or not results or not isinstance(results[0], dict):
+        return None
+    result = results[0]
+    timestamps = result.get("timestamp")
+    indicators = result.get("indicators")
+    if not isinstance(timestamps, list) or not isinstance(indicators, dict):
+        return None
+    quotes = indicators.get("quote")
+    if not isinstance(quotes, list) or not quotes or not isinstance(quotes[0], dict):
+        return None
+    quote = quotes[0]
+    closes = quote.get("close")
+    volumes = quote.get("volume")
+    if not isinstance(closes, list):
+        return None
+    latest_index = _latest_numeric_index(closes)
+    if latest_index is None:
+        return None
+    close = closes[latest_index]
+    timestamp = timestamps[latest_index] if latest_index < len(timestamps) else None
+    volume = (
+        volumes[latest_index]
+        if isinstance(volumes, list) and latest_index < len(volumes)
+        else 0
+    )
+    meta = result.get("meta")
+    currency = _infer_symbol_currency(symbol)
+    if isinstance(meta, dict):
+        meta_currency = meta.get("currency")
+        if isinstance(meta_currency, str):
+            currency = meta_currency
+    return PriceRow(
+        symbol=symbol.upper(),
+        date=_date_from_epoch(timestamp),
+        close=float(close),
+        volume=int(float(volume or 0)),
+        currency=currency,
+    )
+
+
+def _latest_numeric_index(values: list[object]) -> int | None:
+    for index in range(len(values) - 1, -1, -1):
+        if isinstance(values[index], int | float):
+            return index
+    return None
+
+
+def _date_from_epoch(value: object) -> str:
+    if isinstance(value, int | float):
+        return datetime.fromtimestamp(value, UTC).date().isoformat()
+    return datetime.now(UTC).date().isoformat()
+
+
+def _eastmoney_secid(symbol: str) -> str | None:
+    normalized = symbol.upper()
+    if normalized.endswith(".HK"):
+        code = normalized.removesuffix(".HK").zfill(5)
+        return f"116.{code}"
+    if normalized.endswith(".SH") or normalized.endswith(".SS"):
+        return f"1.{normalized.rsplit('.', 1)[0]}"
+    if normalized.endswith(".SZ"):
+        return f"0.{normalized.removesuffix('.SZ')}"
+    return None
 
 
 def _infer_symbol_currency(symbol: str) -> str:
@@ -714,6 +918,36 @@ def _write_cache(
     return output_path
 
 
+def _merge_market_cache_rows(
+    output_dir: Path,
+    new_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    existing = _read_cache(output_dir, "market-prices.json").rows
+    new_symbols = {
+        symbol
+        for row in new_rows
+        if (symbol := _cache_row_symbol(row))
+    }
+    preserved = [
+        row
+        for row in existing
+        if (symbol := _cache_row_symbol(row)) and symbol not in new_symbols
+    ]
+    return preserved + new_rows
+
+
+def _market_cache_covers_symbols(
+    rows: list[dict[str, object]],
+    symbols: list[str],
+) -> bool:
+    cached_symbols = {
+        symbol
+        for row in rows
+        if (symbol := _cache_row_symbol(row))
+    }
+    return all(symbol.upper() in cached_symbols for symbol in symbols)
+
+
 def _read_cache(output_dir: Path, filename: str) -> _CachePayload:
     path = output_dir / "data" / filename
     if not path.exists():
@@ -727,6 +961,11 @@ def _read_cache(output_dir: Path, filename: str) -> _CachePayload:
         provider=provider if isinstance(provider, str) else "",
         rows=[row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else [],
     )
+
+
+def _cache_row_symbol(row: dict[str, object]) -> str:
+    symbol = row.get("symbol")
+    return symbol.upper() if isinstance(symbol, str) else ""
 
 
 def _price_row_from_dict(row: dict[str, object]) -> PriceRow:

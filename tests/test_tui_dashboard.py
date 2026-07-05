@@ -13,6 +13,7 @@ from lychee_alphadesk.core.discovery import (
     DiscoveryTheme,
 )
 from lychee_alphadesk.core.live_data import PullResult
+from lychee_alphadesk.core.research import ResearchDeepenResult, ResearchPacket
 from lychee_alphadesk.core.research_db import list_research_queue
 from lychee_alphadesk.core.workbench import CandidateCheck
 from lychee_alphadesk.tui.app import AlphaDeskApp
@@ -189,6 +190,50 @@ def test_dashboard_research_task_selection_opens_start_detail(
                 evidence_status="证据 1 条；缺口 0 个",
             )
         ]
+        deepen_result = ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[
+                ResearchPacket(
+                    packet_id="research:test:1",
+                    candidate_id=1,
+                    created_at="2026-07-05T10:00:00+00:00",
+                    display_name="纳斯达克100ETF观察",
+                    symbol="QQQ",
+                    market="US",
+                    packet={
+                        "evidence": [
+                            {
+                                "headline": "Tech shares rebound with QQQ volume rising",
+                                "provider": "newsapi",
+                                "timestamp": "2026-07-05T09:00:00Z",
+                                "source_url": "https://example.com/qqq-news",
+                            }
+                        ],
+                        "local_data": {
+                            "price": {
+                                "symbol": "QQQ",
+                                "date": "2026-07-05",
+                                "close": 530.2578125,
+                                "volume": 42000000,
+                                "currency": "USD",
+                            },
+                            "related_news": [
+                                {
+                                    "headline": "Nasdaq outperforms S&P 500",
+                                    "summary": "Technology shares led the session.",
+                                    "source_url": "https://example.com/nasdaq",
+                                }
+                            ],
+                            "filings": [],
+                            "symbol_mapping": [],
+                        },
+                        "data_gaps": [],
+                    },
+                )
+            ],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        )
         beginner_brief = "AlphaDesk 研究工作台"
 
     monkeypatch.setattr(
@@ -210,10 +255,17 @@ def test_dashboard_research_task_selection_opens_start_detail(
 
             detail = app.query_one("#action-status", Static)
             text = str(detail.content)
-            assert "开始研究" in text
+            assert "研究结果" in text
             assert "纳斯达克100ETF观察" in text
             assert "入口: QQQ" in text
-            assert "第一步:" in text
+            assert "当前研究结论:" in text
+            assert "已采集证据" in text
+            assert "Tech shares rebound with QQQ volume rising" in text
+            assert "行情: QQQ 530.26 USD" in text
+            assert "相关新闻" in text
+            assert "Nasdaq outperforms S&P 500" in text
+            assert "数据缺口: 无" in text
+            assert "下一步动作:" in text
             assert "对比 QQQ 与 SPY。" in text
             assert not app.query("#research-task-menu")
 

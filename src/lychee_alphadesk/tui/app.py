@@ -27,6 +27,7 @@ from lychee_alphadesk.core.live_data import (
 )
 from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR
+from lychee_alphadesk.core.research import ResearchPacket
 from lychee_alphadesk.core.research_db import write_discovery_research_run
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
@@ -64,6 +65,7 @@ class AlphaDeskApp(App[None]):
         self.output_dir = output_dir
         self.pending_action: ActionId | None = None
         self.research_candidates: list[CandidateCheck] = []
+        self.research_packets: list[ResearchPacket] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -197,6 +199,8 @@ class AlphaDeskApp(App[None]):
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
         self.research_candidates = list(result.candidates)
+        deepen_result = getattr(result, "deepen_result", None)
+        self.research_packets = list(getattr(deepen_result, "packets", []))
         if not self.research_candidates:
             await self._replace_action_panel(
                 Static(
@@ -234,8 +238,9 @@ class AlphaDeskApp(App[None]):
             )
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
+        packet = self.research_packets[index] if index < len(self.research_packets) else None
         await self._replace_action_panel(
-            Static(_research_task_detail(candidate), id="action-status")
+            Static(_research_task_detail(candidate, packet), id="action-status")
         )
         self.set_focus(self.query_one("#action-menu", OptionList))
 
@@ -395,24 +400,44 @@ def _research_task_label(candidate: CandidateCheck) -> str:
     )
 
 
-def _research_task_detail(candidate: CandidateCheck) -> str:
+def _research_task_detail(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> str:
+    packet_payload = packet.packet if packet is not None else {}
+    local_data = _dict_value(packet_payload.get("local_data"))
+    price = _dict_value(local_data.get("price"))
+    evidence = _dict_list(packet_payload.get("evidence"))
+    related_news = _dict_list(local_data.get("related_news"))
+    filings = _dict_list(local_data.get("filings"))
+    data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
     lines = [
-        "开始研究",
+        "研究结果",
         f"任务: {candidate.display_name} [{candidate.market}]",
         f"入口: {candidate.observation_entry}",
         f"优先级: {candidate.priority}",
         f"证据状态: {candidate.evidence_status}",
         f"研究问题: {candidate.beginner_question}",
         "",
-        f"第一步: {candidate.what_to_check}",
-        f"第二步: {candidate.next_step}",
+        f"当前研究结论: {candidate.what_to_check}",
+        _price_line(price),
+        "",
+        "已采集证据",
+        *_headline_lines(evidence, empty="暂无 discovery 证据。"),
+        "",
+        "相关新闻",
+        *_headline_lines(related_news, empty="暂无匹配新闻。"),
+        "",
+        "公告/财报线索",
+        *_filing_lines(filings),
+        "",
+        f"数据缺口: {_gap_summary(data_gaps)}",
+        f"下一步动作: {candidate.next_step}",
     ]
-    if candidate.data_gaps:
-        lines.append(f"阻塞: {'；'.join(candidate.data_gaps)}")
     if candidate.proxy_symbols:
         lines.append("代理核验: 核对成分、费用、流动性和是否可交易。")
     lines.append("")
-    lines.append("说明: 这里仍然是研究任务，不是买卖建议。")
+    lines.append("边界: 这是研究结果快照，不是买卖建议。")
     return "\n".join(lines)
 
 
@@ -421,3 +446,82 @@ def _display_workbench_status(status: str) -> str:
         "ready": "可执行研究",
         "blocked": "存在阻塞",
     }.get(status, status)
+
+
+def _price_line(price: dict[str, object]) -> str:
+    if not price:
+        return "行情: 暂无本地行情。"
+    symbol = _string_value(price.get("symbol"), default="-")
+    close = _number_value(price.get("close"))
+    currency = _string_value(price.get("currency"), default="")
+    date = _string_value(price.get("date"), default="")
+    volume = price.get("volume")
+    parts = [f"行情: {symbol} {close} {currency}".strip()]
+    if date:
+        parts.append(date)
+    if volume is not None:
+        parts.append(f"成交量 {volume}")
+    return " | ".join(parts)
+
+
+def _headline_lines(rows: list[dict[str, object]], *, empty: str) -> list[str]:
+    if not rows:
+        return [f"- {empty}"]
+    lines: list[str] = []
+    for row in rows[:3]:
+        headline = _string_value(row.get("headline"), default="未命名证据")
+        source_url = _string_value(row.get("source_url"), default="")
+        if source_url:
+            lines.append(f"- {headline} ({source_url})")
+        else:
+            lines.append(f"- {headline}")
+    return lines
+
+
+def _filing_lines(rows: list[dict[str, object]]) -> list[str]:
+    if not rows:
+        return ["- 暂无匹配公告或财报线索。"]
+    lines: list[str] = []
+    for row in rows[:3]:
+        form = _string_value(row.get("form"), default="公告")
+        date = _string_value(row.get("date"), default="")
+        summary = _string_value(row.get("summary"), default="")
+        line = f"- {form}"
+        if date:
+            line += f" {date}"
+        if summary:
+            line += f": {summary}"
+        lines.append(line)
+    return lines
+
+
+def _gap_summary(data_gaps: list[str]) -> str:
+    if not data_gaps:
+        return "无"
+    return "；".join(gap.rstrip("。；;,.， ") for gap in data_gaps if gap.strip())
+
+
+def _dict_value(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
+
+
+def _dict_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _text_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
+def _string_value(value: object, *, default: str) -> str:
+    return value if isinstance(value, str) else default
+
+
+def _number_value(value: object) -> object:
+    if isinstance(value, float):
+        return f"{value:.2f}"
+    return value

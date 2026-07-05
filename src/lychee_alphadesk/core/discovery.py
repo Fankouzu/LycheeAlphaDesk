@@ -229,6 +229,8 @@ def _build_discovery_messages(context: dict[str, object]) -> list[dict[str, str]
         "All user-facing string values must be written in Simplified Chinese. "
         "Do not give buy/sell advice, target prices, or allocation advice. "
         "Use watch/research/drill-down language only. "
+        "Return 最多 3 个主题 and 最多 5 个关注候选. "
+        "Keep every string concise and evidence-focused. "
         "Every theme and candidate must cite evidence from the provided context."
     )
     user_prompt = (

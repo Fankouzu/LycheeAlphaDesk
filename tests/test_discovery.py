@@ -17,6 +17,8 @@ def test_today_discovery_uses_llm_json_response() -> None:
         prompt = str(body["messages"])
         assert '"markets": ["US"]' in prompt
         assert "AI 基础设施观察" in prompt
+        assert "最多 3 个主题" in prompt
+        assert "最多 5 个关注候选" in prompt
         return {
             "choices": [
                 {

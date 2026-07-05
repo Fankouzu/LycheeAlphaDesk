@@ -146,6 +146,7 @@ def test_discover_today_command_writes_report_when_llm_configured(
     result = runner.invoke(app, ["discover", "today", "--output-dir", str(tmp_path)])
 
     assert result.exit_code == 0
+    assert "正在调用 LLM" in result.stdout
     assert "今日市场发现已写入:" in result.stdout
     assert "研究库已更新:" in result.stdout
     assert "非投资建议" in result.stdout

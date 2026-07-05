@@ -245,6 +245,7 @@ def discover_today(
     except ValueError as error:
         console.print(str(error))
         raise typer.Exit(code=1) from error
+    console.print("正在调用 LLM 分析美股、港股和 A 股市场，请稍候...", soft_wrap=True)
     try:
         report = build_today_discovery_report(selected_markets, output_dir=output_dir)
     except (DiscoveryLLMRequiredError, LLMProviderError) as error:

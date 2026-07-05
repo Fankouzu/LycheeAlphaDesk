@@ -38,6 +38,10 @@ from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
 from lychee_alphadesk.core.policy import load_policy, validate_policy
 from lychee_alphadesk.core.reports import generate_demo_report
+from lychee_alphadesk.core.research_db import (
+    list_research_queue,
+    write_discovery_research_run,
+)
 from lychee_alphadesk.tui.app import run_tui
 from lychee_alphadesk.tui.setup import run_setup_tui
 
@@ -51,6 +55,7 @@ audit_app = typer.Typer(help="审计记录命令。")
 data_app = typer.Typer(help="行情、新闻、公告和预测数据命令。")
 data_pull_app = typer.Typer(help="拉取实时数据源数据到本地缓存。")
 discover_app = typer.Typer(help="发现优先的市场研究命令。")
+research_app = typer.Typer(help="本地研究库和研究队列命令。")
 setup_app = typer.Typer(
     help="打开配置中心，或写入单项配置值。",
     invoke_without_command=True,
@@ -246,8 +251,61 @@ def discover_today(
         console.print(str(error), soft_wrap=True)
         raise typer.Exit(code=1) from error
     output_path = write_discovery_report(report, output_dir)
+    db_path = write_discovery_research_run(report, output_dir, output_path)
     console.print(f"今日市场发现已写入: {output_path}", soft_wrap=True)
+    console.print(f"研究库已更新: {db_path}", soft_wrap=True)
     console.print(discovery_report_summary(report))
+
+
+@research_app.command("queue")
+def research_queue(
+    status: Annotated[
+        str | None,
+        typer.Option("--status", help="按研究状态过滤，例如 new。"),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多显示多少个候选。"),
+    ] = 20,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """查看本地研究队列。"""
+    queue = list_research_queue(output_dir, status=status, limit=limit)
+    if not queue:
+        console.print("研究队列为空。请先运行 `lychee discover today`。")
+        return
+
+    table = Table(title="Lychee AlphaDesk 研究队列")
+    table.add_column("状态")
+    table.add_column("市场")
+    table.add_column("名称", overflow="fold")
+    table.add_column("代码")
+    table.add_column("主题", overflow="fold")
+    table.add_column("置信度")
+    table.add_column("证据")
+    table.add_column("下一步")
+    for item in queue:
+        table.add_row(
+            item.status,
+            item.market,
+            item.display_name,
+            item.symbol or "-",
+            item.related_theme,
+            item.confidence,
+            str(len(item.evidence)),
+            str(len(item.next_actions)),
+        )
+    console.print(table)
+    console.print("研究队列明细")
+    for item in queue:
+        symbol = item.symbol or "-"
+        console.print(
+            f"- {item.display_name} ({symbol}) [{item.market}] "
+            f"主题: {item.related_theme} 状态: {item.status}"
+        )
 
 
 @data_pull_app.command("market")
@@ -464,6 +522,7 @@ def _keyboard_navigation_available() -> bool:
 app.add_typer(policy_app, name="policy")
 app.add_typer(audit_app, name="audit")
 app.add_typer(discover_app, name="discover")
+app.add_typer(research_app, name="research")
 data_app.add_typer(data_pull_app, name="pull")
 app.add_typer(data_app, name="data")
 setup_app.add_typer(llm_setup_app, name="llm")

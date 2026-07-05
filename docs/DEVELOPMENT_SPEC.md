@@ -58,7 +58,7 @@ v0.1 should not deliver:
 | Models and config | Pydantic v2 + YAML |
 | Tables and terminal rendering | Rich |
 | Reports | Markdown + Jinja2 |
-| Storage | SQLite for metadata, Parquet for time series |
+| Storage | JSON for readable snapshots, SQLite for audit records and research queue, later Parquet for time series |
 | Testing | pytest |
 | Formatting and linting | ruff |
 | Type checking | mypy |
@@ -118,6 +118,7 @@ lad data health
 lad data snapshot
 lad report --demo
 lad policy check examples/demo/policy.yaml
+lad research queue
 lad audit list
 lad
 ```
@@ -135,7 +136,7 @@ Command behavior:
 - `lad data health --demo` prints provider-level quality checks.
 - `lad data snapshot --demo` writes a unified JSON snapshot with market, news, filing, and forecast data.
 - `lychee discover today` runs a discovery-first workflow across US, HK, and China A-share markets without requiring symbols up front.
-- `lad discover today --markets us,hk,cn` calls the configured OpenAI-compatible `/chat/completions` endpoint, parses the model's JSON response, and writes a local `llm-synthesized` discovery report cache with themes, watch candidates, evidence references, warnings, and next actions. The command must fail if no LLM provider is configured, if the API request fails, or if the model does not return valid JSON; silent fallback reports are not allowed.
+- `lad discover today --markets us,hk,cn` calls the configured OpenAI-compatible `/chat/completions` endpoint, parses the model's JSON response, and writes a local `llm-synthesized` discovery report cache with themes, watch candidates, evidence references, warnings, and next actions. The command must fail if no LLM provider is configured, if the API request fails, or if the model does not return valid JSON; silent fallback reports are not allowed. Successful runs must also write `.alphadesk/research.sqlite3` as the local database for research queue and evidence tracking.
 - `lad data pull market` writes Alpha Vantage daily prices into the local live cache.
 - `lad data pull news` writes Marketaux, Finnhub, or NewsAPI events into the local live cache.
 - `lad data pull filings` writes recent SEC EDGAR filings into the local live cache.
@@ -144,6 +145,7 @@ Command behavior:
 - The TUI home action menu must expose the discovery-first workflow before manual symbol workflows. Manual symbol entry remains available only as a drilldown path for users who already know which asset they want to inspect. The Textual built-in command palette is not a business-command surface and should stay disabled on the home screen to avoid terminal glyph-width issues.
 - `lad report --demo` generates a Markdown daily report from bundled demo providers.
 - `lad policy check` validates the policy file and prints violations or warnings.
+- `lad research queue` lists watch candidates from the SQLite research database with status, market, symbol, theme, evidence count, and next-action count.
 - `lad audit list` lists generated reports and decision records.
 
 ## Interaction Standard
@@ -319,7 +321,8 @@ Minimum fields:
 
 Storage:
 
-- SQLite for metadata.
+- JSON files for readable report and snapshot outputs.
+- SQLite for audit metadata, discovery runs, research candidates, evidence links, and research queue state.
 - Local files for Markdown report outputs.
 
 ## 11. Safety Defaults

@@ -1,0 +1,214 @@
+import json
+import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
+
+from lychee_alphadesk.core.discovery import DiscoveryReport
+
+
+@dataclass(frozen=True)
+class ResearchQueueItem:
+    candidate_id: int
+    run_id: str
+    created_at: str
+    display_name: str
+    symbol: str | None
+    market: str
+    asset_type: str
+    related_theme: str
+    why_watch: str
+    evidence: list[str]
+    risk_flags: list[str]
+    next_actions: list[str]
+    confidence: str
+    status: str
+
+
+def research_db_path(output_dir: Path) -> Path:
+    return output_dir / "research.sqlite3"
+
+
+def init_research_db(output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    db_path = research_db_path(output_dir)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS discovery_runs (
+                run_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                markets_json TEXT NOT NULL,
+                report_path TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                next_actions_json TEXT NOT NULL,
+                disclaimer TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_candidates (
+                candidate_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                symbol TEXT,
+                market TEXT NOT NULL,
+                asset_type TEXT NOT NULL,
+                related_theme TEXT NOT NULL,
+                why_watch TEXT NOT NULL,
+                evidence_json TEXT NOT NULL,
+                risk_flags_json TEXT NOT NULL,
+                next_actions_json TEXT NOT NULL,
+                confidence TEXT NOT NULL,
+                recommendation TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'new',
+                FOREIGN KEY (run_id) REFERENCES discovery_runs(run_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_research_candidates_status_created
+            ON research_candidates(status, created_at DESC)
+            """
+        )
+    return db_path
+
+
+def write_discovery_research_run(
+    report: DiscoveryReport,
+    output_dir: Path,
+    report_path: Path,
+) -> Path:
+    init_research_db(output_dir)
+    run_id = f"discovery:{report.created_at}"
+    with sqlite3.connect(research_db_path(output_dir)) as connection:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO discovery_runs (
+                run_id,
+                created_at,
+                mode,
+                markets_json,
+                report_path,
+                warnings_json,
+                next_actions_json,
+                disclaimer
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                report.created_at,
+                report.mode,
+                json.dumps(report.markets, ensure_ascii=False),
+                str(report_path),
+                json.dumps(report.warnings, ensure_ascii=False),
+                json.dumps(report.next_actions, ensure_ascii=False),
+                report.disclaimer,
+            ),
+        )
+        connection.execute("DELETE FROM research_candidates WHERE run_id = ?", (run_id,))
+        for candidate in report.candidates:
+            connection.execute(
+                """
+                INSERT INTO research_candidates (
+                    run_id,
+                    created_at,
+                    display_name,
+                    symbol,
+                    market,
+                    asset_type,
+                    related_theme,
+                    why_watch,
+                    evidence_json,
+                    risk_flags_json,
+                    next_actions_json,
+                    confidence,
+                    recommendation,
+                    status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    report.created_at,
+                    candidate.display_name,
+                    candidate.symbol,
+                    candidate.market,
+                    candidate.asset_type,
+                    candidate.related_theme,
+                    candidate.why_watch,
+                    json.dumps(candidate.evidence, ensure_ascii=False),
+                    json.dumps(candidate.risk_flags, ensure_ascii=False),
+                    json.dumps(candidate.next_actions, ensure_ascii=False),
+                    candidate.confidence,
+                    candidate.recommendation,
+                    "new",
+                ),
+            )
+    return research_db_path(output_dir)
+
+
+def list_research_queue(
+    output_dir: Path,
+    *,
+    status: str | None = None,
+    limit: int = 20,
+) -> list[ResearchQueueItem]:
+    db_path = research_db_path(output_dir)
+    if not db_path.exists():
+        return []
+
+    where_clause = ""
+    parameters: list[object] = []
+    if status:
+        where_clause = "WHERE status = ?"
+        parameters.append(status)
+    parameters.append(limit)
+
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT
+                candidate_id,
+                run_id,
+                created_at,
+                display_name,
+                symbol,
+                market,
+                asset_type,
+                related_theme,
+                why_watch,
+                evidence_json,
+                risk_flags_json,
+                next_actions_json,
+                confidence,
+                status
+            FROM research_candidates
+            {where_clause}
+            ORDER BY created_at DESC, candidate_id ASC
+            LIMIT ?
+            """,
+            parameters,
+        ).fetchall()
+
+    return [
+        ResearchQueueItem(
+            candidate_id=row[0],
+            run_id=row[1],
+            created_at=row[2],
+            display_name=row[3],
+            symbol=row[4],
+            market=row[5],
+            asset_type=row[6],
+            related_theme=row[7],
+            why_watch=row[8],
+            evidence=json.loads(row[9]),
+            risk_flags=json.loads(row[10]),
+            next_actions=json.loads(row[11]),
+            confidence=row[12],
+            status=row[13],
+        )
+        for row in rows
+    ]

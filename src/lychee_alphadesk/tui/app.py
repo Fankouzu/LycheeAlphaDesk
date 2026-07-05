@@ -26,6 +26,7 @@ from lychee_alphadesk.core.live_data import (
 )
 from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR
+from lychee_alphadesk.core.research_db import write_discovery_research_run
 
 ActionId = Literal[
     "today_discovery",
@@ -193,9 +194,16 @@ class AlphaDeskApp(App[None]):
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
         output_path = write_discovery_report(report, self.output_dir)
+        db_path = write_discovery_research_run(report, self.output_dir, output_path)
         await self._replace_action_panel(
             Static(
-                discovery_report_summary(report, output_path),
+                "\n".join(
+                    [
+                        discovery_report_summary(report, output_path),
+                        "",
+                        f"研究库已更新: {db_path}",
+                    ]
+                ),
                 id="action-status",
             )
         )

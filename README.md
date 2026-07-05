@@ -230,6 +230,18 @@ lychee discover today
 
 This command requires an active LLM provider configured through `lychee setup`. It calls the configured OpenAI-compatible `/chat/completions` endpoint, parses the model's JSON response, and writes an `llm-synthesized` research report to `.alphadesk/data/discovery-today.json`. If the LLM provider is missing, the request fails, or the model does not return valid JSON, Today Discovery fails instead of silently generating a fallback report.
 
+After a successful Today Discovery run, themes and watch candidates are also written to the local SQLite research database:
+
+```text
+.alphadesk/research.sqlite3
+```
+
+This is not a server database and does not require deployment. It stores clues, candidates, evidence, risks, next actions, and research status so the system can support research queues, follow-up review, and evidence tracking. View the current queue with:
+
+```bash
+lychee research queue
+```
+
 Current symbol-level cache commands:
 
 ```bash

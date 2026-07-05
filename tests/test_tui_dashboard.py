@@ -13,6 +13,7 @@ from lychee_alphadesk.core.discovery import (
     DiscoveryTheme,
 )
 from lychee_alphadesk.core.live_data import PullResult
+from lychee_alphadesk.core.research_db import list_research_queue
 from lychee_alphadesk.tui.app import AlphaDeskApp
 
 
@@ -158,7 +159,11 @@ def test_dashboard_today_discovery_action_writes_report_when_llm_configured(
             assert "模式: llm-synthesized" in text
             assert "TUI model theme" in text
             assert "非投资建议" in text
+            assert "研究库已更新:" in text
             assert (tmp_path / "data" / "discovery-today.json").exists()
+            queue = list_research_queue(tmp_path)
+            assert queue[0].display_name == "TUI model candidate"
+            assert queue[0].symbol == "NVDA"
             assert not app.query(Input)
 
     asyncio.run(run_case())

@@ -230,6 +230,18 @@ lychee discover today
 
 这个命令要求先通过 `lychee setup` 配置并激活 LLM provider。它会调用已配置的 OpenAI-compatible `/chat/completions` 接口，解析模型返回的 JSON，并把 `llm-synthesized` 研究报告写入 `.alphadesk/data/discovery-today.json`。如果没有 LLM provider、请求失败，或模型没有返回有效 JSON，Today Discovery 必须失败，不能静默生成 fallback 报告。
 
+Today Discovery 成功后还会把主题和关注候选写入本地 SQLite 研究库：
+
+```text
+.alphadesk/research.sqlite3
+```
+
+这不是服务端数据库，也不需要部署。它用于长期保存“线索、候选、证据、风险、下一步动作和研究状态”，让系统后续可以做研究队列、复盘和证据追踪。查看当前研究队列：
+
+```bash
+lychee research queue
+```
+
 当前可用的 symbol 级 cache 命令：
 
 ```bash

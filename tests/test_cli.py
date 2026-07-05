@@ -147,6 +147,7 @@ def test_discover_today_command_writes_report_when_llm_configured(
 
     assert result.exit_code == 0
     assert "今日市场发现已写入:" in result.stdout
+    assert "研究库已更新:" in result.stdout
     assert "非投资建议" in result.stdout
     assert "US" in result.stdout
     assert "HK" in result.stdout
@@ -159,6 +160,13 @@ def test_discover_today_command_writes_report_when_llm_configured(
     assert report["markets"] == ["US", "HK", "CN"]
     assert report["themes"][0]["name"] == "CLI model theme"
     assert report["candidates"][0]["recommendation"] == "research"
+
+    queue_result = runner.invoke(app, ["research", "queue", "--output-dir", str(tmp_path)])
+
+    assert queue_result.exit_code == 0
+    assert "研究队列" in queue_result.stdout
+    assert "CLI model candidate" in queue_result.stdout
+    assert "NVDA" in queue_result.stdout
 
 
 def test_data_pull_market_command_writes_live_cache(monkeypatch, tmp_path: Path) -> None:

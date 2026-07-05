@@ -39,6 +39,11 @@ class CandidateCheck:
     data_gaps: list[str]
     status: str
     explanation: str
+    beginner_question: str
+    why_it_matters: str
+    observation_entry: str
+    what_to_check: str
+    next_step: str
 
 
 @dataclass(frozen=True)
@@ -133,7 +138,10 @@ def _candidate_checks(packets: list[ResearchPacket]) -> list[CandidateCheck]:
         evidence_ids = _text_list(payload.get("evidence_ids"))
         proxy_symbols = _proxy_symbols(payload)
         candidate = _dict_value(payload.get("candidate"))
+        asset_type = _string_value(candidate.get("asset_type"))
+        related_theme = _string_value(candidate.get("related_theme"))
         why_watch = _string_value(candidate.get("why_watch"))
+        next_actions = _text_list(payload.get("next_actions"))
         status = "blocked" if data_gaps else "ready"
         if packet.symbol:
             explanation = why_watch
@@ -154,6 +162,27 @@ def _candidate_checks(packets: list[ResearchPacket]) -> list[CandidateCheck]:
                 data_gaps=data_gaps,
                 status=status,
                 explanation=explanation,
+                beginner_question=_beginner_question(
+                    display_name=packet.display_name,
+                    symbol=packet.symbol,
+                    market=packet.market,
+                    asset_type=asset_type,
+                    related_theme=related_theme,
+                ),
+                why_it_matters=_why_it_matters(
+                    symbol=packet.symbol,
+                    proxy_symbols=proxy_symbols,
+                    asset_type=asset_type,
+                    why_watch=why_watch,
+                ),
+                observation_entry=_observation_entry(packet.symbol, proxy_symbols),
+                what_to_check=_what_to_check(
+                    market=packet.market,
+                    asset_type=asset_type,
+                    symbol=packet.symbol,
+                    proxy_symbols=proxy_symbols,
+                ),
+                next_step=_next_step(next_actions, data_gaps),
             )
         )
     return checks
@@ -237,22 +266,32 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
     lines.append("")
     lines.append("可以继续研究的线索")
     if ready:
-        for candidate in ready:
-            entry = candidate.symbol or ", ".join(candidate.proxy_symbols)
+        for index, candidate in enumerate(ready, start=1):
+            lines.append(f"{index}. {candidate.display_name} [{candidate.market}]")
+            lines.append(f"   系统替你问的问题: {candidate.beginner_question}")
+            lines.append(f"   为什么要看: {candidate.why_it_matters}")
+            lines.append(f"   观察入口: {candidate.observation_entry}")
             lines.append(
-                f"- {candidate.display_name} [{candidate.market}]: "
-                f"观察入口 {entry}。{candidate.explanation}"
+                f"   看到什么才算有意义: {candidate.what_to_check}"
             )
+            lines.append(f"   下一步动作: {candidate.next_step}")
     else:
         lines.append("- 暂无。")
 
     lines.append("")
     lines.append("暂时不要下结论")
     if blocked:
-        for candidate in blocked:
+        for index, candidate in enumerate(blocked, start=1):
+            lines.append(f"{index}. {candidate.display_name} [{candidate.market}]")
+            lines.append(f"   系统替你问的问题: {candidate.beginner_question}")
+            lines.append(f"   为什么要看: {candidate.why_it_matters}")
+            lines.append(f"   观察入口: {candidate.observation_entry}")
             lines.append(
-                f"- {candidate.display_name} [{candidate.market}]: "
-                f"{'；'.join(candidate.data_gaps)}"
+                f"   暂时不要下结论: {'；'.join(candidate.data_gaps)}"
+            )
+            lines.append(
+                "   下一步动作: 下一步先补齐 "
+                f"{'；'.join(candidate.data_gaps)}，再回来看这个问题。"
             )
     else:
         lines.append("- 暂无阻塞缺口。")
@@ -264,6 +303,107 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
     )
     lines.append("- 代理通过后还要检查成分、费用、流动性和是否真的对应主题。")
     return "\n".join(lines)
+
+
+def _beginner_question(
+    *,
+    display_name: str,
+    symbol: str | None,
+    market: str,
+    asset_type: str,
+    related_theme: str,
+) -> str:
+    text = " ".join(
+        item.lower()
+        for item in [display_name, symbol or "", market, asset_type, related_theme]
+        if item
+    )
+    if "qqq" in text or "nasdaq" in text or "纳斯达克" in text:
+        return "美股科技股现在是独立主线，还是只是跟着大盘一起反弹？"
+    if "baba" in text or "alibaba" in text or "阿里" in text:
+        return "阿里 AI 云线索是公司自身变化，还是只是 AI 概念带动？"
+    if "nvda" in text or "nvidia" in text or "英伟达" in text:
+        return "AI 算力需求是在继续扩散，还是只集中在最热门龙头？"
+    if "tsla" in text or "tesla" in text or "特斯拉" in text:
+        return "电动车、储能、自动驾驶和机器人叙事是否互相支持？"
+    if "tencent" in text or "腾讯" in text:
+        return "港股中国平台公司是基本面改善，还是短期情绪反弹？"
+    if "半导体" in text or "数据中心" in text:
+        return "AI 数据中心主题是否已经扩散到可观察的供应链？"
+    if "恒生" in text or "港股" in text or market.upper() == "HK":
+        return "港股变化是整个市场的问题，还是只集中在某个板块？"
+    if market.upper() == "CN":
+        return "A 股这条线索是整体市场变化，还是行业自身出现变化？"
+    if related_theme:
+        return f"{display_name} 对应的主题“{related_theme}”是真变化，还是只有新闻热度？"
+    return f"{display_name} 这条线索是否值得继续花时间研究？"
+
+
+def _why_it_matters(
+    *,
+    symbol: str | None,
+    proxy_symbols: list[str],
+    asset_type: str,
+    why_watch: str,
+) -> str:
+    if proxy_symbols:
+        proxy_text = ", ".join(proxy_symbols)
+        base = (
+            f"这不是单一股票，所以先用 {proxy_text} 这些代理观察工具，"
+            "把大方向、成交量和市场情绪看清楚。"
+        )
+    elif symbol:
+        kind = " ETF/指数入口" if asset_type.lower() in {"etf", "index"} else "证券代码"
+        base = f"{symbol} 是这条线索当前最直接的{kind}，可用于验证主题是否反映到市场数据里。"
+    else:
+        base = "这条线索还缺少可直接观察的入口，所以只能先当作主题线索。"
+    if why_watch:
+        return f"{base}{why_watch}"
+    return base
+
+
+def _observation_entry(symbol: str | None, proxy_symbols: list[str]) -> str:
+    if symbol:
+        return symbol
+    if proxy_symbols:
+        return ", ".join(proxy_symbols)
+    return "暂无，需要先映射到可观察的股票、ETF 或指数。"
+
+
+def _what_to_check(
+    *,
+    market: str,
+    asset_type: str,
+    symbol: str | None,
+    proxy_symbols: list[str],
+) -> str:
+    if proxy_symbols:
+        return (
+            "代理 ETF/指数方向、成交量、成分覆盖度和相关新闻要互相支持；"
+            "只看一天涨跌没有意义。"
+        )
+    if asset_type.lower() in {"etf", "index"}:
+        return (
+            "把它和更宽的市场基准对比，看方向、成交量、前十大成分和相关新闻是否一致。"
+        )
+    if symbol and market.upper() == "US":
+        return "行情方向、成交量、相关新闻、SEC 公告和财报线索要能互相印证。"
+    if symbol:
+        return "行情方向、成交量、公告、财报和行业新闻要能互相印证。"
+    return "先找到可观察入口，再检查行情、新闻、公告和成分是否能互相印证。"
+
+
+def _next_step(next_actions: list[str], data_gaps: list[str]) -> str:
+    if data_gaps:
+        return f"下一步先补齐 {'；'.join(data_gaps)}。"
+    if next_actions:
+        cleaned_actions = [
+            action.rstrip("。；;,.， ")
+            for action in next_actions[:2]
+            if action.strip()
+        ]
+        return "；".join(cleaned_actions)
+    return "先查看观察入口的最近行情、成交量、相关新闻和公开资料。"
 
 
 def _write_workbench_check_artifact(

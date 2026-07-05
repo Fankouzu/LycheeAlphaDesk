@@ -150,9 +150,9 @@ lad
 - `lad report --demo` 使用内置 demo provider 生成 Markdown 日报。
 - `lad policy check` 校验投资政策文件，并打印违反项或警告。
 - `lad research queue` 列出 SQLite 研究库中的关注候选，包含状态、市场、代码、主题、证据数量和下一步动作数量。
-- `lad research deepen` 从研究队列生成二阶段研究深挖包，写入本地 SQLite `research_packets` 表和 `.alphadesk/research/research-packets-*.json`，包含候选身份、证据 ID、可展开证据、已缓存数据、数据缺口、代理映射和下一步核验动作。
+- `lad research deepen` 从研究队列生成二阶段研究深挖包，写入本地 SQLite `research_packets` 表和 `.alphadesk/research/research-packets-*.json`，包含候选身份、证据 ID、可展开证据、已缓存数据、数据缺口、代理映射和下一步核验动作。面向新手的输出必须把候选翻译成问题卡，至少包含：系统替你问的问题、为什么要看、观察入口、看到什么才算有意义、下一步动作。
 - `lad research fill-gaps` 根据研究队列和深挖包暴露的数据缺口，自动补齐可拉取的数据；第一版支持缺失行情、美股股票 SEC 公告，以及无 symbol 主题的可审计代理映射行情。行情补齐默认使用 `auto`，美股走 Alpha Vantage，港股/A 股走 Eastmoney 日 K，主数据源失败时使用 Yahoo chart 兜底。缺少 symbol 的候选不得被静默改写为某个代码；系统只能生成带原因、置信度和证据 ID 的代理标的，并要求用户人工确认后再下钻。
-- `lad research check --strict` 是 agent 和 CI 可用的工作台自检入口，必须自动执行补缺、重新深挖、生成新手可读摘要和机器可读 `workbench-check-*.json`。严格模式下，只要证据、研究入口、代理行情或数据缺口 gate 失败，就必须以非零退出码结束。
+- `lad research check --strict` 是 agent 和 CI 可用的工作台自检入口，必须自动执行补缺、重新深挖、生成新手可读摘要和机器可读 `workbench-check-*.json`。新手摘要不得只显示代码、代理标的或泛泛结论；必须说明“问题是什么、为什么要看、看什么才有意义、下一步做什么”。严格模式下，只要证据、研究入口、代理行情或数据缺口 gate 失败，就必须以非零退出码结束。
 - `lad audit list` 列出已生成的报告和决策记录。
 
 ## 数据新鲜度策略

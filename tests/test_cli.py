@@ -309,6 +309,10 @@ def test_research_deepen_command_shows_proxy_mapping_symbols(tmp_path: Path) -> 
     assert "给新手的读法" in result.stdout
     assert "这不是买入建议" in result.stdout
     assert "代理观察工具" in result.stdout
+    assert "系统替你问的问题" in result.stdout
+    assert "为什么要看" in result.stdout
+    assert "看到什么才算有意义" in result.stdout
+    assert "下一步动作" in result.stdout
 
 
 def test_research_deepen_command_handles_empty_queue(tmp_path: Path) -> None:
@@ -485,6 +489,10 @@ def test_research_check_command_runs_closed_loop_and_prints_beginner_report(
     assert "状态: 可继续研究" in result.stdout
     assert "给新手的读法" in result.stdout
     assert "2800.HK" in result.stdout
+    assert "系统替你问的问题" in result.stdout
+    assert "为什么要看" in result.stdout
+    assert "看到什么才算有意义" in result.stdout
+    assert "下一步动作" in result.stdout
     assert list((tmp_path / "research").glob("workbench-check-*.json"))
 
 

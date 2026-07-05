@@ -9,8 +9,9 @@ from lychee_alphadesk.core.discovery import (
     DiscoveryTheme,
 )
 from lychee_alphadesk.core.live_data import PullResult
+from lychee_alphadesk.core.research import ResearchPacket
 from lychee_alphadesk.core.research_db import write_discovery_research_run
-from lychee_alphadesk.core.workbench import run_workbench_check
+from lychee_alphadesk.core.workbench import beginner_research_brief, run_workbench_check
 
 
 def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
@@ -31,11 +32,18 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert "给新手的读法" in result.beginner_brief
     assert "这不是买入建议" in result.beginner_brief
     assert "代理观察工具" in result.beginner_brief
+    assert "系统替你问的问题" in result.beginner_brief
+    assert "为什么要看" in result.beginner_brief
+    assert "看到什么才算有意义" in result.beginner_brief
+    assert "下一步动作" in result.beginner_brief
     assert "2800.HK" in result.beginner_brief
+    assert "。；" not in result.beginner_brief
 
     payload = json.loads(result.artifact_path.read_text(encoding="utf-8"))
     assert payload["status"] == "ready"
     assert payload["proxy_price_coverage"] == "1/1"
+    assert payload["candidates"][0]["beginner_question"]
+    assert payload["candidates"][0]["what_to_check"]
 
 
 def test_workbench_check_marks_blocked_when_research_gaps_remain(
@@ -56,6 +64,37 @@ def test_workbench_check_marks_blocked_when_research_gaps_remain(
     assert any(gate.status == "fail" and gate.name == "数据缺口" for gate in result.gates)
     assert "暂时不要下结论" in result.beginner_brief
     assert "缺少 STX SEC 公告缓存" in result.beginner_brief
+    assert "系统替你问的问题" in result.beginner_brief
+    assert "下一步先补齐" in result.beginner_brief
+
+
+def test_beginner_brief_formats_direct_etf_entry_readably() -> None:
+    brief = beginner_research_brief(
+        [
+            ResearchPacket(
+                packet_id="research:test:1",
+                candidate_id=1,
+                created_at="2026-07-05T10:00:00+00:00",
+                display_name="纳斯达克100ETF观察",
+                symbol="QQQ",
+                market="US",
+                packet={
+                    "candidate": {
+                        "asset_type": "ETF",
+                        "related_theme": "利率与大盘风险观察",
+                        "why_watch": "用于观察科技反弹是否扩散。",
+                    },
+                    "evidence_ids": ["news_001"],
+                    "data_gaps": [],
+                    "next_actions": ["对比 QQQ 与 SPY。", "检查成交量。"],
+                },
+            )
+        ]
+    )
+
+    assert "最直接的 ETF/指数入口" in brief
+    assert "最直接的ETF/指数入口" not in brief
+    assert "对比 QQQ 与 SPY；检查成交量" in brief
 
 
 def _write_symbolless_seed(tmp_path: Path) -> None:

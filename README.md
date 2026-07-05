@@ -249,7 +249,7 @@ Turn queued candidates into second-stage research packets:
 lychee research deepen
 ```
 
-`research deepen` reads the SQLite research queue and local live cache, then writes `.alphadesk/research/research-packets-*.json`. Each packet includes candidate identity, evidence IDs, expanded news evidence, cached prices/news/filings, data gaps, and next verification actions. It does not produce buy/sell calls; it translates each candidate into a beginner question card: the question the system asks for you, why the entry matters, the observation entrypoint, what would make the signal meaningful, and the next action.
+`research deepen` reads the SQLite research queue and local live cache, then writes `.alphadesk/research/research-packets-*.json`. Each packet includes candidate identity, evidence IDs, expanded news evidence, cached prices/news/filings, data gaps, and next verification actions. It does not produce buy/sell calls; it turns each candidate into a workbench task card with research question, entrypoint, priority, evidence status, key checks, and next-action queue.
 
 Automatically fill data that can be pulled from research gaps:
 
@@ -265,7 +265,7 @@ Automatically run gap filling, deepening, and workbench readiness checks:
 lychee research check --strict
 ```
 
-`research check` is the shared human/agent verification loop: it fills pullable data gaps, regenerates research packets, prints a beginner-readable brief, and writes `.alphadesk/research/workbench-check-*.json`. The beginner brief must not be just a table of symbols; it must explain the research question, why to look, what would make the signal meaningful, and what to do next. With `--strict`, the command exits non-zero when evidence, research entrypoints, proxy prices, or data gaps fail the current readiness gates.
+`research check` is the shared human/agent verification loop: it fills pullable data gaps, regenerates research packets, prints the `AlphaDesk 研究工作台`, and writes `.alphadesk/research/workbench-check-*.json`. The output must not read like a lesson and must not be just symbols or tables; it must show executable tasks, blocked tasks, evidence status, and the next-action queue. With `--strict`, the command exits non-zero when evidence, research entrypoints, proxy prices, or data gaps fail the current readiness gates.
 
 Current market-level and symbol-level cache commands:
 

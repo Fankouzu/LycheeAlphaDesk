@@ -306,13 +306,14 @@ def test_research_deepen_command_shows_proxy_mapping_symbols(tmp_path: Path) -> 
     assert result.exit_code == 0
     assert "代理" in result.stdout
     assert "2800.HK" in result.stdout
-    assert "给新手的读法" in result.stdout
-    assert "这不是买入建议" in result.stdout
-    assert "代理观察工具" in result.stdout
-    assert "系统替你问的问题" in result.stdout
-    assert "为什么要看" in result.stdout
-    assert "看到什么才算有意义" in result.stdout
-    assert "下一步动作" in result.stdout
+    assert "AlphaDesk 研究工作台" in result.stdout
+    assert "今日研究任务" in result.stdout
+    assert "研究问题:" in result.stdout
+    assert "证据状态:" in result.stdout
+    assert "关键核验:" in result.stdout
+    assert "下一步队列" in result.stdout
+    assert "给新手的读法" not in result.stdout
+    assert "怎么理解代理" not in result.stdout
 
 
 def test_research_deepen_command_handles_empty_queue(tmp_path: Path) -> None:
@@ -487,12 +488,14 @@ def test_research_check_command_runs_closed_loop_and_prints_beginner_report(
     assert result.exit_code == 0
     assert "工作台自检报告已写入" in result.stdout
     assert "状态: 可继续研究" in result.stdout
-    assert "给新手的读法" in result.stdout
+    assert "AlphaDesk 研究工作台" in result.stdout
     assert "2800.HK" in result.stdout
-    assert "系统替你问的问题" in result.stdout
-    assert "为什么要看" in result.stdout
-    assert "看到什么才算有意义" in result.stdout
-    assert "下一步动作" in result.stdout
+    assert "今日研究任务" in result.stdout
+    assert "研究问题:" in result.stdout
+    assert "证据状态:" in result.stdout
+    assert "关键核验:" in result.stdout
+    assert "下一步队列" in result.stdout
+    assert "给新手的读法" not in result.stdout
     assert list((tmp_path / "research").glob("workbench-check-*.json"))
 
 
@@ -560,7 +563,8 @@ def test_research_check_command_strict_fails_when_blocked(
 
     assert result.exit_code == 1
     assert "状态: 未达标" in result.stdout
-    assert "暂时不要下结论" in result.stdout
+    assert "阻塞任务" in result.stdout
+    assert "处理动作: 先补齐" in result.stdout
     assert "缺少 STX SEC 公告缓存" in result.stdout
 
 

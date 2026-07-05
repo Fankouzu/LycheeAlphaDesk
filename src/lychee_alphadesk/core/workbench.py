@@ -44,6 +44,8 @@ class CandidateCheck:
     observation_entry: str
     what_to_check: str
     next_step: str
+    priority: str
+    evidence_status: str
 
 
 @dataclass(frozen=True)
@@ -183,6 +185,18 @@ def _candidate_checks(packets: list[ResearchPacket]) -> list[CandidateCheck]:
                     proxy_symbols=proxy_symbols,
                 ),
                 next_step=_next_step(next_actions, data_gaps),
+                priority=_priority(
+                    status=status,
+                    symbol=packet.symbol,
+                    proxy_symbols=proxy_symbols,
+                    evidence_count=len(evidence_ids),
+                    gap_count=len(data_gaps),
+                ),
+                evidence_status=_evidence_status(
+                    evidence_count=len(evidence_ids),
+                    gap_count=len(data_gaps),
+                    proxy_symbols=proxy_symbols,
+                ),
             )
         )
     return checks
@@ -252,57 +266,94 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
     ready = [candidate for candidate in candidates if candidate.status == "ready"]
     blocked = [candidate for candidate in candidates if candidate.status == "blocked"]
     lines = [
-        "给新手的读法",
-        "这不是买入建议，也不是推荐清单；它是帮你决定下一步研究什么的地图。",
+        "AlphaDesk 研究工作台",
+        "边界: 研究任务台，不给买卖建议。",
+        (
+            f"状态: {_brief_status(status)} | "
+            f"可执行 {len(ready)} | 阻塞 {len(blocked)} | 总任务 {len(candidates)}"
+        ),
     ]
-    if status == "ready":
-        lines.append(
-            "当前状态: 可以继续研究。意思是数据入口已经够用，"
-            "可以进入成分、流动性和公告核验。"
-        )
-    else:
-        lines.append("当前状态: 未达标。意思是至少还有关键数据缺口，暂时不要下结论。")
 
     lines.append("")
-    lines.append("可以继续研究的线索")
+    lines.append("今日研究任务")
     if ready:
-        for index, candidate in enumerate(ready, start=1):
-            lines.append(f"{index}. {candidate.display_name} [{candidate.market}]")
-            lines.append(f"   系统替你问的问题: {candidate.beginner_question}")
-            lines.append(f"   为什么要看: {candidate.why_it_matters}")
-            lines.append(f"   观察入口: {candidate.observation_entry}")
+        for candidate in ready:
             lines.append(
-                f"   看到什么才算有意义: {candidate.what_to_check}"
+                f"- {candidate.display_name} "
+                f"[{candidate.market}] | 入口: {candidate.observation_entry} | "
+                f"优先级: {candidate.priority} | 证据状态: {candidate.evidence_status}"
             )
-            lines.append(f"   下一步动作: {candidate.next_step}")
+            lines.append(f"  研究问题: {candidate.beginner_question}")
+            lines.append(f"  关键核验: {candidate.what_to_check}")
+            lines.append(f"  下一步: {candidate.next_step}")
+            if candidate.proxy_symbols:
+                lines.append("  代理核验: 核对成分、费用、流动性和是否可交易。")
     else:
-        lines.append("- 暂无。")
+        lines.append("- 无可执行任务。")
 
     lines.append("")
-    lines.append("暂时不要下结论")
+    lines.append("下一步队列")
+    if ready:
+        for candidate in ready:
+            lines.append(f"- {candidate.display_name}: {candidate.next_step}")
+    else:
+        lines.append("- 先解除阻塞任务。")
+
+    lines.append("")
+    lines.append("阻塞任务")
     if blocked:
-        for index, candidate in enumerate(blocked, start=1):
-            lines.append(f"{index}. {candidate.display_name} [{candidate.market}]")
-            lines.append(f"   系统替你问的问题: {candidate.beginner_question}")
-            lines.append(f"   为什么要看: {candidate.why_it_matters}")
-            lines.append(f"   观察入口: {candidate.observation_entry}")
+        for candidate in blocked:
             lines.append(
-                f"   暂时不要下结论: {'；'.join(candidate.data_gaps)}"
+                f"- {candidate.display_name} "
+                f"[{candidate.market}] | 入口: {candidate.observation_entry}"
             )
-            lines.append(
-                "   下一步动作: 下一步先补齐 "
-                f"{'；'.join(candidate.data_gaps)}，再回来看这个问题。"
-            )
+            gap_text = _gap_text(candidate.data_gaps)
+            lines.append(f"  优先级: {candidate.priority}")
+            lines.append(f"  研究问题: {candidate.beginner_question}")
+            lines.append(f"  缺口: {gap_text}。")
+            lines.append(f"  处理动作: 先补齐 {gap_text}。")
     else:
-        lines.append("- 暂无阻塞缺口。")
-
-    lines.append("")
-    lines.append("怎么理解代理")
-    lines.append(
-        "- 代理观察工具不是原主题本身，只是临时用 ETF 或指数入口观察方向、成交量和市场情绪。"
-    )
-    lines.append("- 代理通过后还要检查成分、费用、流动性和是否真的对应主题。")
+        lines.append("- 无。")
     return "\n".join(lines)
+
+
+def _brief_status(status: str) -> str:
+    return "可执行研究" if status == "ready" else "存在阻塞"
+
+
+def _priority(
+    *,
+    status: str,
+    symbol: str | None,
+    proxy_symbols: list[str],
+    evidence_count: int,
+    gap_count: int,
+) -> str:
+    if status == "blocked" or gap_count:
+        return "P0 待补数据"
+    if symbol and evidence_count >= 2:
+        return "P1 直接下钻"
+    if symbol:
+        return "P2 待增强证据"
+    if proxy_symbols:
+        return "P2 代理核验"
+    return "P3 待映射"
+
+
+def _evidence_status(
+    *,
+    evidence_count: int,
+    gap_count: int,
+    proxy_symbols: list[str],
+) -> str:
+    parts = [f"证据 {evidence_count} 条", f"缺口 {gap_count} 个"]
+    if proxy_symbols:
+        parts.append("代理已映射")
+    return "；".join(parts)
+
+
+def _gap_text(data_gaps: list[str]) -> str:
+    return "；".join(gap.rstrip("。；;,.， ") for gap in data_gaps if gap.strip())
 
 
 def _beginner_question(

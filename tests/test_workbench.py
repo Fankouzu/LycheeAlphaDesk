@@ -29,14 +29,19 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert result.is_ready is True
     assert result.artifact_path is not None
     assert result.artifact_path.exists()
-    assert "给新手的读法" in result.beginner_brief
-    assert "这不是买入建议" in result.beginner_brief
-    assert "代理观察工具" in result.beginner_brief
-    assert "系统替你问的问题" in result.beginner_brief
-    assert "为什么要看" in result.beginner_brief
-    assert "看到什么才算有意义" in result.beginner_brief
-    assert "下一步动作" in result.beginner_brief
+    assert "AlphaDesk 研究工作台" in result.beginner_brief
+    assert "边界: 研究任务台，不给买卖建议。" in result.beginner_brief
+    assert "今日研究任务" in result.beginner_brief
+    assert "研究问题:" in result.beginner_brief
+    assert "优先级:" in result.beginner_brief
+    assert "证据状态:" in result.beginner_brief
+    assert "关键核验:" in result.beginner_brief
+    assert "下一步队列" in result.beginner_brief
     assert "2800.HK" in result.beginner_brief
+    assert "给新手的读法" not in result.beginner_brief
+    assert "怎么理解代理" not in result.beginner_brief
+    assert "系统替你问的问题" not in result.beginner_brief
+    assert "触发原因:" not in result.beginner_brief
     assert "。；" not in result.beginner_brief
 
     payload = json.loads(result.artifact_path.read_text(encoding="utf-8"))
@@ -44,6 +49,8 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert payload["proxy_price_coverage"] == "1/1"
     assert payload["candidates"][0]["beginner_question"]
     assert payload["candidates"][0]["what_to_check"]
+    assert payload["candidates"][0]["priority"]
+    assert payload["candidates"][0]["evidence_status"]
 
 
 def test_workbench_check_marks_blocked_when_research_gaps_remain(
@@ -62,10 +69,10 @@ def test_workbench_check_marks_blocked_when_research_gaps_remain(
     assert result.status == "blocked"
     assert result.is_ready is False
     assert any(gate.status == "fail" and gate.name == "数据缺口" for gate in result.gates)
-    assert "暂时不要下结论" in result.beginner_brief
+    assert "阻塞任务" in result.beginner_brief
     assert "缺少 STX SEC 公告缓存" in result.beginner_brief
-    assert "系统替你问的问题" in result.beginner_brief
-    assert "下一步先补齐" in result.beginner_brief
+    assert "研究问题:" in result.beginner_brief
+    assert "处理动作: 先补齐" in result.beginner_brief
 
 
 def test_beginner_brief_formats_direct_etf_entry_readably() -> None:
@@ -92,9 +99,12 @@ def test_beginner_brief_formats_direct_etf_entry_readably() -> None:
         ]
     )
 
-    assert "最直接的 ETF/指数入口" in brief
-    assert "最直接的ETF/指数入口" not in brief
+    assert "入口: QQQ" in brief
+    assert "优先级:" in brief
+    assert "证据状态:" in brief
+    assert "触发原因:" not in brief
     assert "对比 QQQ 与 SPY；检查成交量" in brief
+    assert "今日研究任务" in brief
 
 
 def _write_symbolless_seed(tmp_path: Path) -> None:

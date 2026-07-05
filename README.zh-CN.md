@@ -249,7 +249,7 @@ lychee research queue
 lychee research deepen
 ```
 
-`research deepen` 会读取 SQLite 研究队列和本地 live cache，生成 `.alphadesk/research/research-packets-*.json`。每个研究包包含候选身份、证据 ID、可展开的新闻证据、已缓存行情/新闻/公告、数据缺口和下一步核验动作。它不会给出买入/卖出结论，而是把每条线索翻译成新手问题卡：系统替你问的问题、为什么要看、观察入口、看到什么才算有意义、下一步动作。
+`research deepen` 会读取 SQLite 研究队列和本地 live cache，生成 `.alphadesk/research/research-packets-*.json`。每个研究包包含候选身份、证据 ID、可展开的新闻证据、已缓存行情/新闻/公告、数据缺口和下一步核验动作。它不会给出买入/卖出结论，而是把每条线索整理成工作台任务卡：研究问题、入口、优先级、证据状态、关键核验、下一步队列。
 
 根据深挖包自动补齐可拉取的数据：
 
@@ -265,7 +265,7 @@ lychee research fill-gaps
 lychee research check --strict
 ```
 
-`research check` 是给人和 agent 共用的闭环验收入口：它会自动补齐可拉取数据、重新生成研究深挖包、输出“给新手的读法”，并写入 `.alphadesk/research/workbench-check-*.json`。新手摘要不能只是代码或表格，必须说明“问题是什么、为什么要看、看什么才有意义、下一步做什么”。加上 `--strict` 后，如果证据、研究入口、代理行情或数据缺口任何一项未达标，命令会以非零退出码结束，便于自动化检查继续迭代。
+`research check` 是给人和 agent 共用的闭环验收入口：它会自动补齐可拉取数据、重新生成研究深挖包、输出 `AlphaDesk 研究工作台`，并写入 `.alphadesk/research/workbench-check-*.json`。工作台输出不能是课件式说明，也不能只是代码或表格；必须展示可执行任务、阻塞任务、证据状态和下一步队列。加上 `--strict` 后，如果证据、研究入口、代理行情或数据缺口任何一项未达标，命令会以非零退出码结束，便于自动化检查继续迭代。
 
 当前可用的市场级与 symbol 级 cache 命令：
 

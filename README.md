@@ -7,6 +7,7 @@
 ![Status](https://img.shields.io/badge/status-runnable%20demo-059669)
 ![Broker Agnostic](https://img.shields.io/badge/broker--agnostic-yes-2563eb)
 ![Policy First](https://img.shields.io/badge/policy--first-yes-059669)
+![Discover First](https://img.shields.io/badge/discover--first-yes-7c3aed)
 ![Not a Trading Bot](https://img.shields.io/badge/not%20a%20trading%20bot-human%20approved-f59e0b)
 ![License](https://img.shields.io/badge/license-TBD-lightgrey)
 
@@ -68,6 +69,7 @@ The goal is to help long-term investors build discipline, not to encourage overt
 
 - **Policy-first**: investment rules override model output.
 - **Evidence-first**: every conclusion should cite data, filings, news, or explicit inference.
+- **Discover-first**: beginners should start from market themes and watch candidates, not from memorized ticker symbols.
 - **Broker-agnostic**: IBKR, Futu, Longbridge, Tiger, CSV imports, and paper brokers are optional plugins.
 - **Provider-agnostic**: market data, news, filings, macro data, LLMs, and forecasts use pluggable providers.
 - **Terminal-native**: the main product is a local CLI/TUI workspace, not a web dashboard.
@@ -80,12 +82,14 @@ The primary interface is the terminal. These commands describe the v0.1 target e
 
 ```bash
 lychee demo
+lychee discover today
 lychee report --demo
 lychee
 ```
 
 Planned TUI sections:
 
+- Today Discovery: market-wide themes, watch candidates, risk flags, and suggested drilldowns.
 - Today: daily conclusion, risk status, and no-action reasoning.
 - Portfolio: cash, mock positions, allocation drift, and policy violations.
 - News: clustered events with affected assets and source timestamps.
@@ -112,6 +116,27 @@ The demo snapshot currently aggregates:
 - Mock forecast intervals.
 - Provider-level quality checks.
 
+## 🔎 Today Discovery Engine
+
+The main user journey is discovery-first, not symbol-first. A beginner should not need to know thousands of tickers before the workbench becomes useful.
+
+The planned `Today Discovery` flow is:
+
+```text
+US/HK/CN market context -> broad news and events -> LLM synthesis -> watch candidates -> drilldown data
+```
+
+The first discovery pass covers US stocks, Hong Kong stocks, and China A-shares together:
+
+- Market overview: indexes, ETFs, sector moves, volume, breadth, and unusual movement.
+- News scan: global financial news, regional market news, company news, and industry themes.
+- Company events: SEC filings, HKEX announcements, CNINFO-style announcements, earnings events, guidance, and IPO/new-share opportunities.
+- LLM analysis: market themes, affected industries, related companies or ETFs, evidence summaries, risk flags, and next data pulls.
+
+The output is a research watchlist, not investment advice. The system should say "watch", "research", and "drill down"; it should not make buy/sell calls or target-price claims.
+
+Manual symbol entry remains available, but it is a drilldown tool after the user has selected a theme or candidate.
+
 ## 🏗️ Planned Engine
 
 ```mermaid
@@ -121,8 +146,10 @@ flowchart LR
   News[News and Events] --> Data
   Filings[Filings and Financials] --> Data
   Macro[Macro and Rates] --> Data
+  Data --> Discovery[Today Discovery]
   Data --> Forecast[Forecast Layer]
   Data --> Committee[LLM Investment Committee]
+  Discovery --> Committee
   Forecast --> Decision[Decision Engine]
   Committee --> Decision
   Risk --> Decision
@@ -139,6 +166,7 @@ flowchart LR
 | Market Data Providers | Fetches daily/weekly prices, volume, dividends, splits, and index data. |
 | News and Event Engine | Deduplicates and clusters news into company, sector, macro, and geopolitical events. |
 | Filings and Financials | Reads SEC filings, HKEX announcements, prospectuses, and financial statements. |
+| Today Discovery Engine | Starts from US/HK/CN market context, news, and events to produce source-backed watch themes and candidates before asking for symbols. |
 | Forecast Layer | Uses TimesFM and simple baselines for forecast intervals, not direct trade signals. |
 | LLM Investment Committee | Runs analyst, macro, risk, skeptic, and secretary roles with source-backed outputs. |
 | Decision Engine | Produces no-action, research-required, risk-alert, rebalance, or manual order-draft outputs. |
@@ -190,7 +218,15 @@ The initial LLM setup supports one custom OpenAI-compatible endpoint with a `bas
 
 ## 📥 Live Data Cache
 
-The first live-data milestone writes provider responses into local JSON cache files under `.alphadesk/data/`. This keeps the workbench auditable and lets the TUI dashboard start from local data instead of repeatedly hitting APIs.
+The live-data path writes provider responses into local JSON cache files under `.alphadesk/data/`. This keeps the workbench auditable and lets the TUI dashboard start from local data instead of repeatedly hitting APIs.
+
+Planned discovery command:
+
+```bash
+lychee discover today
+```
+
+Current symbol-level cache commands:
 
 ```bash
 lychee data pull market --symbols AAPL,TSLA
@@ -207,7 +243,7 @@ Current live providers:
 - News: Marketaux, Finnhub, or NewsAPI, selected with `--provider`; `auto` uses the first configured provider.
 - Filings: SEC EDGAR recent filings for US-listed symbols.
 
-The live TUI dashboard reads the local cache and shows counts, providers, and latest cached prices. The `lychee` home screen also includes a keyboard action menu for the same core workflows as the CLI: pull market prices, pull news, pull SEC filings, check health, write a snapshot, and refresh the dashboard. The Textual built-in command palette is disabled in the home screen; use the visible action menu instead. It does not place trades and does not produce investment advice.
+The live TUI dashboard reads the local cache and shows counts, providers, and latest cached prices. The `lychee` home screen should prioritize `Today Discovery`, then let users review watch candidates, check data health, configure providers, or manually drill down into known symbols. The Textual built-in command palette is disabled in the home screen; use the visible action menu instead. It does not place trades and does not produce investment advice.
 
 Recommended first integrations:
 
@@ -238,10 +274,11 @@ Never commit provider secrets. Do not paste real API keys into examples, issues,
 
 Implementation order:
 
-1. Add no-key providers first: yfinance, AkShare, GDELT, SEC EDGAR, HKMA.
-2. Add key-based providers behind optional extras and health checks.
-3. Add paid/licensed providers only as optional plugins.
-4. Every provider must output the same `DataSnapshot` shape and must record source timestamps, provider name, and warnings.
+1. Add the discovery report model and `Today Discovery` TUI/CLI entry points.
+2. Add no-key providers first: yfinance, AkShare, GDELT, SEC EDGAR, HKMA.
+3. Add key-based providers behind optional extras and health checks.
+4. Add paid/licensed providers only as optional plugins.
+5. Every provider must output auditable records with source timestamps, provider name, market coverage, and warnings.
 
 ## 🧱 Technical Stack
 

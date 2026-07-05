@@ -13,7 +13,7 @@ Lychee AlphaDesk 是一个终端原生的 AI 投资研究工作台。
 第一期实现必须证明这个工作流成立：
 
 ```text
-投资政策 -> provider -> 数据质量 -> 每日报告 -> TUI 查看 -> 审计日志
+投资政策 -> provider -> 市场发现 -> 数据质量 -> 每日报告 -> TUI 查看 -> 审计日志
 ```
 
 用户 clone 仓库后，应该能在五分钟内看到项目价值。
@@ -32,6 +32,7 @@ v0.1 应交付：
 - 统一数据快照命令。
 - Provider 健康检查命令。
 - 用于本机 provider 配置的 CLI setup 命令。
+- 覆盖美股、港股和 A 股的发现优先工作流。
 - Markdown 每日报告。
 - 本地审计日志。
 - 最小 Textual TUI 外壳。
@@ -106,6 +107,8 @@ lad setup
 lad setup set alpha_vantage YOUR_API_KEY
 lad setup llm set https://api.example.com/v1 YOUR_API_KEY MODEL_NAME
 lychee setup
+lychee discover today
+lad discover today --markets us,hk,cn
 lad data health --demo
 lad data snapshot --demo
 lad data pull market --symbols AAPL,TSLA
@@ -121,7 +124,7 @@ lad
 
 命令行为：
 
-- `lad` 打开 TUI，主界面包含键盘 Action 菜单，可执行数据拉取、健康检查、snapshot、dashboard 刷新、setup 指引和退出。
+- `lad` 打开 TUI，主界面第一个动作必须是 `Today Discovery`，然后才是关注候选查看、数据健康检查、provider setup 指引、手动股票代码钻取、snapshot 和退出。
 - `lad demo` 检查 demo 文件和本地输出目录。
 - `lad setup` 打开统一交互式配置中心，数据 provider 和 LLM provider 都从这里配置。
 - `lad setup set` 为自动化脚本和 agent 单项写入一个 provider key 或 token。
@@ -131,12 +134,14 @@ lad
 - `lychee` 是推荐的 console command；`lad` 保留为短别名。
 - `lad data health --demo` 打印 provider 级数据质量检查。
 - `lad data snapshot --demo` 写入统一 JSON 快照，包含市场、新闻、公告和预测数据。
+- `lychee discover today` 在不要求用户先输入股票代码的情况下，运行覆盖美股、港股和 A 股的发现优先流程。
+- `lad discover today --markets us,hk,cn` 写入本地 discovery report cache，包含主题、关注候选、证据引用、warning 和下一步动作。
 - `lad data pull market` 将 Alpha Vantage 日线行情写入本地 live cache。
 - `lad data pull news` 将 Marketaux、Finnhub 或 NewsAPI 新闻事件写入本地 live cache。
 - `lad data pull filings` 将 SEC EDGAR 近期 filings 写入本地 live cache。
 - `lad data health` 检查 live cache 是否存在以及行数状态。
 - `lad data snapshot` 基于 live cache 写入统一 JSON 快照。
-- TUI 主界面 Action 菜单必须暴露和 CLI 一致的核心数据流程。Textual 内置 command palette 不是业务命令入口，并且应在主界面保持禁用，以避免终端 glyph 宽度显示问题。
+- TUI 主界面 Action 菜单必须先暴露发现优先流程，再暴露手动 symbol 流程。手动输入股票代码只作为已经知道关注对象后的钻取路径保留。Textual 内置 command palette 不是业务命令入口，并且应在主界面保持禁用，以避免终端 glyph 宽度显示问题。
 - `lad report --demo` 使用内置 demo provider 生成 Markdown 日报。
 - `lad policy check` 校验投资政策文件，并打印违反项或警告。
 - `lad audit list` 列出已生成的报告和决策记录。
@@ -158,6 +163,7 @@ v0.1 的 TUI 应该小而有用。
 
 页面：
 
+- Today Discovery：美股/港股/A 股主题、有证据支撑的关注候选、风险提示和建议拉取的数据。
 - Today：每日结论、风险状态和不操作理由。
 - Portfolio：模拟持仓、现金比例、目标偏离和政策违反项。
 - News：demo 事件聚类和受影响资产。
@@ -174,6 +180,37 @@ TUI 要求：
 - Demo 模式不需要网络。
 - 清楚标记 demo 数据。
 - 不提供实盘下单入口。
+- 不要把输入股票代码作为新手进入产品的第一步。
+
+## 6.1 今日市场发现引擎
+
+产品入口必须是发现优先。
+
+引擎先从广域证据出发，再逐步收敛到主题和候选标的：
+
+```text
+美股/港股/A 股市场概览 -> 广域新闻与事件 -> LLM 综合分析 -> 关注候选 -> 钻取详细数据
+```
+
+必须覆盖的市场：
+
+| 市场 | 第一轮数据 | 预期输出 |
+| --- | --- | --- |
+| 美股 | 主要指数、ETF、财经新闻、SEC filings、大盘股观察池 | 主题、股票、ETF、行业候选 |
+| 港股 | 恒生系列指数、港股市场新闻、HKEX 公告、港币/利率背景 | 主题、股票、中国相关行业、IPO/打新提示 |
+| A 股 | 宽基指数、行业板块、公告、财报/业绩预告、IPO/打新提示 | 主题、A 股候选、政策相关行业 |
+
+Discovery report 必须包含：
+
+- 市场覆盖情况和缺失 provider 的 warning。
+- 来源列表，包括 provider 名称和时间戳。
+- 主题，包括摘要、证据、相关行业、风险提示和置信度。
+- 关注候选，包括展示名称、可选股票代码、市场、资产类型、证据、风险提示和建议拉取的数据。
+- 明确说明候选只是研究对象，不是买入/卖出建议。
+
+LLM 可以负责摘要、聚类、提取、比较和建议下一步研究数据。LLM 不得输出直接买入/卖出结论、目标价、自动仓位配置或实盘交易指令。
+
+如果没有配置 LLM provider，命令仍然必须生成确定性的 fallback 报告，包含原始主题、provider 状态和“LLM analysis unavailable” warning。
 
 ## 7. Provider 接口
 
@@ -185,6 +222,7 @@ Provider 类型：
 - `NewsProvider`
 - `FilingProvider`
 - `MacroProvider`
+- `DiscoveryProvider`
 - `ForecastProvider`
 - `LLMProvider`
 - `BrokerProvider`

@@ -13,7 +13,7 @@ The main product is not a web dashboard. It is a fast local CLI/TUI application 
 The first implementation must prove the workflow:
 
 ```text
-policy -> providers -> data quality -> daily report -> TUI review -> audit log
+policy -> providers -> discovery -> data quality -> daily report -> TUI review -> audit log
 ```
 
 The project should feel useful within five minutes of cloning the repository.
@@ -32,6 +32,7 @@ v0.1 should deliver:
 - Unified data snapshot command.
 - Provider health command.
 - CLI setup command for local provider configuration.
+- Discovery-first workflow for US, HK, and China A-share research.
 - Markdown daily report.
 - Local audit trail.
 - Minimal Textual TUI shell.
@@ -106,6 +107,8 @@ lad setup
 lad setup set alpha_vantage YOUR_API_KEY
 lad setup llm set https://api.example.com/v1 YOUR_API_KEY MODEL_NAME
 lychee setup
+lychee discover today
+lad discover today --markets us,hk,cn
 lad data health --demo
 lad data snapshot --demo
 lad data pull market --symbols AAPL,TSLA
@@ -121,7 +124,7 @@ lad
 
 Command behavior:
 
-- `lad` opens the TUI with a keyboard action menu for data pulls, health checks, snapshots, dashboard refresh, setup guidance, and quit.
+- `lad` opens the TUI with `Today Discovery` as the first action, followed by watch-candidate review, data health, provider setup guidance, manual symbol drilldown, snapshots, and quit.
 - `lad demo` verifies that demo files and local output directories exist.
 - `lad setup` opens the unified interactive configuration center for data providers and LLM providers.
 - `lad setup set` stores one provider key or token in the local config file for automation and agent use.
@@ -131,12 +134,14 @@ Command behavior:
 - `lychee` is the recommended console command; `lad` remains a short alias.
 - `lad data health --demo` prints provider-level quality checks.
 - `lad data snapshot --demo` writes a unified JSON snapshot with market, news, filing, and forecast data.
+- `lychee discover today` runs a discovery-first workflow across US, HK, and China A-share markets without requiring symbols up front.
+- `lad discover today --markets us,hk,cn` writes a local discovery report cache with themes, watch candidates, evidence references, warnings, and next actions.
 - `lad data pull market` writes Alpha Vantage daily prices into the local live cache.
 - `lad data pull news` writes Marketaux, Finnhub, or NewsAPI events into the local live cache.
 - `lad data pull filings` writes recent SEC EDGAR filings into the local live cache.
 - `lad data health` checks live cache presence and row counts.
 - `lad data snapshot` writes a unified JSON snapshot from the live cache.
-- The TUI home action menu must expose the same core data workflows as the CLI. The Textual built-in command palette is not a business-command surface and should stay disabled on the home screen to avoid terminal glyph-width issues.
+- The TUI home action menu must expose the discovery-first workflow before manual symbol workflows. Manual symbol entry remains available only as a drilldown path for users who already know which asset they want to inspect. The Textual built-in command palette is not a business-command surface and should stay disabled on the home screen to avoid terminal glyph-width issues.
 - `lad report --demo` generates a Markdown daily report from bundled demo providers.
 - `lad policy check` validates the policy file and prints violations or warnings.
 - `lad audit list` lists generated reports and decision records.
@@ -158,6 +163,7 @@ The TUI should be useful but small in v0.1.
 
 Screens:
 
+- Today Discovery: US/HK/CN themes, source-backed watch candidates, risk flags, and suggested next data pulls.
 - Today: daily conclusion, risk status, and no-action reasoning.
 - Portfolio: mock positions, cash weight, target drift, and policy violations.
 - News: demo event clusters and affected assets.
@@ -174,6 +180,37 @@ TUI requirements:
 - No network required in demo mode.
 - Clear "demo data" labeling.
 - No live order entry.
+- Do not ask beginners for symbols as the first product step.
+
+## 6.1 Today Discovery Engine
+
+The product entry point is discovery-first.
+
+The engine starts from broad evidence and then narrows into themes and candidates:
+
+```text
+US/HK/CN market context -> broad news and events -> LLM synthesis -> watch candidates -> drilldown data
+```
+
+Required market coverage:
+
+| Market | First-pass data | Expected output |
+| --- | --- | --- |
+| US | Major indexes, ETFs, financial news, SEC filings, large-cap watch universe | Themes, stocks, ETFs, sector candidates |
+| HK | Hang Seng family indexes, HK market news, HKEX announcements, HKD/rate context | Themes, stocks, China-linked sectors, IPO/new-share notes |
+| CN A-shares | Broad indexes, sector boards, announcements, earnings/forecast notices, IPO/new-share notes | Themes, A-share candidates, policy-linked sectors |
+
+The discovery report must include:
+
+- Market coverage and missing-provider warnings.
+- Source list with provider names and timestamps.
+- Themes with summaries, evidence, related sectors, risk flags, and confidence levels.
+- Watch candidates with display names, optional symbols, markets, asset types, evidence, risk flags, and suggested next data pulls.
+- A clear disclaimer that candidates are research targets, not buy/sell recommendations.
+
+The LLM may summarize, cluster, extract, compare, and suggest next research steps. It must not produce direct buy/sell calls, target prices, automatic allocations, or live trading instructions.
+
+If no LLM provider is configured, the command must still produce a deterministic fallback report with raw themes, provider status, and an "LLM analysis unavailable" warning.
 
 ## 7. Provider Interfaces
 
@@ -185,6 +222,7 @@ Provider types:
 - `NewsProvider`
 - `FilingProvider`
 - `MacroProvider`
+- `DiscoveryProvider`
 - `ForecastProvider`
 - `LLMProvider`
 - `BrokerProvider`

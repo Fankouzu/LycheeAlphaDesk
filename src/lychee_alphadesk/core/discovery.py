@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from lychee_alphadesk.core.config import AlphaDeskConfig, load_config
+from lychee_alphadesk.core.live_data import build_cached_data_snapshot
+from lychee_alphadesk.core.llm import JsonPoster, request_chat_json
 
 DISCOVERY_CACHE_FILENAME = "discovery-today.json"
 DEFAULT_MARKETS = ["US", "HK", "CN"]
@@ -77,46 +79,41 @@ def parse_markets(value: str) -> list[str]:
 def build_today_discovery_report(
     markets: list[str] | None = None,
     config: AlphaDeskConfig | None = None,
+    output_dir: Path | None = None,
+    post_json: JsonPoster | None = None,
 ) -> DiscoveryReport:
     active_config = config or load_config()
     require_active_llm(active_config)
     selected_markets = markets or DEFAULT_MARKETS.copy()
-    themes = [
-        theme
-        for theme in _starter_themes()
-        if set(theme.markets).intersection(selected_markets)
-    ]
-    candidates = [
-        candidate
-        for candidate in _starter_candidates()
-        if candidate.market in selected_markets
-    ]
+    context = _build_llm_context(selected_markets, output_dir)
+    payload = request_chat_json(
+        active_config,
+        messages=_build_discovery_messages(context),
+        post_json=post_json,
+    )
+    themes = _parse_themes(payload)
+    candidates = _parse_candidates(payload)
+    warnings = _optional_string_list(payload, "warnings")
+    warnings.append("Candidates are research targets only and are not buy/sell recommendations.")
     return DiscoveryReport(
-        mode="llm-required-starter",
+        mode="llm-synthesized",
         created_at=datetime.now(UTC).isoformat(timespec="seconds"),
         markets=selected_markets,
         sources=[
             DiscoverySource(
-                provider="starter-universe",
+                provider="openai-compatible-llm",
                 market=market,
                 description=(
-                    "Starter discovery scaffold for first-run research. It is only "
-                    "available after an LLM provider is configured."
+                    "Model synthesized Today Discovery from starter context and "
+                    "available local live-data cache."
                 ),
             )
             for market in selected_markets
         ],
         themes=themes,
         candidates=candidates,
-        warnings=[
-            "Candidates are research targets only and are not buy/sell recommendations.",
-        ],
-        next_actions=[
-            "Configure no-key and key-based data providers in lychee setup.",
-            "Select a theme or candidate, then drill down into prices, "
-            "news, filings, and financials.",
-            "Record evidence and counterarguments before any manual investment action.",
-        ],
+        warnings=warnings,
+        next_actions=_required_string_list(payload, "next_actions"),
         disclaimer="Not investment advice. Use this report to decide what to research next.",
     )
 
@@ -164,6 +161,192 @@ def discovery_report_summary(report: DiscoveryReport, output_path: Path | None =
         for warning in report.warnings:
             lines.append(f"- {warning}")
     return "\n".join(lines)
+
+
+def _build_llm_context(markets: list[str], output_dir: Path | None) -> dict[str, object]:
+    starter_themes = [
+        asdict(theme)
+        for theme in _starter_themes()
+        if set(theme.markets).intersection(markets)
+    ]
+    starter_candidates = [
+        asdict(candidate)
+        for candidate in _starter_candidates()
+        if candidate.market in markets
+    ]
+    context: dict[str, object] = {
+        "markets": markets,
+        "starter_themes": starter_themes,
+        "starter_candidates": starter_candidates,
+        "local_live_cache": {"available": False},
+    }
+    if output_dir is not None:
+        snapshot = build_cached_data_snapshot(output_dir)
+        context["local_live_cache"] = {
+            "available": True,
+            "counts": snapshot.counts,
+            "providers": snapshot.provider_names,
+            "prices": [asdict(price) for price in snapshot.prices[:20]],
+            "news_events": [asdict(event) for event in snapshot.news_events[:30]],
+            "filings": [asdict(filing) for filing in snapshot.filings[:20]],
+        }
+    return context
+
+
+def _build_discovery_messages(context: dict[str, object]) -> list[dict[str, str]]:
+    schema = {
+        "themes": [
+            {
+                "name": "string",
+                "markets": ["US"],
+                "summary": "string",
+                "evidence": ["string"],
+                "sectors": ["string"],
+                "risk_flags": ["string"],
+                "confidence": "low|medium|high",
+            }
+        ],
+        "candidates": [
+            {
+                "display_name": "string",
+                "symbol": "string or null",
+                "market": "US|HK|CN",
+                "asset_type": "stock|ETF|sector|index|other",
+                "related_theme": "string",
+                "why_watch": "string",
+                "evidence": ["string"],
+                "risk_flags": ["string"],
+                "next_actions": ["string"],
+                "confidence": "low|medium|high",
+                "recommendation": "research",
+            }
+        ],
+        "warnings": ["string"],
+        "next_actions": ["string"],
+    }
+    system_prompt = (
+        "You are Lychee AlphaDesk's market discovery analyst. "
+        "Return one valid JSON object only, with no markdown fences. "
+        "Do not give buy/sell advice, target prices, or allocation advice. "
+        "Use watch/research/drill-down language only. "
+        "Every theme and candidate must cite evidence from the provided context."
+    )
+    user_prompt = (
+        "Create Today Discovery for a beginner investor from this context.\n\n"
+        f"Required JSON schema example:\n{json.dumps(schema, ensure_ascii=False)}\n\n"
+        f"Context JSON:\n{json.dumps(context, ensure_ascii=False)}"
+    )
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def _parse_themes(payload: dict[str, object]) -> list[DiscoveryTheme]:
+    themes = []
+    for item in _required_dict_list(payload, "themes"):
+        themes.append(
+            DiscoveryTheme(
+                name=_required_string(item, "name"),
+                markets=_required_string_list(item, "markets"),
+                summary=_required_string(item, "summary"),
+                evidence=_required_string_list(item, "evidence"),
+                sectors=_required_string_list(item, "sectors"),
+                risk_flags=_required_string_list(item, "risk_flags"),
+                confidence=_required_string(item, "confidence"),
+            )
+        )
+    if not themes:
+        raise DiscoveryLLMRequiredError("LLM discovery response did not include themes")
+    return themes
+
+
+def _parse_candidates(payload: dict[str, object]) -> list[DiscoveryCandidate]:
+    candidates = []
+    for item in _required_dict_list(payload, "candidates"):
+        recommendation = _required_string(item, "recommendation")
+        _reject_advice_recommendation(recommendation)
+        candidates.append(
+            DiscoveryCandidate(
+                display_name=_required_string(item, "display_name"),
+                symbol=_optional_string(item, "symbol"),
+                market=_required_string(item, "market"),
+                asset_type=_required_string(item, "asset_type"),
+                related_theme=_required_string(item, "related_theme"),
+                why_watch=_required_string(item, "why_watch"),
+                evidence=_required_string_list(item, "evidence"),
+                risk_flags=_required_string_list(item, "risk_flags"),
+                next_actions=_required_string_list(item, "next_actions"),
+                confidence=_required_string(item, "confidence"),
+                recommendation=recommendation,
+            )
+        )
+    if not candidates:
+        raise DiscoveryLLMRequiredError("LLM discovery response did not include candidates")
+    return candidates
+
+
+def _required_dict_list(payload: dict[str, object], key: str) -> list[dict[str, object]]:
+    raw = payload.get(key)
+    if not isinstance(raw, list):
+        raise DiscoveryLLMRequiredError(f"LLM discovery response missing list field: {key}")
+    items: list[dict[str, object]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise DiscoveryLLMRequiredError(
+                f"LLM discovery response field {key} must contain objects"
+            )
+        items.append(dict(item))
+    return items
+
+
+def _required_string(payload: dict[str, object], key: str) -> str:
+    raw = payload.get(key)
+    if not isinstance(raw, str) or not raw.strip():
+        raise DiscoveryLLMRequiredError(f"LLM discovery response missing string field: {key}")
+    return raw.strip()
+
+
+def _optional_string(payload: dict[str, object], key: str) -> str | None:
+    raw = payload.get(key)
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise DiscoveryLLMRequiredError(
+            f"LLM discovery response field {key} must be string or null"
+        )
+    return raw.strip() or None
+
+
+def _required_string_list(payload: dict[str, object], key: str) -> list[str]:
+    values = _optional_string_list(payload, key)
+    if not values:
+        raise DiscoveryLLMRequiredError(f"LLM discovery response missing string list field: {key}")
+    return values
+
+
+def _optional_string_list(payload: dict[str, object], key: str) -> list[str]:
+    raw = payload.get(key)
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise DiscoveryLLMRequiredError(f"LLM discovery response field {key} must be a list")
+    values = []
+    for item in raw:
+        if not isinstance(item, str) or not item.strip():
+            raise DiscoveryLLMRequiredError(
+                f"LLM discovery response field {key} must contain strings"
+            )
+        values.append(item.strip())
+    return values
+
+
+def _reject_advice_recommendation(value: str) -> None:
+    normalized = value.strip().lower()
+    if normalized in {"buy", "sell", "hold", "strong_buy", "strong_sell"}:
+        raise DiscoveryLLMRequiredError(
+            "LLM discovery response used investment-advice recommendation language"
+        )
 
 
 def _starter_themes() -> list[DiscoveryTheme]:

@@ -23,6 +23,7 @@ from lychee_alphadesk.core.live_data import (
     pull_sec_filings,
     run_cached_data_health,
 )
+from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR
 
 ActionId = Literal[
@@ -174,7 +175,7 @@ class AlphaDeskApp(App[None]):
     async def _show_today_discovery(self) -> None:
         try:
             report = build_today_discovery_report()
-        except DiscoveryLLMRequiredError as error:
+        except (DiscoveryLLMRequiredError, LLMProviderError) as error:
             await self._replace_action_panel(
                 Static(f"Action failed: {error}", id="action-status")
             )

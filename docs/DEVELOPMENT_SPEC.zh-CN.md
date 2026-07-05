@@ -135,7 +135,7 @@ lad
 - `lad data health --demo` 打印 provider 级数据质量检查。
 - `lad data snapshot --demo` 写入统一 JSON 快照，包含市场、新闻、公告和预测数据。
 - `lychee discover today` 在不要求用户先输入股票代码的情况下，运行覆盖美股、港股和 A 股的发现优先流程。
-- `lad discover today --markets us,hk,cn` 写入本地 discovery report cache，包含主题、关注候选、证据引用、warning 和下一步动作。如果没有配置 LLM provider，命令必须失败；不允许静默生成 fallback 报告。
+- `lad discover today --markets us,hk,cn` 会调用已配置的 OpenAI-compatible `/chat/completions` 接口，解析模型返回的 JSON，并写入本地 `llm-synthesized` discovery report cache，包含主题、关注候选、证据引用、warning 和下一步动作。如果没有配置 LLM provider、API 请求失败，或模型没有返回有效 JSON，命令必须失败；不允许静默生成 fallback 报告。
 - `lad data pull market` 将 Alpha Vantage 日线行情写入本地 live cache。
 - `lad data pull news` 将 Marketaux、Finnhub 或 NewsAPI 新闻事件写入本地 live cache。
 - `lad data pull filings` 将 SEC EDGAR 近期 filings 写入本地 live cache。
@@ -210,7 +210,7 @@ Discovery report 必须包含：
 
 LLM 可以负责摘要、聚类、提取、比较和建议下一步研究数据。LLM 不得输出直接买入/卖出结论、目标价、自动仓位配置或实盘交易指令。
 
-如果没有配置 LLM provider，命令必须失败并显示 setup 指引，而且不得写入 discovery cache。
+如果没有配置 LLM provider、API 请求失败，或模型没有返回有效 JSON，命令必须失败并显示 setup/error 指引，而且不得写入 discovery cache。
 
 ## 7. Provider 接口
 
@@ -327,7 +327,7 @@ v0.1 默认：
 - 首次运行使用 demo 模式。
 - 禁用实盘交易。
 - Broker provider 可选。
-- LLM provider 可选。
+- LLM provider 对 demo/report 流程可选，但对 Today Discovery 必选。
 - TimesFM provider 可选。
 - Provider key 存在用户配置目录，而不是项目级 `.env` 文件。
 - 所有真实 provider 失败都必须降级为明确警告。

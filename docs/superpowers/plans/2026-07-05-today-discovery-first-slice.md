@@ -4,7 +4,7 @@
 
 **Goal:** Make the approved discovery-first product direction visible and runnable through a first `Today Discovery` CLI/TUI slice.
 
-**Architecture:** Add a small discovery core that writes an auditable local JSON report only after LLM configuration is present. Wire it into a `lychee discover today` command and make the TUI home menu show `Today Discovery` as the first action. Keep live provider integrations out of this first slice; missing LLM configuration is an error, not a fallback path.
+**Architecture:** Add a small discovery core that calls the configured OpenAI-compatible `/chat/completions` endpoint and writes an auditable local JSON report only after the model returns valid JSON. Wire it into a `lychee discover today` command and make the TUI home menu show `Today Discovery` as the first action. Keep richer provider integrations out of this first slice; missing LLM configuration, request failure, or invalid model JSON is an error, not a fallback path.
 
 **Tech Stack:** Python 3.11+, Typer, Textual `OptionList`, Pydantic-free dataclasses for the first slice, pytest, ruff, mypy.
 
@@ -13,13 +13,13 @@
 ### File Structure
 
 - Create `src/lychee_alphadesk/core/discovery.py`
-  - Defines `DiscoveryTheme`, `DiscoveryCandidate`, `DiscoveryReport`, JSON serialization, LLM-required report generation, and cache writing.
+  - Defines `DiscoveryTheme`, `DiscoveryCandidate`, `DiscoveryReport`, JSON serialization, LLM JSON synthesis, and cache writing.
 - Modify `src/lychee_alphadesk/cli/app.py`
   - Adds `discover` command group and `discover today`.
   - Prints a compact terminal summary and cache path.
 - Modify `src/lychee_alphadesk/tui/app.py`
   - Adds `Today Discovery` as the first action.
-  - Runs the LLM-required discovery report and displays themes/candidates without asking for symbols.
+  - Runs the LLM-synthesized discovery report and displays themes/candidates without asking for symbols.
   - Renames manual symbol actions so they are visibly drilldown tools.
 - Modify `tests/test_cli.py`
   - Adds CLI test for `lychee discover today`.
@@ -50,7 +50,7 @@ Expected: fail because the command does not exist.
 
 - [x] **Step 3: Implement minimal discovery core and CLI command**
 
-Create dataclasses for the report, require an active LLM configuration, generate a starter report covering US, HK, and CN after that check passes, write `.alphadesk/data/discovery-today.json`, and print a compact summary.
+Create dataclasses for the report, require an active LLM configuration, call `/chat/completions`, parse the model's JSON into a report covering US, HK, and CN, write `.alphadesk/data/discovery-today.json`, and print a compact summary.
 
 - [x] **Step 4: Run focused CLI test**
 

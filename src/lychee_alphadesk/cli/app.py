@@ -33,6 +33,7 @@ from lychee_alphadesk.core.live_data import (
     pull_sec_filings,
     run_cached_data_health,
 )
+from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
 from lychee_alphadesk.core.policy import load_policy, validate_policy
 from lychee_alphadesk.core.reports import generate_demo_report
@@ -235,7 +236,7 @@ def discover_today(
         raise typer.Exit(code=1) from error
     try:
         report = build_today_discovery_report(selected_markets)
-    except DiscoveryLLMRequiredError as error:
+    except (DiscoveryLLMRequiredError, LLMProviderError) as error:
         console.print(str(error), soft_wrap=True)
         raise typer.Exit(code=1) from error
     output_path = write_discovery_report(report, output_dir)

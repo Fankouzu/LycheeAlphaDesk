@@ -226,7 +226,7 @@ First-slice discovery command:
 lychee discover today
 ```
 
-This command requires an active LLM provider configured through `lychee setup`. If the LLM provider is missing, Today Discovery fails instead of silently generating a fallback report. The first slice writes a starter research report to `.alphadesk/data/discovery-today.json` after the LLM configuration check passes.
+This command requires an active LLM provider configured through `lychee setup`. It calls the configured OpenAI-compatible `/chat/completions` endpoint, parses the model's JSON response, and writes an `llm-synthesized` research report to `.alphadesk/data/discovery-today.json`. If the LLM provider is missing, the request fails, or the model does not return valid JSON, Today Discovery fails instead of silently generating a fallback report.
 
 Current symbol-level cache commands:
 
@@ -276,7 +276,7 @@ Never commit provider secrets. Do not paste real API keys into examples, issues,
 
 Implementation order:
 
-1. Keep expanding the first `Today Discovery` TUI/CLI slice from LLM-required starter reports into provider-backed reports.
+1. Keep expanding the first `Today Discovery` TUI/CLI slice from LLM-synthesized reports into richer provider-backed reports.
 2. Add no-key providers first: yfinance, AkShare, GDELT, SEC EDGAR, HKMA.
 3. Add key-based providers behind optional extras and health checks.
 4. Add paid/licensed providers only as optional plugins.

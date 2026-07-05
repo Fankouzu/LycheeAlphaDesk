@@ -118,6 +118,8 @@ Disallowed LLM tasks:
 
 If no LLM provider is configured, the engine must fail with setup guidance. It must not silently generate fallback analysis because that would make a beginner think AI synthesis has happened when it has not.
 
+When an LLM provider is configured, the engine must call the OpenAI-compatible `/chat/completions` endpoint and require a valid JSON object. API failures, malformed responses, missing required fields, or buy/sell-style recommendation language must fail the command instead of writing a discovery cache.
+
 ## TUI Requirements
 
 Human-facing discovery screens must follow the project interaction standard:

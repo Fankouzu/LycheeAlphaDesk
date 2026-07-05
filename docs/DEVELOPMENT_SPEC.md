@@ -135,7 +135,7 @@ Command behavior:
 - `lad data health --demo` prints provider-level quality checks.
 - `lad data snapshot --demo` writes a unified JSON snapshot with market, news, filing, and forecast data.
 - `lychee discover today` runs a discovery-first workflow across US, HK, and China A-share markets without requiring symbols up front.
-- `lad discover today --markets us,hk,cn` writes a local discovery report cache with themes, watch candidates, evidence references, warnings, and next actions. The command must fail if no LLM provider is configured; silent fallback reports are not allowed.
+- `lad discover today --markets us,hk,cn` calls the configured OpenAI-compatible `/chat/completions` endpoint, parses the model's JSON response, and writes a local `llm-synthesized` discovery report cache with themes, watch candidates, evidence references, warnings, and next actions. The command must fail if no LLM provider is configured, if the API request fails, or if the model does not return valid JSON; silent fallback reports are not allowed.
 - `lad data pull market` writes Alpha Vantage daily prices into the local live cache.
 - `lad data pull news` writes Marketaux, Finnhub, or NewsAPI events into the local live cache.
 - `lad data pull filings` writes recent SEC EDGAR filings into the local live cache.
@@ -210,7 +210,7 @@ The discovery report must include:
 
 The LLM may summarize, cluster, extract, compare, and suggest next research steps. It must not produce direct buy/sell calls, target prices, automatic allocations, or live trading instructions.
 
-If no LLM provider is configured, the command must fail with setup guidance and must not write a discovery cache.
+If no LLM provider is configured, if the API request fails, or if the model does not return valid JSON, the command must fail with setup/error guidance and must not write a discovery cache.
 
 ## 7. Provider Interfaces
 
@@ -327,7 +327,7 @@ v0.1 defaults:
 - Demo mode on first run.
 - Live trading disabled.
 - Broker provider optional.
-- LLM provider optional.
+- LLM provider optional for demo/report workflows, but required for Today Discovery.
 - TimesFM provider optional.
 - Provider keys stored in the user config directory, not project-level `.env` files.
 - All real provider failures must degrade to explicit warnings.

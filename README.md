@@ -242,11 +242,12 @@ This is not a server database and does not require deployment. It stores clues, 
 lychee research queue
 ```
 
-Current symbol-level cache commands:
+Current market-level and symbol-level cache commands:
 
 ```bash
 lychee data pull market --symbols AAPL,TSLA
 lychee data pull market --symbols AAPL,TSLA --force
+lychee data pull news
 lychee data pull news --symbols AAPL --provider auto
 lychee data pull news --symbols AAPL --provider auto --force
 lychee data pull filings --symbols AAPL,TSLA --limit 3
@@ -259,7 +260,7 @@ lychee
 Current live providers:
 
 - Market prices: Alpha Vantage daily time series.
-- News: Marketaux, Finnhub, or NewsAPI, selected with `--provider`; `auto` uses the first configured provider.
+- News: Marketaux, Finnhub, or NewsAPI, selected with `--provider`; without `--symbols` it pulls market-level news, and with `--symbols` it pulls symbol-level news. `auto` uses the first configured provider that fits the request type.
 - Filings: SEC EDGAR recent filings for US-listed symbols.
 
 Market-price cache now uses trading-session-aware freshness. US, HK, and China A-share symbols are checked against regular market hours before refreshing. During open sessions the default freshness window is 15 minutes; HK/CN lunch breaks, post-close final caches, and weekends prefer the local cache; `--force` ignores freshness and session state. The first implementation includes regular sessions and weekends only; full holiday calendars should come from a future trading-calendar provider.

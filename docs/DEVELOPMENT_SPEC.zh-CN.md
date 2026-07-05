@@ -112,6 +112,7 @@ lad discover today --markets us,hk,cn
 lad data health --demo
 lad data snapshot --demo
 lad data pull market --symbols AAPL,TSLA
+lad data pull news
 lad data pull news --symbols AAPL --provider auto
 lad data pull news --symbols AAPL --provider auto --force
 lad data pull filings --symbols AAPL,TSLA --limit 3
@@ -140,7 +141,7 @@ lad
 - `lychee discover today` 在不要求用户先输入股票代码的情况下，运行覆盖美股、港股和 A 股的发现优先流程。
 - `lad discover today --markets us,hk,cn` 会以 `stream: true` 调用已配置的 OpenAI-compatible `/chat/completions` 接口，解析模型返回的 JSON，并写入本地 `llm-synthesized` discovery report cache，包含主题、关注候选、证据引用、warning 和下一步动作。如果没有配置 LLM provider、API 请求失败，或模型没有返回有效 JSON，命令必须失败；不允许静默生成 fallback 报告。成功后必须同步写入 `.alphadesk/research.sqlite3`，作为研究队列和证据追踪的本地数据库。默认 LLM 读超时为 180 秒。
 - `lad data pull market` 将 Alpha Vantage 日线行情写入本地 live cache。默认使用行情 cache 的保质期和交易时段判断；`--force` 可强制刷新。
-- `lad data pull news` 将 Marketaux、Finnhub 或 NewsAPI 新闻事件写入本地 live cache。默认使用新闻 cache 保质期；`--force` 可强制刷新。
+- `lad data pull news` 将 Marketaux、Finnhub 或 NewsAPI 新闻事件写入本地 live cache。不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。默认使用新闻 cache 保质期；`--force` 可强制刷新。Finnhub 当前仅用于个股新闻；市场级新闻应使用 Marketaux 或 NewsAPI。
 - `lad data pull filings` 将 SEC EDGAR 近期 filings 写入本地 live cache。
 - `lad data freshness` 只读取本地 `cache_entries`，展示缓存层级、状态、provider、cache key、市场、交易状态、过期时间和行数，不触发 provider 请求。
 - `lad data health` 检查 live cache 是否存在以及行数状态。

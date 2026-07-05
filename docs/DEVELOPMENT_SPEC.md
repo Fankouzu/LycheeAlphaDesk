@@ -112,6 +112,7 @@ lad discover today --markets us,hk,cn
 lad data health --demo
 lad data snapshot --demo
 lad data pull market --symbols AAPL,TSLA
+lad data pull news
 lad data pull news --symbols AAPL --provider auto
 lad data pull news --symbols AAPL --provider auto --force
 lad data pull filings --symbols AAPL,TSLA --limit 3
@@ -140,7 +141,7 @@ Command behavior:
 - `lychee discover today` runs a discovery-first workflow across US, HK, and China A-share markets without requiring symbols up front.
 - `lad discover today --markets us,hk,cn` calls the configured OpenAI-compatible `/chat/completions` endpoint with `stream: true`, parses the model's JSON response, and writes a local `llm-synthesized` discovery report cache with themes, watch candidates, evidence references, warnings, and next actions. The command must fail if no LLM provider is configured, if the API request fails, or if the model does not return valid JSON; silent fallback reports are not allowed. Successful runs must also write `.alphadesk/research.sqlite3` as the local database for research queue and evidence tracking. The default LLM read timeout is 180 seconds.
 - `lad data pull market` writes Alpha Vantage daily prices into the local live cache. It uses market-cache freshness and trading-session checks by default; `--force` bypasses them.
-- `lad data pull news` writes Marketaux, Finnhub, or NewsAPI events into the local live cache. It uses news-cache freshness by default; `--force` refreshes explicitly.
+- `lad data pull news` writes Marketaux, Finnhub, or NewsAPI events into the local live cache. Without `--symbols` it pulls market-level news; with `--symbols` it pulls symbol-level news. It uses news-cache freshness by default; `--force` refreshes explicitly. Finnhub currently supports symbol-level news only; market-level news should use Marketaux or NewsAPI.
 - `lad data pull filings` writes recent SEC EDGAR filings into the local live cache.
 - `lad data freshness` only reads local `cache_entries` and displays cache layer, status, provider, cache key, market, session state, expiration time, and row count without triggering provider requests.
 - `lad data health` checks live cache presence and row counts.

@@ -51,7 +51,7 @@ def news_cache_key(
     start_date: str,
     end_date: str,
 ) -> str:
-    normalized_symbols = ",".join(sorted(symbol.upper() for symbol in symbols))
+    normalized_symbols = _normalized_news_scope(symbols)
     return f"news:{provider}:{normalized_symbols}:{start_date}:{end_date}"
 
 
@@ -176,6 +176,11 @@ def record_news_cache(
         is_final_for_session=False,
         forced=forced,
     )
+
+
+def _normalized_news_scope(symbols: list[str]) -> str:
+    normalized_symbols = ",".join(sorted(symbol.upper() for symbol in symbols))
+    return normalized_symbols or "MARKET"
 
 
 def record_cache_entry(

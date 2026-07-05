@@ -328,6 +328,38 @@ def test_data_pull_news_command_writes_live_cache(monkeypatch, tmp_path: Path) -
     assert "已拉取新闻事件: 1" in result.stdout
 
 
+def test_data_pull_news_command_allows_market_news_without_symbols(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    def fake_pull_news_events(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == []
+        assert kwargs["provider_id"] == "auto"
+        return PullResult(
+            domain="news",
+            provider="newsapi",
+            count=1,
+            output_path=tmp_path / "data" / "news-events.json",
+            warnings=[],
+        )
+
+    monkeypatch.setattr(cli_app, "pull_news_events", fake_pull_news_events)
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "pull",
+            "news",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "已拉取新闻事件: 1" in result.stdout
+
+
 def test_data_pull_news_command_passes_force(monkeypatch, tmp_path: Path) -> None:
     def fake_pull_news_events(**kwargs: object) -> PullResult:
         assert kwargs["force"] is True

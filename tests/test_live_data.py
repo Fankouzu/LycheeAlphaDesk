@@ -298,6 +298,46 @@ def test_pull_news_events_writes_finnhub_cache(tmp_path: Path) -> None:
     assert entries[0].row_count == 1
 
 
+def test_pull_news_events_without_symbols_writes_market_news_cache(tmp_path: Path) -> None:
+    config = default_config()
+    config.providers["newsapi"].value = "demo-newsapi-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        assert "newsapi.org/v2/everything" in url
+        assert "apiKey=demo-newsapi-key" in url
+        assert "stock" in url.lower()
+        return {
+            "articles": [
+                {
+                    "publishedAt": "2026-07-06T10:00:00Z",
+                    "title": "Global markets watch AI infrastructure",
+                    "description": "Investors watch chips, cloud and data centers.",
+                    "url": "https://example.com/market-news",
+                }
+            ]
+        }
+
+    result = pull_news_events(
+        symbols=[],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="newsapi",
+        start_date="2026-07-01",
+        end_date="2026-07-03",
+        fetch_json=fetch_json,
+    )
+
+    assert result.count == 1
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["provider"] == "newsapi"
+    assert cache["rows"][0]["headline"] == "Global markets watch AI infrastructure"
+    assert cache["rows"][0]["symbols"] == ["MARKET"]
+    entries = list_cache_entries(tmp_path, layer="news")
+    assert len(entries) == 1
+    assert entries[0].cache_key == "news:newsapi:MARKET:2026-07-01:2026-07-03"
+
+
 def test_pull_news_events_skips_fresh_cache(tmp_path: Path) -> None:
     config = default_config()
     config.providers["finnhub"].value = "demo-finnhub-key"

@@ -396,8 +396,8 @@ def data_pull_market(
 def data_pull_news(
     symbols: Annotated[
         str,
-        typer.Option("--symbols", help="用英文逗号分隔证券代码，例如 AAPL,TSLA。"),
-    ],
+        typer.Option("--symbols", help="用英文逗号分隔证券代码；留空则拉取市场级新闻。"),
+    ] = "",
     provider: Annotated[
         str,
         typer.Option("--provider", help="新闻数据源: auto, marketaux, finnhub, newsapi。"),

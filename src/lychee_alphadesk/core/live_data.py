@@ -28,6 +28,11 @@ SEC_USER_AGENT = (
     "LycheeAlphaDesk/0.1 research-workbench "
     "(https://github.com/Fankouzu/LycheeAlphaDesk)"
 )
+MARKET_NEWS_SYMBOL = "MARKET"
+MARKET_NEWS_QUERY = (
+    "stock market OR financial markets OR earnings OR central bank "
+    "OR US stocks OR Hong Kong stocks OR China stocks"
+)
 COMMON_SEC_COMPANIES: dict[str, tuple[int, str]] = {
     "AAPL": (320193, "Apple Inc."),
     "MSFT": (789019, "Microsoft Corp."),
@@ -167,7 +172,7 @@ def pull_news_events(
     selected_provider = ""
     last_error: RuntimeError | None = None
 
-    for candidate in _news_provider_candidates(config, provider_id):
+    for candidate in _news_provider_candidates(config, provider_id, symbols):
         try:
             rows = _pull_news_for_provider(
                 provider_id=candidate,
@@ -415,14 +420,25 @@ def _infer_symbol_currency(symbol: str) -> str:
     return "USD"
 
 
-def _news_provider_candidates(config: AlphaDeskConfig, provider_id: str) -> list[str]:
+def _news_provider_candidates(
+    config: AlphaDeskConfig,
+    provider_id: str,
+    symbols: list[str],
+) -> list[str]:
     if provider_id != "auto":
         if provider_id not in {"marketaux", "finnhub", "newsapi"}:
             raise ValueError(f"不支持的新闻数据源: {provider_id}")
+        if not symbols and provider_id == "finnhub":
+            raise ValueError("Finnhub 当前仅支持个股新闻；市场级新闻请使用 Marketaux 或 NewsAPI。")
         return [provider_id]
 
     candidates: list[str] = []
-    for candidate in ("marketaux", "finnhub", "newsapi"):
+    provider_order = (
+        ("marketaux", "newsapi")
+        if not symbols
+        else ("marketaux", "finnhub", "newsapi")
+    )
+    for candidate in provider_order:
         provider = config.providers[candidate]
         if provider.value and provider.value.strip():
             candidates.append(candidate)
@@ -492,14 +508,16 @@ def _pull_marketaux_news(
     api_key: str,
     fetch_json: JsonFetcher,
 ) -> list[NewsEvent]:
-    url = "https://api.marketaux.com/v1/news/all?" + urllib.parse.urlencode(
-        {
-            "api_token": api_key,
-            "symbols": ",".join(symbols),
-            "language": "en",
-            "limit": "20",
-        }
-    )
+    params = {
+        "api_token": api_key,
+        "language": "en",
+        "limit": "20",
+    }
+    if symbols:
+        params["symbols"] = ",".join(symbols)
+    else:
+        params["countries"] = "us,hk,cn"
+    url = "https://api.marketaux.com/v1/news/all?" + urllib.parse.urlencode(params)
     payload = _fetch_provider_json(fetch_json, url, None)
     if not isinstance(payload, dict):
         return []
@@ -530,7 +548,7 @@ def _pull_newsapi_events(
     api_key: str,
     fetch_json: JsonFetcher,
 ) -> list[NewsEvent]:
-    query = " OR ".join(symbols)
+    query = " OR ".join(symbols) if symbols else MARKET_NEWS_QUERY
     url = "https://newsapi.org/v2/everything?" + urllib.parse.urlencode(
         {
             "q": query,
@@ -557,7 +575,7 @@ def _pull_newsapi_events(
                 timestamp=str(item.get("publishedAt") or ""),
                 headline=str(item.get("title") or ""),
                 summary=str(item.get("description") or ""),
-                symbols=symbols,
+                symbols=symbols or [MARKET_NEWS_SYMBOL],
                 source_url=str(item.get("url") or ""),
             )
         )
@@ -567,12 +585,12 @@ def _pull_newsapi_events(
 def _marketaux_symbols(item: dict[str, object], fallback: list[str]) -> list[str]:
     entities = item.get("entities")
     if not isinstance(entities, list):
-        return fallback
+        return fallback or [MARKET_NEWS_SYMBOL]
     symbols: list[str] = []
     for entity in entities:
         if isinstance(entity, dict) and isinstance(entity.get("symbol"), str):
             symbols.append(entity["symbol"])
-    return symbols or fallback
+    return symbols or fallback or [MARKET_NEWS_SYMBOL]
 
 
 def _timestamp_from_epoch(value: object) -> str:

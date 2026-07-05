@@ -53,7 +53,7 @@ def pull_market_prices(
     fetch_json: JsonFetcher | None = None,
 ) -> PullResult:
     if provider_id != "alpha_vantage":
-        raise ValueError("Only alpha_vantage market pull is available in this version")
+        raise ValueError("当前版本仅支持通过 alpha_vantage 拉取行情")
 
     config = load_config(config_path)
     api_key = _configured_value(config.providers["alpha_vantage"].value, "Alpha Vantage")
@@ -73,7 +73,7 @@ def pull_market_prices(
         payload = _fetch_provider_json(fetcher, url, None)
         row = _parse_alpha_vantage_daily(symbol, payload)
         if row is None:
-            warnings.append(f"No Alpha Vantage daily price returned for {symbol}")
+            warnings.append(f"Alpha Vantage 没有返回 {symbol} 的日线行情")
         else:
             rows.append(row)
 
@@ -118,7 +118,7 @@ def pull_news_events(
         except RuntimeError as error:
             last_error = RuntimeError(_sanitize_error_message(str(error)))
             if provider_id == "auto":
-                warnings.append(f"{candidate} failed; trying next configured news provider")
+                warnings.append(f"{candidate} 失败，正在尝试下一个已配置新闻数据源")
                 continue
             raise last_error from error
         selected_provider = candidate
@@ -128,7 +128,7 @@ def pull_news_events(
         if last_error:
             raise last_error
         raise ValueError(
-            "No news provider is configured. Configure Marketaux, Finnhub, or NewsAPI."
+            "尚未配置新闻数据源。请配置 Marketaux、Finnhub 或 NewsAPI。"
         )
 
     output_path = _write_cache(
@@ -161,7 +161,7 @@ def pull_sec_filings(
         cik_by_symbol, company_by_symbol = _parse_sec_company_tickers(tickers_payload)
     except RuntimeError:
         cik_by_symbol, company_by_symbol = _common_sec_company_maps()
-        warnings.append("SEC ticker map fetch failed; using built-in CIK fallback")
+        warnings.append("SEC 代码映射拉取失败，已使用内置 CIK 备用映射")
 
     _merge_common_sec_companies(cik_by_symbol, company_by_symbol)
 
@@ -170,7 +170,7 @@ def pull_sec_filings(
         cik = cik_by_symbol.get(normalized_symbol)
         company = company_by_symbol.get(normalized_symbol, normalized_symbol)
         if cik is None:
-            warnings.append(f"No SEC CIK found for {symbol}")
+            warnings.append(f"未找到 {symbol} 的 SEC CIK")
             continue
         try:
             payload = _fetch_provider_json(
@@ -179,7 +179,7 @@ def pull_sec_filings(
                 headers,
             )
         except RuntimeError as error:
-            warnings.append(f"{normalized_symbol} SEC submissions fetch failed: {error}")
+            warnings.append(f"{normalized_symbol} SEC 提交记录拉取失败: {error}")
             continue
         rows.extend(
             _parse_sec_recent_filings(
@@ -237,19 +237,19 @@ def run_cached_data_health(output_dir: Path) -> list[DataQualityCheck]:
             output_dir=output_dir,
             filename="market-prices.json",
             name="market-cache-present",
-            noun="market rows",
+            noun="行情",
         ),
         _cache_health_check(
             output_dir=output_dir,
             filename="news-events.json",
             name="news-cache-present",
-            noun="news events",
+            noun="新闻事件",
         ),
         _cache_health_check(
             output_dir=output_dir,
             filename="filings.json",
             name="filings-cache-present",
-            noun="filings",
+            noun="公告",
         ),
     ]
     return checks
@@ -272,7 +272,7 @@ def _fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
         with urllib.request.urlopen(request, timeout=20) as response:
             return json.loads(response.read().decode("utf-8"))
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
-        raise RuntimeError(f"Could not fetch JSON from {_sanitize_url(url)}: {error}") from error
+        raise RuntimeError(f"无法从 {_sanitize_url(url)} 获取 JSON: {error}") from error
 
 
 def _fetch_provider_json(
@@ -305,7 +305,7 @@ def _sanitize_url(url: str) -> str:
 def _configured_value(value: str | None, provider_name: str) -> str:
     if value and value.strip():
         return value.strip()
-    raise ValueError(f"{provider_name} is not configured. Run `lychee setup` first.")
+    raise ValueError(f"{provider_name} 尚未配置。请先运行 `lychee setup`。")
 
 
 def _parse_alpha_vantage_daily(symbol: str, payload: object) -> PriceRow | None:
@@ -343,7 +343,7 @@ def _infer_symbol_currency(symbol: str) -> str:
 def _news_provider_candidates(config: AlphaDeskConfig, provider_id: str) -> list[str]:
     if provider_id != "auto":
         if provider_id not in {"marketaux", "finnhub", "newsapi"}:
-            raise ValueError(f"Unsupported news provider: {provider_id}")
+            raise ValueError(f"不支持的新闻数据源: {provider_id}")
         return [provider_id]
 
     candidates: list[str] = []
@@ -372,7 +372,7 @@ def _pull_news_for_provider(
     if provider_id == "newsapi":
         api_key = _configured_value(config.providers["newsapi"].value, "NewsAPI")
         return _pull_newsapi_events(symbols, start, end, api_key, fetch_json)
-    raise ValueError(f"Unsupported news provider: {provider_id}")
+    raise ValueError(f"不支持的新闻数据源: {provider_id}")
 
 
 def _date_window(start_date: str | None, end_date: str | None) -> tuple[str, str]:
@@ -575,7 +575,7 @@ def _parse_sec_recent_filings(
                 date=date,
                 company=company,
                 form=form,
-                summary=f"{symbol} {form} filed on {date}.",
+                summary=f"{symbol} 在 {date} 提交了 {form}。",
                 source_url=(
                     "https://www.sec.gov/Archives/edgar/data/"
                     f"{cik}/{accession_path}/{document}"
@@ -678,7 +678,7 @@ def _cache_health_check(
             name=name,
             status="error",
             provider="local-cache",
-            message=f"Missing {filename}; run `lychee data pull` first.",
+            message=f"缺少 {filename}；请先运行 `lychee data pull`。",
         )
 
     payload = _read_cache(output_dir, filename)
@@ -687,12 +687,12 @@ def _cache_health_check(
             name=name,
             status="warning",
             provider=payload.provider or "local-cache",
-            message=f"{filename} exists but contains no {noun}.",
+            message=f"{filename} 已存在，但不包含{noun}。",
         )
 
     return DataQualityCheck(
         name=name,
         status="pass",
         provider=payload.provider or "local-cache",
-        message=f"Loaded {len(payload.rows)} {noun} from {filename}.",
+        message=f"已从 {filename} 加载 {len(payload.rows)} 条{noun}。",
     )

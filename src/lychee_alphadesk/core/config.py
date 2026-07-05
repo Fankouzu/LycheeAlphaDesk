@@ -26,7 +26,7 @@ class ProviderSetupInfo(BaseModel):
 
 
 class OpenAICompatibleLLMConfig(BaseModel):
-    name: str = "OpenAI-compatible custom endpoint"
+    name: str = "OpenAI 兼容自定义端点"
     base_url: str | None = None
     api_key: str | None = None
     model: str | None = None
@@ -48,125 +48,125 @@ PROVIDER_SETUP_REGISTRY: tuple[ProviderSetupInfo, ...] = (
     ProviderSetupInfo(
         provider_id="yfinance",
         name="yfinance",
-        domain="US/HK/global daily prices",
-        registration="No formal signup",
+        domain="美股、港股和全球日线行情",
+        registration="无需正式申请",
         registration_url="https://github.com/ranaroussi/yfinance",
         config_field="none",
         priority=1,
-        notes="Unofficial Yahoo Finance access; useful for local research demos.",
+        notes="非官方 Yahoo Finance 访问方式，适合本地研究和演示。",
     ),
     ProviderSetupInfo(
         provider_id="akshare",
         name="AkShare",
-        domain="China A-shares, HK/US data, macro datasets",
-        registration="Usually no API key",
+        domain="A 股、港股、美股和宏观数据",
+        registration="通常无需 API Key",
         registration_url="https://github.com/akfamily/akshare",
         config_field="none",
         priority=1,
-        notes="Best first open-source option for China-market coverage.",
+        notes="覆盖中国市场的优先开源选择。",
     ),
     ProviderSetupInfo(
         provider_id="gdelt",
         name="GDELT",
-        domain="Global news and events",
-        registration="No API key",
+        domain="全球新闻和事件数据",
+        registration="无需 API Key",
         registration_url="https://www.gdeltproject.org/data.html",
         config_field="none",
         priority=1,
-        notes="Open global news source; needs ticker/entity mapping downstream.",
+        notes="开放全球新闻源，后续需要做证券代码和实体映射。",
     ),
     ProviderSetupInfo(
         provider_id="sec_edgar",
         name="SEC EDGAR",
-        domain="US filings and XBRL facts",
-        registration="No API key",
+        domain="美股公告和 XBRL 财务事实数据",
+        registration="无需 API Key",
         registration_url=(
             "https://www.sec.gov/search-filings/edgar-application-programming-interfaces"
         ),
         config_field="none",
         priority=1,
-        notes="No user setup is required for local research use; follow SEC fair-access guidance.",
+        notes="本地研究无需用户配置；访问时需遵守 SEC fair-access 指引。",
     ),
     ProviderSetupInfo(
         provider_id="hkma",
         name="HKMA Open API",
-        domain="Hong Kong macro and financial statistics",
-        registration="No registration",
+        domain="香港宏观和金融统计数据",
+        registration="无需注册",
         registration_url="https://apidocs.hkma.gov.hk/",
         config_field="none",
         priority=1,
-        notes="Useful for HK rates and macro context.",
+        notes="适合补充香港利率和宏观环境。",
     ),
     ProviderSetupInfo(
         provider_id="tushare",
         name="Tushare Pro",
-        domain="China A-share prices, fundamentals, calendars",
-        registration="Account + token",
+        domain="A 股行情、基本面和交易日历",
+        registration="账号 + Token",
         registration_url="https://tushare.pro/document/1?doc_id=39",
         config_field="token",
         priority=2,
-        notes="Some datasets may require points or permissions.",
+        notes="部分数据集可能需要积分或权限。",
     ),
     ProviderSetupInfo(
         provider_id="alpha_vantage",
         name="Alpha Vantage",
-        domain="Global prices, fundamentals, indicators, macro",
-        registration="Free API key",
+        domain="全球行情、基本面、技术指标和宏观数据",
+        registration="免费 API Key",
         registration_url="https://www.alphavantage.co/support/#api-key",
         config_field="api_key",
         priority=2,
-        notes="Beginner-friendly API; free tier is rate-limited.",
+        notes="对新手友好；免费额度有频率限制。",
     ),
     ProviderSetupInfo(
         provider_id="finnhub",
         name="Finnhub",
-        domain="Market data, fundamentals, filings, news",
-        registration="Free API key",
+        domain="行情、基本面、公告和新闻",
+        registration="免费 API Key",
         registration_url="https://finnhub.io/register",
         config_field="api_key",
         priority=2,
-        notes="Useful for ticker-linked market news and company data.",
+        notes="适合获取证券代码关联的市场新闻和公司数据。",
     ),
     ProviderSetupInfo(
         provider_id="fmp",
         name="Financial Modeling Prep",
-        domain="Prices, fundamentals, statements, press releases",
-        registration="API key",
+        domain="行情、基本面、财报和新闻稿",
+        registration="API Key",
         registration_url="https://site.financialmodelingprep.com/register",
         config_field="api_key",
         priority=2,
-        notes="Check licensing before redistribution or commercial use.",
+        notes="重新分发或商业使用前请确认授权限制。",
         show_in_wizard=False,
     ),
     ProviderSetupInfo(
         provider_id="fred",
         name="FRED",
-        domain="US macro data",
-        registration="Free API key",
+        domain="美国宏观数据",
+        registration="免费 API Key",
         registration_url="https://fred.stlouisfed.org/docs/api/fred/",
         config_field="api_key",
         priority=2,
-        notes="Best first US macro provider.",
+        notes="美国宏观数据的优先选择。",
     ),
     ProviderSetupInfo(
         provider_id="marketaux",
         name="Marketaux",
-        domain="Financial news and sentiment",
-        registration="Free API key",
+        domain="金融新闻和情绪数据",
+        registration="免费 API Key",
         registration_url="https://www.marketaux.com/documentation",
         config_field="api_key",
         priority=2,
-        notes="Useful if GDELT ticker matching is too noisy.",
+        notes="当 GDELT 的证券代码匹配噪声较大时可作为补充。",
     ),
     ProviderSetupInfo(
         provider_id="newsapi",
         name="NewsAPI",
-        domain="General news",
-        registration="Free development API key",
+        domain="通用新闻",
+        registration="免费开发 API Key",
         registration_url="https://newsapi.org/docs",
         config_field="api_key",
         priority=2,
-        notes="Check plan limits and commercial-use restrictions.",
+        notes="请确认套餐限制和商业使用限制。",
     ),
 )
 
@@ -237,10 +237,10 @@ def set_provider_value(provider_id: str, value: str, path: Path | None = None) -
     config = load_config(target)
     if provider_id not in config.providers:
         known = ", ".join(sorted(config.providers))
-        raise KeyError(f"Unknown provider '{provider_id}'. Known providers: {known}")
+        raise KeyError(f"未知数据源 '{provider_id}'。可用数据源: {known}")
     provider = config.providers[provider_id]
     if not provider.requires_value:
-        raise ValueError(f"Provider '{provider_id}' does not require an API key or token")
+        raise ValueError(f"数据源 '{provider_id}' 不需要配置 API Key 或 Token")
     provider.value = value
     config.providers[provider_id] = provider
     return save_config(config, target)
@@ -256,11 +256,11 @@ def set_openai_compatible_llm(
     cleaned_api_key = api_key.strip()
     cleaned_model = model.strip() if model else None
     if not cleaned_base_url:
-        raise ValueError("Base URL is required")
+        raise ValueError("Base URL 不能为空")
     if not cleaned_base_url.startswith(("http://", "https://")):
-        raise ValueError("Base URL must start with http:// or https://")
+        raise ValueError("Base URL 必须以 http:// 或 https:// 开头")
     if not cleaned_api_key:
-        raise ValueError("API key is required")
+        raise ValueError("API Key 不能为空")
 
     target = path or config_file_path()
     config = load_config(target)

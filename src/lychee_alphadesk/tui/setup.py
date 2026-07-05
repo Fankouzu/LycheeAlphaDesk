@@ -37,11 +37,11 @@ SetupView = Literal[
 
 
 class SetupApp(App[None]):
-    TITLE = "Lychee AlphaDesk Configuration Center"
-    SUB_TITLE = "keyboard navigation only"
+    TITLE = "Lychee AlphaDesk 配置中心"
+    SUB_TITLE = "仅使用键盘导航"
     BINDINGS = [
-        Binding("escape", "back", "Back / finish", show=True),
-        Binding("ctrl+c", "quit", "Quit", show=False),
+        Binding("escape", "back", "返回 / 完成", show=True),
+        Binding("ctrl+c", "quit", "退出", show=False),
     ]
     CSS = """
     #setup-body {
@@ -69,7 +69,7 @@ class SetupApp(App[None]):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(
-            "Use ↑/↓/←/→/Tab to move, Enter to select, Esc to go back or finish.",
+            "使用 ↑/↓/←/→/Tab 移动，Enter 选择，Esc 返回或完成。",
             id="setup-help",
         )
         yield Container(id="setup-body")
@@ -95,11 +95,11 @@ class SetupApp(App[None]):
         await self._replace_body(
             OptionList(
                 Option(
-                    f"{'Data providers':<30} {data_provider_status(config)}",
+                    f"{'数据源':<30} {data_provider_status(config)}",
                     id="data",
                 ),
                 Option(
-                    f"{'LLM provider':<30} {llm_provider_status(config)}",
+                    f"{'LLM 服务':<30} {llm_provider_status(config)}",
                     id="llm",
                 ),
                 id="setup-menu",
@@ -114,10 +114,10 @@ class SetupApp(App[None]):
         providers = providers_requiring_values(config)
         self.view = "providers"
         if not providers:
-            await self.show_main_menu("No providers require setup")
+            await self.show_main_menu("没有需要配置密钥的数据源")
             return
         await self._replace_body(
-            Static("Provider Key Menu"),
+            Static("数据源密钥"),
             OptionList(
                 *[
                     Option(provider_menu_label(provider), id=provider.provider_id)
@@ -148,15 +148,14 @@ class SetupApp(App[None]):
     async def show_llm_base_url(self) -> None:
         self.view = "llm_base_url"
         base_url_input = Input(
-            placeholder="OpenAI-compatible Base URL",
+            placeholder="OpenAI 兼容接口 Base URL，例如 https://api.example.com/v1",
             id="llm-base-url",
         )
         await self._replace_body(
             Static(
-                "OpenAI-compatible custom endpoint\n"
-                f"Config file: {self.config_path}\n"
-                "Use this for OpenAI-compatible gateways, self-hosted endpoints, "
-                "or model routers."
+                "OpenAI 兼容自定义端点\n"
+                f"配置文件: {self.config_path}\n"
+                "可用于 OpenAI 兼容网关、自托管接口或模型路由服务。"
             ),
             base_url_input,
         )
@@ -166,12 +165,12 @@ class SetupApp(App[None]):
     async def show_llm_api_key(self) -> None:
         self.view = "llm_api_key"
         api_key_input = Input(
-            placeholder="Paste OpenAI-compatible API key",
+            placeholder="粘贴 OpenAI 兼容 API Key",
             password=True,
             id="llm-api-key",
         )
         await self._replace_body(
-            Static("OpenAI-compatible custom endpoint"),
+            Static("OpenAI 兼容自定义端点"),
             api_key_input,
         )
         self._set_message("")
@@ -180,7 +179,7 @@ class SetupApp(App[None]):
     async def show_llm_model_menu(self, models: list[str]) -> None:
         self.view = "llm_model_select"
         await self._replace_body(
-            Static("Available models"),
+            Static("可用模型"),
             OptionList(
                 *[Option(model, id=model) for model in models],
                 id="model-menu",
@@ -193,11 +192,11 @@ class SetupApp(App[None]):
     async def show_manual_llm_model(self) -> None:
         self.view = "llm_manual_model"
         model_input = Input(
-            placeholder="Model name",
+            placeholder="模型名称，例如 gpt-4.1-mini",
             id="llm-model-name",
         )
         await self._replace_body(
-            Static("Could not read models from /v1/models. Enter a model name manually."),
+            Static("无法从 /v1/models 读取模型列表，请手动输入模型名称。"),
             model_input,
         )
         self._set_message("")
@@ -248,28 +247,28 @@ class SetupApp(App[None]):
 
     async def _save_provider_value(self, value: str) -> None:
         if not self.selected_provider_id:
-            await self.show_provider_menu("❌ No provider selected")
+            await self.show_provider_menu("❌ 尚未选择数据源")
             return
         if not value:
-            await self.show_provider_menu("❌ No value entered")
+            await self.show_provider_menu("❌ 未输入配置值")
             return
         provider = load_config(self.config_path).providers[self.selected_provider_id]
         set_provider_value(provider.provider_id, value, self.config_path)
-        await self.show_provider_menu(f"✅ Saved {provider.name}")
+        await self.show_provider_menu(f"✅ 已保存 {provider.name}")
 
     async def _capture_llm_base_url(self, value: str) -> None:
         if not value:
-            await self.show_main_menu("❌ Base URL is required")
+            await self.show_main_menu("❌ Base URL 不能为空")
             return
         self.pending_llm_base_url = value
         await self.show_llm_api_key()
 
     async def _capture_llm_api_key(self, value: str) -> None:
         if not value:
-            await self.show_main_menu("❌ No value entered")
+            await self.show_main_menu("❌ 未输入 API Key")
             return
         if not self.pending_llm_base_url:
-            await self.show_main_menu("❌ Base URL is required")
+            await self.show_main_menu("❌ Base URL 不能为空")
             return
 
         self.pending_llm_api_key = value
@@ -281,10 +280,10 @@ class SetupApp(App[None]):
 
     async def _save_llm_model(self, model: str) -> None:
         if not model:
-            await self.show_main_menu("❌ No value entered")
+            await self.show_main_menu("❌ 未输入模型名称")
             return
         if not self.pending_llm_base_url or not self.pending_llm_api_key:
-            await self.show_main_menu("❌ LLM endpoint is incomplete")
+            await self.show_main_menu("❌ LLM 端点配置不完整")
             return
 
         try:
@@ -298,7 +297,7 @@ class SetupApp(App[None]):
             await self.show_main_menu(f"❌ {error}")
             return
 
-        await self.show_main_menu(f"✅ Saved OpenAI-compatible LLM provider: {model}")
+        await self.show_main_menu(f"✅ 已保存 OpenAI 兼容 LLM: {model}")
 
     async def _replace_body(self, *widgets: Widget) -> None:
         body = self.query_one("#setup-body", Container)

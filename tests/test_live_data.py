@@ -113,7 +113,7 @@ def test_auto_news_provider_falls_back_when_first_configured_provider_fails(
 
     assert result.provider == "finnhub"
     assert result.count == 1
-    assert result.warnings == ["marketaux failed; trying next configured news provider"]
+    assert result.warnings == ["marketaux 失败，正在尝试下一个已配置新闻数据源"]
 
 
 def test_fetch_errors_mask_secret_query_values(tmp_path: Path) -> None:

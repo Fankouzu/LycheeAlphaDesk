@@ -12,6 +12,7 @@ from lychee_alphadesk.core.config import (
     AlphaDeskConfig,
     ProviderSetupInfo,
     ensure_config_file,
+    load_config,
     set_openai_compatible_llm,
     set_provider_value,
 )
@@ -42,20 +43,20 @@ from lychee_alphadesk.tui.setup import run_setup_tui
 
 console = Console()
 app = typer.Typer(
-    help="Lychee AlphaDesk terminal-native investment research workbench.",
+    help="Lychee AlphaDesk 终端原生投资研究工作台。",
     invoke_without_command=True,
 )
-policy_app = typer.Typer(help="Investment policy commands.")
-audit_app = typer.Typer(help="Audit trail commands.")
-data_app = typer.Typer(help="Market, news, filing, and forecast data commands.")
-data_pull_app = typer.Typer(help="Pull live provider data into the local cache.")
-discover_app = typer.Typer(help="Discovery-first market research commands.")
+policy_app = typer.Typer(help="投资政策命令。")
+audit_app = typer.Typer(help="审计记录命令。")
+data_app = typer.Typer(help="行情、新闻、公告和预测数据命令。")
+data_pull_app = typer.Typer(help="拉取实时数据源数据到本地缓存。")
+discover_app = typer.Typer(help="发现优先的市场研究命令。")
 setup_app = typer.Typer(
-    help="Open the configuration center or write a single config value.",
+    help="打开配置中心，或写入单项配置值。",
     invoke_without_command=True,
 )
 llm_setup_app = typer.Typer(
-    help="Write a single LLM provider config value.",
+    help="写入单项 LLM 服务配置值。",
     invoke_without_command=True,
 )
 
@@ -68,58 +69,58 @@ def root(ctx: typer.Context) -> None:
 
 @app.command()
 def demo() -> None:
-    """Check that bundled demo files are available."""
+    """检查内置演示文件是否可用。"""
     missing = check_demo_workspace(DEMO_ROOT)
     if missing:
         for path in missing:
-            console.print(f"Missing demo file: {path}")
+            console.print(f"缺少演示文件: {path}")
         raise typer.Exit(code=1)
 
     init_audit_db(DEFAULT_OUTPUT_DIR)
-    console.print("Demo workspace ready")
+    console.print("演示工作区已就绪")
     for name in REQUIRED_DEMO_FILES:
         console.print(f"- examples/demo/{name}")
-    console.print(f"Output directory: {DEFAULT_OUTPUT_DIR}")
+    console.print(f"输出目录: {DEFAULT_OUTPUT_DIR}")
 
 
 @app.command()
 def report(
     demo: Annotated[
         bool,
-        typer.Option("--demo", help="Generate a report from bundled demo data."),
+        typer.Option("--demo", help="使用内置演示数据生成报告。"),
     ] = False,
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", help="Report output directory."),
+        typer.Option("--output-dir", help="报告输出目录。"),
     ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
-    """Generate a Markdown daily report."""
+    """生成 Markdown 日报。"""
     if not demo:
-        console.print("Only --demo report generation is available in v0.1.")
+        console.print("v0.1 仅支持使用 --demo 生成报告。")
         raise typer.Exit(code=1)
 
     result = generate_demo_report(output_dir=output_dir)
-    console.print(f"Report written: {result.report_path}")
-    console.print(f"Audit record: {result.audit_record.report_id}")
+    console.print(f"报告已写入: {result.report_path}")
+    console.print(f"审计记录: {result.audit_record.report_id}")
 
 
 @policy_app.command("check")
 def policy_check(path: Path) -> None:
-    """Validate an investment policy YAML file."""
+    """校验投资政策 YAML 文件。"""
     policy = load_policy(path)
     result = validate_policy(policy)
 
     if result.ok:
-        console.print("Policy check passed")
+        console.print("投资政策检查通过")
     else:
-        console.print("Policy check failed")
+        console.print("投资政策检查失败")
 
     for item in result.passes:
-        console.print(f"PASS: {item}")
+        console.print(f"通过: {item}")
     for item in result.warnings:
-        console.print(f"WARNING: {item}")
+        console.print(f"警告: {item}")
     for item in result.errors:
-        console.print(f"ERROR: {item}")
+        console.print(f"错误: {item}")
 
     if not result.ok:
         raise typer.Exit(code=1)
@@ -129,27 +130,27 @@ def policy_check(path: Path) -> None:
 def audit_list(
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", help="Audit output directory."),
+        typer.Option("--output-dir", help="审计输出目录。"),
     ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
-    """List generated audit records."""
+    """列出已生成的审计记录。"""
     records = list_audit_records(output_dir)
     if not records:
-        console.print("No audit records found")
+        console.print("未找到审计记录")
         return
 
     for record in records:
         console.print(
-            f"Record: {record.report_id} {record.mode} {Path(record.report_path).name} "
+            f"记录: {record.report_id} {record.mode} {Path(record.report_path).name} "
             f"{record.report_path}"
         )
 
-    table = Table(title="Lychee AlphaDesk Audit Records")
-    table.add_column("Report ID")
-    table.add_column("Created")
-    table.add_column("Mode")
-    table.add_column("Report File")
-    table.add_column("Report Path")
+    table = Table(title="Lychee AlphaDesk 审计记录")
+    table.add_column("报告 ID")
+    table.add_column("创建时间")
+    table.add_column("模式")
+    table.add_column("报告文件")
+    table.add_column("报告路径")
     for record in records:
         table.add_row(
             record.report_id,
@@ -165,55 +166,60 @@ def audit_list(
 def data_snapshot(
     demo: Annotated[
         bool,
-        typer.Option("--demo", help="Build a data snapshot from bundled demo providers."),
+        typer.Option("--demo", help="使用内置演示数据源生成数据快照。"),
     ] = False,
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", help="Snapshot output directory."),
+        typer.Option("--output-dir", help="快照输出目录。"),
     ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
-    """Write a unified JSON data snapshot."""
+    """写入统一 JSON 数据快照。"""
     snapshot = (
         build_demo_data_snapshot(DEMO_ROOT)
         if demo
         else build_cached_data_snapshot(output_dir)
     )
     output_path = write_snapshot_json(snapshot, output_dir)
-    console.print(f"Data snapshot written: {output_path}")
-    console.print(f"Mode: {snapshot.mode}")
-    console.print(f"Providers: {', '.join(snapshot.provider_names)}")
-    console.print(f"Prices: {snapshot.counts['prices']}")
-    console.print(f"News events: {snapshot.counts['news_events']}")
-    console.print(f"Filings: {snapshot.counts['filings']}")
-    console.print(f"Forecasts: {snapshot.counts['forecasts']}")
+    console.print(f"数据快照已写入: {output_path}")
+    console.print(f"模式: {_display_mode(snapshot.mode)}")
+    console.print(f"数据源: {', '.join(snapshot.provider_names)}")
+    console.print(f"行情: {snapshot.counts['prices']}")
+    console.print(f"新闻事件: {snapshot.counts['news_events']}")
+    console.print(f"公告: {snapshot.counts['filings']}")
+    console.print(f"预测: {snapshot.counts['forecasts']}")
 
 
 @data_app.command("health")
 def data_health(
     demo: Annotated[
         bool,
-        typer.Option("--demo", help="Check bundled demo provider health."),
+        typer.Option("--demo", help="检查内置演示数据源健康状态。"),
     ] = False,
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", help="Live cache output directory."),
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
     ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
-    """Show provider data quality checks."""
+    """显示数据源质量检查。"""
     if demo:
         snapshot = build_demo_data_snapshot(DEMO_ROOT)
         checks = snapshot.quality_checks
-        console.print(f"Providers: {', '.join(snapshot.provider_names)}")
+        console.print(f"数据源: {', '.join(snapshot.provider_names)}")
     else:
         checks = run_cached_data_health(output_dir)
-        console.print(f"Cache directory: {output_dir / 'data'}", soft_wrap=True)
-    table = Table(title="Lychee AlphaDesk Data Health")
-    table.add_column("Check")
-    table.add_column("Status")
-    table.add_column("Provider")
-    table.add_column("Message")
+        console.print(f"缓存目录: {output_dir / 'data'}", soft_wrap=True)
+    table = Table(title="Lychee AlphaDesk 数据健康")
+    table.add_column("检查项")
+    table.add_column("状态")
+    table.add_column("数据源")
+    table.add_column("说明")
     for check in checks:
-        table.add_row(check.name, check.status, check.provider, check.message)
+        table.add_row(
+            check.name,
+            _display_status(check.status),
+            check.provider,
+            check.message,
+        )
     console.print(table)
 
 
@@ -221,26 +227,26 @@ def data_health(
 def discover_today(
     markets: Annotated[
         str,
-        typer.Option("--markets", help="Comma-separated markets: us,hk,cn."),
+        typer.Option("--markets", help="用英文逗号分隔市场: us,hk,cn。"),
     ] = "us,hk,cn",
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", help="Discovery cache output directory."),
+        typer.Option("--output-dir", help="发现缓存输出目录。"),
     ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
-    """Write a beginner-friendly discovery report before symbol drilldown."""
+    """在输入证券代码前生成适合新手的市场发现报告。"""
     try:
         selected_markets = parse_markets(markets)
     except ValueError as error:
         console.print(str(error))
         raise typer.Exit(code=1) from error
     try:
-        report = build_today_discovery_report(selected_markets)
+        report = build_today_discovery_report(selected_markets, output_dir=output_dir)
     except (DiscoveryLLMRequiredError, LLMProviderError) as error:
         console.print(str(error), soft_wrap=True)
         raise typer.Exit(code=1) from error
     output_path = write_discovery_report(report, output_dir)
-    console.print(f"Today Discovery written: {output_path}", soft_wrap=True)
+    console.print(f"今日市场发现已写入: {output_path}", soft_wrap=True)
     console.print(discovery_report_summary(report))
 
 
@@ -248,18 +254,18 @@ def discover_today(
 def data_pull_market(
     symbols: Annotated[
         str,
-        typer.Option("--symbols", help="Comma-separated symbols, e.g. AAPL,TSLA,0700.HK."),
+        typer.Option("--symbols", help="用英文逗号分隔证券代码，例如 AAPL,TSLA,0700.HK。"),
     ],
     provider: Annotated[
         str,
-        typer.Option("--provider", help="Market data provider."),
+        typer.Option("--provider", help="行情数据源。"),
     ] = "alpha_vantage",
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", help="Live cache output directory."),
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
     ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
-    """Pull latest daily market prices into the local cache."""
+    """拉取最新日线行情到本地缓存。"""
     try:
         result = pull_market_prices(
             symbols=parse_symbols(symbols),
@@ -269,33 +275,33 @@ def data_pull_market(
     except (RuntimeError, ValueError) as error:
         console.print(str(error))
         raise typer.Exit(code=1) from error
-    _print_pull_result(result_label="market rows", count=result.count, result=result)
+    _print_pull_result(result_label="行情", count=result.count, result=result)
 
 
 @data_pull_app.command("news")
 def data_pull_news(
     symbols: Annotated[
         str,
-        typer.Option("--symbols", help="Comma-separated symbols, e.g. AAPL,TSLA."),
+        typer.Option("--symbols", help="用英文逗号分隔证券代码，例如 AAPL,TSLA。"),
     ],
     provider: Annotated[
         str,
-        typer.Option("--provider", help="News provider: auto, marketaux, finnhub, newsapi."),
+        typer.Option("--provider", help="新闻数据源: auto, marketaux, finnhub, newsapi。"),
     ] = "auto",
     start_date: Annotated[
         str | None,
-        typer.Option("--from", help="Start date YYYY-MM-DD."),
+        typer.Option("--from", help="开始日期 YYYY-MM-DD。"),
     ] = None,
     end_date: Annotated[
         str | None,
-        typer.Option("--to", help="End date YYYY-MM-DD."),
+        typer.Option("--to", help="结束日期 YYYY-MM-DD。"),
     ] = None,
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", help="Live cache output directory."),
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
     ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
-    """Pull market news into the local cache."""
+    """拉取市场新闻到本地缓存。"""
     try:
         result = pull_news_events(
             symbols=parse_symbols(symbols),
@@ -307,25 +313,25 @@ def data_pull_news(
     except (RuntimeError, ValueError) as error:
         console.print(str(error))
         raise typer.Exit(code=1) from error
-    _print_pull_result(result_label="news events", count=result.count, result=result)
+    _print_pull_result(result_label="新闻事件", count=result.count, result=result)
 
 
 @data_pull_app.command("filings")
 def data_pull_filings(
     symbols: Annotated[
         str,
-        typer.Option("--symbols", help="Comma-separated US symbols, e.g. AAPL,TSLA."),
+        typer.Option("--symbols", help="用英文逗号分隔美股代码，例如 AAPL,TSLA。"),
     ],
     limit: Annotated[
         int,
-        typer.Option("--limit", help="Maximum recent SEC filings per symbol."),
+        typer.Option("--limit", help="每个代码最多拉取的近期 SEC 公告数量。"),
     ] = 5,
     output_dir: Annotated[
         Path,
-        typer.Option("--output-dir", help="Live cache output directory."),
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
     ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
-    """Pull recent SEC EDGAR filings into the local cache."""
+    """拉取近期 SEC EDGAR 公告到本地缓存。"""
     try:
         result = pull_sec_filings(
             symbols=parse_symbols(symbols),
@@ -335,23 +341,31 @@ def data_pull_filings(
     except (RuntimeError, ValueError) as error:
         console.print(str(error))
         raise typer.Exit(code=1) from error
-    _print_pull_result(result_label="filings", count=result.count, result=result)
+    _print_pull_result(result_label="公告", count=result.count, result=result)
 
 
 def _print_pull_result(*, result_label: str, count: int, result: PullResult) -> None:
     provider = result.provider
     output_path = result.output_path
     warnings = result.warnings
-    console.print(f"Pulled {result_label}: {count}")
-    console.print(f"Provider: {provider}")
-    console.print(f"Cache: {output_path}", soft_wrap=True)
+    console.print(f"已拉取{result_label}: {count}")
+    console.print(f"数据源: {provider}")
+    console.print(f"缓存: {output_path}", soft_wrap=True)
     for warning in warnings:
-        console.print(f"WARNING: {warning}", soft_wrap=True)
+        console.print(f"警告: {warning}", soft_wrap=True)
+
+
+def _display_mode(mode: str) -> str:
+    return {"demo": "演示", "live": "实时"}.get(mode, mode)
+
+
+def _display_status(status: str) -> str:
+    return {"pass": "通过", "warning": "警告", "error": "错误"}.get(status, status)
 
 
 @setup_app.callback()
 def setup(ctx: typer.Context) -> None:
-    """Open the interactive configuration center."""
+    """打开交互式配置中心。"""
     if ctx.invoked_subcommand is not None:
         return
     path = ensure_config_file()
@@ -360,26 +374,26 @@ def setup(ctx: typer.Context) -> None:
 
 @setup_app.command("set")
 def setup_set(provider_id: str, value: str) -> None:
-    """Save a provider API key or token in the config file."""
+    """保存某个数据源的 API Key 或 Token。"""
     try:
         path = set_provider_value(provider_id, value)
     except KeyError as error:
-        console.print(f"Unknown provider: {provider_id}")
+        console.print(f"未知数据源: {provider_id}")
         console.print(str(error))
         raise typer.Exit(code=1) from error
     except ValueError as error:
         console.print(str(error))
         raise typer.Exit(code=1) from error
-
-    console.print(f"Saved {provider_id} in {path}", soft_wrap=True)
+    provider = load_config(path).providers[provider_id]
+    console.print(f"已保存 {provider.name}: {path}", soft_wrap=True)
 
 
 @llm_setup_app.callback()
 def setup_llm(ctx: typer.Context) -> None:
-    """Require a non-interactive LLM setup command."""
+    """要求使用非交互式 LLM 配置命令。"""
     if ctx.invoked_subcommand is not None:
         return
-    console.print("Use `lychee setup llm set <base_url> <api_key> MODEL_NAME`.")
+    console.print("请使用 `lychee setup llm set <base_url> <api_key> MODEL_NAME`。")
     raise typer.Exit(code=2)
 
 
@@ -389,30 +403,29 @@ def setup_llm_set(
     api_key: str,
     model: Annotated[
         str | None,
-        typer.Argument(help="Optional model name, such as gpt-4.1-mini."),
+        typer.Argument(help="可选模型名称，例如 gpt-4.1-mini。"),
     ] = None,
 ) -> None:
-    """Save an OpenAI-compatible LLM endpoint in the config file."""
+    """保存 OpenAI 兼容 LLM 端点。"""
     try:
         path = set_openai_compatible_llm(base_url, api_key, model)
     except ValueError as error:
         console.print(str(error))
         raise typer.Exit(code=1) from error
-
-    console.print(f"Saved OpenAI-compatible LLM provider in {path}", soft_wrap=True)
+    console.print(f"已保存 OpenAI 兼容 LLM: {path}", soft_wrap=True)
 
 
 def _run_configuration_center(path: Path) -> None:
     if not _keyboard_navigation_available():
-        console.print("Lychee AlphaDesk Configuration Center")
-        console.print(f"Config file: {path}", soft_wrap=True)
+        console.print("Lychee AlphaDesk 配置中心")
+        console.print(f"配置文件: {path}", soft_wrap=True)
         console.print(
-            "Interactive setup requires an interactive terminal with keyboard navigation.",
+            "交互式配置需要可用的终端键盘导航。",
             soft_wrap=True,
         )
-        console.print("For automation, use `lychee setup set <provider_id> <value>`.")
+        console.print("自动化配置数据源: `lychee setup set <provider_id> <value>`。")
         console.print(
-            "For LLM automation, use `lychee setup llm set <base_url> <api_key> MODEL_NAME`.",
+            "自动化配置 LLM: `lychee setup llm set <base_url> <api_key> MODEL_NAME`。",
             soft_wrap=True,
         )
         raise typer.Exit(code=2)
@@ -439,9 +452,9 @@ def _provider_menu_label(provider: ProviderSetupInfo) -> str:
 
 def _print_value_capture_result(*, received: bool) -> None:
     if received:
-        console.print("[green]✅ Value received[/green]")
+        console.print("[green]✅ 已收到输入[/green]")
         return
-    console.print("[red]❌ No value entered[/red]")
+    console.print("[red]❌ 未输入配置值[/red]")
 
 
 def _keyboard_navigation_available() -> bool:

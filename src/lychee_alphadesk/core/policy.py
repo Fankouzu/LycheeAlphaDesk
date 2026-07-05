@@ -59,35 +59,35 @@ def validate_policy(policy: InvestmentPolicy) -> PolicyValidationResult:
     passes: list[str] = []
 
     if policy.live_trading:
-        errors.append("Live trading is not allowed in v0.1")
+        errors.append("v0.1 不允许开启实盘交易")
     else:
-        passes.append("Live trading is disabled")
+        passes.append("实盘交易已关闭")
 
     if "human_approval" not in policy.decision_requires:
-        errors.append("human_approval is required")
+        errors.append("必须启用人工确认")
     else:
-        passes.append("Human approval is required")
+        passes.append("已要求人工确认")
 
     if policy.risk_limits.min_cash_weight >= 0.30:
-        passes.append("Minimum cash weight is 30%")
+        passes.append("最低现金比例不低于 30%")
     else:
-        warnings.append("Minimum cash weight is below the conservative 30% demo default")
+        warnings.append("最低现金比例低于演示策略的保守默认值 30%")
 
     if policy.risk_limits.max_single_asset_weight <= 0.25:
-        passes.append("Single asset weight is capped at 25%")
+        passes.append("单一资产权重上限不高于 25%")
     else:
-        warnings.append("Single asset weight exceeds the conservative 25% demo default")
+        warnings.append("单一资产权重超过演示策略的保守默认值 25%")
 
     missing_blocks = sorted(REQUIRED_BLOCKED_PRODUCTS.difference(policy.blocked_products))
     if missing_blocks:
-        warnings.append("Some risky products are not blocked: " + ", ".join(missing_blocks))
+        warnings.append("以下高风险产品尚未屏蔽: " + ", ".join(missing_blocks))
     else:
-        passes.append("Risky products are blocked")
+        passes.append("高风险产品已屏蔽")
 
     missing_gates = sorted(REQUIRED_DECISION_GATES.difference(policy.decision_requires))
     if missing_gates:
-        errors.append("Missing decision gates: " + ", ".join(missing_gates))
+        errors.append("缺少决策门槛: " + ", ".join(missing_gates))
     else:
-        passes.append("Required decision gates are enabled")
+        passes.append("必要决策门槛已启用")
 
     return PolicyValidationResult(errors=errors, warnings=warnings, passes=passes)

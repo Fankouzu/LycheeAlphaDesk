@@ -54,7 +54,7 @@ def test_openai_compatible_chat_completion_rejects_invalid_json() -> None:
     ) -> object:
         return {"choices": [{"message": {"content": "not json"}}]}
 
-    with pytest.raises(LLMProviderError, match="valid JSON"):
+    with pytest.raises(LLMProviderError, match="有效 JSON"):
         request_chat_json(
             config,
             messages=[{"role": "user", "content": "Return JSON."}],

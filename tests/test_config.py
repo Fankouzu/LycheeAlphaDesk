@@ -77,7 +77,7 @@ def test_setup_command_requires_keyboard_navigation_in_non_tty(
     result = runner.invoke(app, ["setup"])
 
     assert result.exit_code == 2
-    assert "requires an interactive terminal" in result.stdout
+    assert "交互式配置需要可用的终端键盘导航" in result.stdout
     assert "lychee setup set" in result.stdout
     assert "lychee setup llm set" in result.stdout
 
@@ -188,7 +188,7 @@ def test_setup_set_still_writes_single_provider_secret(
     result = runner.invoke(app, ["setup", "set", "alpha_vantage", "demo-key"])
 
     assert result.exit_code == 0
-    assert "Saved alpha_vantage" in result.stdout
+    assert "已保存 Alpha Vantage" in result.stdout
     config = load_config(config_file_path())
     assert config.providers["alpha_vantage"].value == "demo-key"
 
@@ -201,7 +201,7 @@ def test_setup_set_still_rejects_unknown_provider(
     result = runner.invoke(app, ["setup", "set", "unknown_provider", "demo-key"])
 
     assert result.exit_code == 1
-    assert "Unknown provider" in result.stdout
+    assert "未知数据源" in result.stdout
 
 
 def test_setup_llm_set_still_writes_single_llm_config(
@@ -222,7 +222,7 @@ def test_setup_llm_set_still_writes_single_llm_config(
     )
 
     assert result.exit_code == 0
-    assert "Saved OpenAI-compatible LLM provider" in result.stdout
+    assert "已保存 OpenAI 兼容 LLM" in result.stdout
     config = load_config(config_file_path())
     assert config.llm.openai_compatible.base_url == "https://llm.example.com/v1"
     assert config.llm.openai_compatible.api_key == "sk-demo-secret"
@@ -303,9 +303,9 @@ def test_provider_config_status_masks_configured_values() -> None:
         update={"value": "demo-secret-key"}
     )
 
-    assert cli_app._provider_config_status(provider) == "Configured: demo***-key"
+    assert cli_app._provider_config_status(provider) == "已配置: demo***-key"
     empty_provider = default_config().providers["alpha_vantage"]
-    assert cli_app._provider_config_status(empty_provider) == "Not configured"
+    assert cli_app._provider_config_status(empty_provider) == "未配置"
 
 
 def test_provider_menu_text_shows_display_name_and_masked_status_only(monkeypatch) -> None:
@@ -320,7 +320,7 @@ def test_provider_menu_text_shows_display_name_and_masked_status_only(monkeypatc
 
     output = buffer.getvalue()
     assert "Alpha Vantage" in output
-    assert "Configured: demo***-key" in output
+    assert "已配置: demo***-key" in output
     assert "alpha_vantage" not in output
     assert "api_key" not in output
     assert "https://" not in output
@@ -339,11 +339,11 @@ def test_provider_detail_uses_user_facing_copy_without_internal_fields(monkeypat
 
     output = buffer.getvalue()
     assert "Alpha Vantage" in output
-    assert "Global prices, fundamentals, indicators, macro" in output
+    assert "全球行情、基本面、技术指标和宏观数据" in output
     assert "https://www.alphavantage.co/support/#api-key" in output
     assert "alpha_vantage" not in output
     assert "Required value" not in output
     assert "api_key" not in output
-    assert "用途" not in output
-    assert "申请方式" not in output
-    assert "当前状态" not in output
+    assert "用途" in output
+    assert "申请地址" in output
+    assert "当前状态" in output

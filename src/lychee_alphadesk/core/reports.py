@@ -29,88 +29,88 @@ class DemoReportResult:
 
 
 REPORT_TEMPLATE = Template(
-    """# Lychee AlphaDesk Demo Daily Report
+    """# Lychee AlphaDesk 演示日报
 
-> This report uses demo data. Not investment advice.
+> 本报告使用演示数据。非投资建议。
 
-## Daily Conclusion
+## 今日结论
 
-No action. The demo portfolio passes the conservative v0.1 policy gates, and all outputs require human approval before any real-world decision.
+不采取操作。演示组合通过 v0.1 保守策略门槛，任何真实世界决策前都需要人工确认。
 
-## Portfolio Snapshot
+## 组合快照
 
-| Symbol | Name | Quantity | Target Weight | Asset Type |
+| 代码 | 名称 | 数量 | 目标权重 | 资产类型 |
 | --- | --- | ---: | ---: | --- |
 {% for position in positions -%}
 | {{ position.symbol }} | {{ position.name }} | {{ "%.2f"|format(position.quantity) }} | {{ "%.0f%%"|format(position.target_weight * 100) }} | {{ position.asset_type }} |
 {% endfor %}
 
-## Policy Check
+## 投资政策检查
 
 {% for item in policy_result.passes -%}
-- PASS: {{ item }}
+- 通过: {{ item }}
 {% endfor -%}
 {% for item in policy_result.warnings -%}
-- WARNING: {{ item }}
+- 警告: {{ item }}
 {% endfor -%}
 {% for item in policy_result.errors -%}
-- ERROR: {{ item }}
+- 错误: {{ item }}
 {% endfor %}
 
-## Market Data
+## 行情数据
 
-| Symbol | Date | Close | Volume | Currency |
+| 代码 | 日期 | 收盘价 | 成交量 | 货币 |
 | --- | --- | ---: | ---: | --- |
 {% for row in prices -%}
 | {{ row.symbol }} | {{ row.date }} | {{ "%.2f"|format(row.close) }} | {{ row.volume }} | {{ row.currency }} |
 {% endfor %}
 
-## Data Quality Status
+## 数据质量状态
 
-| Check | Status | Provider | Message |
+| 检查项 | 状态 | 数据源 | 说明 |
 | --- | --- | --- | --- |
 {% for check in quality_checks -%}
 | {{ check.name }} | {{ check.status }} | {{ check.provider }} | {{ check.message }} |
 {% endfor %}
 
-## News And Events
+## 新闻与事件
 
 {% for event in events -%}
 - **{{ event.headline }}** ({{ event.timestamp }})
   {{ event.summary }}
-  Symbols: {{ ", ".join(event.symbols) }}
-  Source: {{ event.source_url }}
+  相关代码: {{ ", ".join(event.symbols) }}
+  来源: {{ event.source_url }}
 {% endfor %}
 
-## Filing Notes
+## 公告摘要
 
 {% for filing in filings -%}
 - **{{ filing.company }} {{ filing.form }}** ({{ filing.date }})
   {{ filing.summary }}
-  Source: {{ filing.source_url }}
+  来源: {{ filing.source_url }}
 {% endfor %}
 
-## Forecast Summary
+## 预测摘要
 
-Mock forecast intervals are baseline placeholders, not trade signals.
+模拟预测区间只是基线占位，不是交易信号。
 
-| Symbol | Horizon | Lower | Midpoint | Upper | Method |
+| 代码 | 周期 | 下界 | 中位值 | 上界 | 方法 |
 | --- | ---: | ---: | ---: | ---: | --- |
 {% for forecast in forecasts.values() -%}
 | {{ forecast.symbol }} | {{ forecast.horizon_days }}d | {{ "%.2f"|format(forecast.lower) }} | {{ "%.2f"|format(forecast.midpoint) }} | {{ "%.2f"|format(forecast.upper) }} | {{ forecast.method }} |
 {% endfor %}
 
-## Skeptic Review
+## 反方审查
 
-- Demo data is synthetic and incomplete.
-- Forecast intervals are placeholders and should be compared with real baselines later.
-- A human must verify sources, taxes, fees, account restrictions, and suitability.
+- 演示数据是合成且不完整的。
+- 预测区间只是占位，后续必须与真实基线比较。
+- 必须由人工确认数据来源、税务、费用、账户限制和适当性。
 
-## Audit Metadata
+## 审计元数据
 
-- Mode: demo
-- Providers: {{ ", ".join(provider_names) }}
-- Report ID: daily-report-demo
+- 模式: demo
+- 数据源: {{ ", ".join(provider_names) }}
+- 报告 ID: daily-report-demo
 """
 )
 

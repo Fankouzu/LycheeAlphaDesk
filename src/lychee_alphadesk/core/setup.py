@@ -20,22 +20,22 @@ def data_provider_status(config: AlphaDeskConfig) -> str:
     configured_count = sum(
         1 for provider in providers if provider.value and provider.value.strip()
     )
-    return f"{configured_count}/{len(providers)} configured"
+    return f"已配置 {configured_count}/{len(providers)}"
 
 
 def llm_provider_status(config: AlphaDeskConfig) -> str:
     provider = config.llm.openai_compatible
     if provider.base_url and provider.api_key and provider.model:
-        return f"Configured: {provider.model}"
+        return f"已配置: {provider.model}"
     if provider.base_url or provider.api_key or provider.model:
-        return "Partially configured"
-    return "Not configured"
+        return "部分配置"
+    return "未配置"
 
 
 def provider_config_status(provider: ProviderSetupInfo) -> str:
     if provider.value and provider.value.strip():
-        return f"Configured: {mask_config_value(provider.value.strip())}"
-    return "Not configured"
+        return f"已配置: {mask_config_value(provider.value.strip())}"
+    return "未配置"
 
 
 def provider_menu_label(provider: ProviderSetupInfo) -> str:
@@ -52,35 +52,35 @@ def mask_config_value(value: str) -> str:
 
 def provider_registration_summary(provider: ProviderSetupInfo) -> str:
     if provider.config_field == "user_agent":
-        return "No API key required; Lychee AlphaDesk handles request identity internally."
+        return "无需 API Key；Lychee AlphaDesk 会在内部处理请求标识。"
     return provider.registration
 
 
 def provider_notes(provider: ProviderSetupInfo) -> str:
     if provider.config_field == "user_agent":
-        return "Used for compliant SEC access; regular users do not need to configure it."
+        return "用于合规访问 SEC；普通用户无需配置。"
     return provider.notes
 
 
 def provider_value_prompt(provider: ProviderSetupInfo) -> str:
     if provider.config_field == "api_key":
-        return f"Paste {provider.name} API key"
+        return f"粘贴 {provider.name} API Key"
     if provider.config_field == "token":
-        return f"Paste {provider.name} token"
-    return f"Paste {provider.name} configuration value"
+        return f"粘贴 {provider.name} Token"
+    return f"粘贴 {provider.name} 配置值"
 
 
 def provider_detail_text(provider: ProviderSetupInfo) -> str:
     lines = [
         provider.name,
-        f"Use: {provider.domain}",
-        f"Signup: {provider_registration_summary(provider)}",
-        f"Registration URL: {provider.registration_url}",
-        f"Status: {provider_config_status(provider)}",
+        f"用途: {provider.domain}",
+        f"申请方式: {provider_registration_summary(provider)}",
+        f"申请地址: {provider.registration_url}",
+        f"当前状态: {provider_config_status(provider)}",
     ]
     notes = provider_notes(provider)
     if notes:
-        lines.append(f"Notes: {notes}")
+        lines.append(f"说明: {notes}")
     return "\n".join(lines)
 
 

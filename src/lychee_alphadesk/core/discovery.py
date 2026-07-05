@@ -10,8 +10,8 @@ from lychee_alphadesk.core.llm import JsonPoster, request_chat_json
 DISCOVERY_CACHE_FILENAME = "discovery-today.json"
 DEFAULT_MARKETS = ["US", "HK", "CN"]
 LLM_REQUIRED_MESSAGE = (
-    "LLM provider is not configured. Run "
-    "`lychee setup llm set <base_url> <api_key> MODEL_NAME` before Today Discovery."
+    "LLM 尚未配置。请先运行 "
+    "`lychee setup llm set <base_url> <api_key> MODEL_NAME` 后再使用今日市场发现。"
 )
 
 
@@ -72,7 +72,7 @@ def parse_markets(value: str) -> list[str]:
     allowed = {"US", "HK", "CN"}
     invalid = sorted(set(normalized).difference(allowed))
     if invalid:
-        raise ValueError(f"Unsupported discovery market: {', '.join(invalid)}")
+        raise ValueError(f"不支持的发现市场: {', '.join(invalid)}")
     return normalized or DEFAULT_MARKETS.copy()
 
 
@@ -94,7 +94,7 @@ def build_today_discovery_report(
     themes = _parse_themes(payload)
     candidates = _parse_candidates(payload)
     warnings = _optional_string_list(payload, "warnings")
-    warnings.append("Candidates are research targets only and are not buy/sell recommendations.")
+    warnings.append("候选仅用于研究和观察，不是买入或卖出建议。")
     return DiscoveryReport(
         mode="llm-synthesized",
         created_at=datetime.now(UTC).isoformat(timespec="seconds"),
@@ -104,8 +104,7 @@ def build_today_discovery_report(
                 provider="openai-compatible-llm",
                 market=market,
                 description=(
-                    "Model synthesized Today Discovery from starter context and "
-                    "available local live-data cache."
+                    "模型基于起始语境和本地实时数据缓存生成今日市场发现。"
                 ),
             )
             for market in selected_markets
@@ -114,7 +113,7 @@ def build_today_discovery_report(
         candidates=candidates,
         warnings=warnings,
         next_actions=_required_string_list(payload, "next_actions"),
-        disclaimer="Not investment advice. Use this report to decide what to research next.",
+        disclaimer="非投资建议。请把这份报告用于决定下一步研究什么。",
     )
 
 
@@ -137,18 +136,18 @@ def write_discovery_report(report: DiscoveryReport, output_dir: Path) -> Path:
 
 
 def discovery_report_summary(report: DiscoveryReport, output_path: Path | None = None) -> str:
-    lines = ["Today Discovery", f"Mode: {report.mode}"]
-    lines.append(f"Markets: {', '.join(report.markets)}")
+    lines = ["今日市场发现", f"模式: {report.mode}"]
+    lines.append(f"市场: {', '.join(report.markets)}")
     if output_path is not None:
-        lines.append(f"Cache: {output_path}")
+        lines.append(f"缓存: {output_path}")
     lines.append("")
     lines.append(report.disclaimer)
     lines.append("")
-    lines.append("Themes")
+    lines.append("主题")
     for theme in report.themes[:3]:
         lines.append(f"- {theme.name}: {theme.summary}")
     lines.append("")
-    lines.append("Watch candidates")
+    lines.append("关注候选")
     for candidate in report.candidates[:5]:
         symbol = f" ({candidate.symbol})" if candidate.symbol else ""
         lines.append(
@@ -157,7 +156,7 @@ def discovery_report_summary(report: DiscoveryReport, output_path: Path | None =
         )
     if report.warnings:
         lines.append("")
-        lines.append("Warnings")
+        lines.append("风险提示")
         for warning in report.warnings:
             lines.append(f"- {warning}")
     return "\n".join(lines)
@@ -225,14 +224,15 @@ def _build_discovery_messages(context: dict[str, object]) -> list[dict[str, str]
         "next_actions": ["string"],
     }
     system_prompt = (
-        "You are Lychee AlphaDesk's market discovery analyst. "
+        "你是 Lychee AlphaDesk 的市场发现分析员。"
         "Return one valid JSON object only, with no markdown fences. "
+        "All user-facing string values must be written in Simplified Chinese. "
         "Do not give buy/sell advice, target prices, or allocation advice. "
         "Use watch/research/drill-down language only. "
         "Every theme and candidate must cite evidence from the provided context."
     )
     user_prompt = (
-        "Create Today Discovery for a beginner investor from this context.\n\n"
+        "请为股市初学者生成今日市场发现。\n\n"
         f"Required JSON schema example:\n{json.dumps(schema, ensure_ascii=False)}\n\n"
         f"Context JSON:\n{json.dumps(context, ensure_ascii=False)}"
     )
@@ -257,7 +257,7 @@ def _parse_themes(payload: dict[str, object]) -> list[DiscoveryTheme]:
             )
         )
     if not themes:
-        raise DiscoveryLLMRequiredError("LLM discovery response did not include themes")
+        raise DiscoveryLLMRequiredError("LLM 返回内容缺少主题列表")
     return themes
 
 
@@ -282,19 +282,19 @@ def _parse_candidates(payload: dict[str, object]) -> list[DiscoveryCandidate]:
             )
         )
     if not candidates:
-        raise DiscoveryLLMRequiredError("LLM discovery response did not include candidates")
+        raise DiscoveryLLMRequiredError("LLM 返回内容缺少关注候选列表")
     return candidates
 
 
 def _required_dict_list(payload: dict[str, object], key: str) -> list[dict[str, object]]:
     raw = payload.get(key)
     if not isinstance(raw, list):
-        raise DiscoveryLLMRequiredError(f"LLM discovery response missing list field: {key}")
+        raise DiscoveryLLMRequiredError(f"LLM 返回内容缺少列表字段: {key}")
     items: list[dict[str, object]] = []
     for item in raw:
         if not isinstance(item, dict):
             raise DiscoveryLLMRequiredError(
-                f"LLM discovery response field {key} must contain objects"
+                f"LLM 返回字段 {key} 必须包含对象"
             )
         items.append(dict(item))
     return items
@@ -303,7 +303,7 @@ def _required_dict_list(payload: dict[str, object], key: str) -> list[dict[str, 
 def _required_string(payload: dict[str, object], key: str) -> str:
     raw = payload.get(key)
     if not isinstance(raw, str) or not raw.strip():
-        raise DiscoveryLLMRequiredError(f"LLM discovery response missing string field: {key}")
+        raise DiscoveryLLMRequiredError(f"LLM 返回内容缺少文本字段: {key}")
     return raw.strip()
 
 
@@ -313,7 +313,7 @@ def _optional_string(payload: dict[str, object], key: str) -> str | None:
         return None
     if not isinstance(raw, str):
         raise DiscoveryLLMRequiredError(
-            f"LLM discovery response field {key} must be string or null"
+            f"LLM 返回字段 {key} 必须是文本或 null"
         )
     return raw.strip() or None
 
@@ -321,7 +321,7 @@ def _optional_string(payload: dict[str, object], key: str) -> str | None:
 def _required_string_list(payload: dict[str, object], key: str) -> list[str]:
     values = _optional_string_list(payload, key)
     if not values:
-        raise DiscoveryLLMRequiredError(f"LLM discovery response missing string list field: {key}")
+        raise DiscoveryLLMRequiredError(f"LLM 返回内容缺少文本列表字段: {key}")
     return values
 
 
@@ -330,12 +330,12 @@ def _optional_string_list(payload: dict[str, object], key: str) -> list[str]:
     if raw is None:
         return []
     if not isinstance(raw, list):
-        raise DiscoveryLLMRequiredError(f"LLM discovery response field {key} must be a list")
+        raise DiscoveryLLMRequiredError(f"LLM 返回字段 {key} 必须是列表")
     values = []
     for item in raw:
         if not isinstance(item, str) or not item.strip():
             raise DiscoveryLLMRequiredError(
-                f"LLM discovery response field {key} must contain strings"
+                f"LLM 返回字段 {key} 必须只包含文本"
             )
         values.append(item.strip())
     return values
@@ -345,62 +345,57 @@ def _reject_advice_recommendation(value: str) -> None:
     normalized = value.strip().lower()
     if normalized in {"buy", "sell", "hold", "strong_buy", "strong_sell"}:
         raise DiscoveryLLMRequiredError(
-            "LLM discovery response used investment-advice recommendation language"
+            "LLM 返回内容使用了买入、卖出或持有等投资建议语言"
         )
 
 
 def _starter_themes() -> list[DiscoveryTheme]:
     return [
         DiscoveryTheme(
-            name="AI infrastructure watch",
+            name="AI 基础设施观察",
             markets=["US", "HK", "CN"],
             summary=(
-                "Track compute, semiconductors, cloud, and data-center supply chains "
-                "before choosing individual stocks."
+                "先观察算力、半导体、云服务和数据中心供应链，再决定是否研究个股。"
             ),
             evidence=[
-                "Starter universe includes US mega-cap AI infrastructure names.",
-                "HK and CN markets often express the same theme through platform, "
-                "hardware, and equipment supply chains.",
+                "起始观察池包含美国大型 AI 基础设施公司。",
+                "港股和 A 股常通过平台公司、硬件公司和设备供应链体现同一主题。",
             ],
-            sectors=["Semiconductors", "Cloud infrastructure", "Data centers"],
+            sectors=["半导体", "云基础设施", "数据中心"],
             risk_flags=[
-                "High valuation sensitivity",
-                "Export-control and supply-chain policy risk",
+                "估值对预期变化敏感",
+                "出口管制和供应链政策风险",
             ],
             confidence="medium",
         ),
         DiscoveryTheme(
-            name="China policy and consumption watch",
+            name="中国政策与消费观察",
             markets=["HK", "CN"],
             summary=(
-                "Track policy-linked sectors and consumer demand signals across HK-listed "
-                "China companies and A-share sector boards."
+                "观察港股中国公司和 A 股行业板块中的政策关联行业与消费需求信号。"
             ),
             evidence=[
-                "HK and CN markets can react together when policy, currency, "
-                "or consumer data changes.",
+                "政策、汇率或消费数据变化时，港股和 A 股可能出现联动反应。",
             ],
-            sectors=["Consumer", "Internet platforms", "Financials"],
+            sectors=["消费", "互联网平台", "金融"],
             risk_flags=[
-                "Policy headlines can reverse quickly",
-                "Currency and liquidity conditions matter",
+                "政策消息可能快速反转",
+                "汇率和流动性环境会影响定价",
             ],
             confidence="medium",
         ),
         DiscoveryTheme(
-            name="Rates and broad-market risk watch",
+            name="利率与大盘风险观察",
             markets=["US", "HK"],
             summary=(
-                "Use broad indexes and rates-sensitive sectors as context before drilling "
-                "into single-name risk."
+                "先用大盘指数和利率敏感行业建立背景，再下钻单一个股风险。"
             ),
             evidence=[
-                "US rate expectations affect equity duration risk.",
-                "HKD-linked financial conditions can influence Hong Kong market liquidity.",
+                "美国利率预期会影响权益资产久期风险。",
+                "港币联系汇率相关金融条件会影响香港市场流动性。",
             ],
-            sectors=["Indexes", "Financials", "Real estate"],
-            risk_flags=["Macro data can dominate company fundamentals in the short run"],
+            sectors=["指数", "金融", "地产"],
+            risk_flags=["短期内宏观数据可能压过公司基本面"],
             confidence="medium",
         ),
     ]
@@ -413,14 +408,14 @@ def _starter_candidates() -> list[DiscoveryCandidate]:
             symbol="NVDA",
             market="US",
             asset_type="stock",
-            related_theme="AI infrastructure watch",
-            why_watch="Anchor candidate for AI compute demand and semiconductor sentiment.",
-            evidence=["Starter US AI infrastructure universe"],
-            risk_flags=["Valuation sensitivity", "Supply-chain concentration"],
+            related_theme="AI 基础设施观察",
+            why_watch="用于观察 AI 算力需求和半导体情绪的锚点公司。",
+            evidence=["起始美股 AI 基础设施观察池"],
+            risk_flags=["估值敏感", "供应链集中度风险"],
             next_actions=[
-                "Pull market prices",
-                "Pull SEC filings",
-                "Compare AI semiconductor peers",
+                "拉取行情",
+                "拉取 SEC 公告",
+                "对比 AI 半导体同业",
             ],
             confidence="medium",
         ),
@@ -429,14 +424,13 @@ def _starter_candidates() -> list[DiscoveryCandidate]:
             symbol="QQQ",
             market="US",
             asset_type="ETF",
-            related_theme="Rates and broad-market risk watch",
+            related_theme="利率与大盘风险观察",
             why_watch=(
-                "Broad technology ETF for checking whether a theme is single-name "
-                "or market-wide."
+                "用于判断科技主题是单一个股驱动，还是整个市场共同驱动。"
             ),
-            evidence=["Starter broad-market ETF context"],
-            risk_flags=["Concentrated mega-cap exposure"],
-            next_actions=["Pull ETF prices", "Compare against SPY"],
+            evidence=["起始大盘 ETF 语境"],
+            risk_flags=["大型科技股权重集中"],
+            next_actions=["拉取 ETF 行情", "与 SPY 对比"],
             confidence="medium",
         ),
         DiscoveryCandidate(
@@ -444,63 +438,60 @@ def _starter_candidates() -> list[DiscoveryCandidate]:
             symbol="0700.HK",
             market="HK",
             asset_type="stock",
-            related_theme="China policy and consumption watch",
+            related_theme="中国政策与消费观察",
             why_watch=(
-                "Large HK-listed China platform company useful for cross-market "
-                "sentiment checks."
+                "大型港股中国平台公司，可用于观察跨市场情绪。"
             ),
-            evidence=["Starter HK China-platform watch universe"],
-            risk_flags=["Policy risk", "China consumption and gaming-cycle exposure"],
+            evidence=["起始港股中国平台公司观察池"],
+            risk_flags=["政策风险", "中国消费和游戏周期敞口"],
             next_actions=[
-                "Pull HK price data",
-                "Collect HKEX announcements",
-                "Compare platform peers",
+                "拉取港股行情",
+                "收集港交所公告",
+                "对比平台公司同业",
             ],
             confidence="medium",
         ),
         DiscoveryCandidate(
-            display_name="Hang Seng Tech ETF proxy",
+            display_name="恒生科技 ETF 代理观察",
             symbol="3067.HK",
             market="HK",
             asset_type="ETF",
-            related_theme="AI infrastructure watch",
+            related_theme="AI 基础设施观察",
             why_watch=(
-                "ETF-style proxy for checking HK technology sentiment before "
-                "picking single names."
+                "在选择单一个股前，用 ETF 代理观察港股科技板块情绪。"
             ),
-            evidence=["Starter HK technology-market context"],
-            risk_flags=["ETF constituents and liquidity should be verified before use"],
-            next_actions=["Verify ETF details", "Compare Hang Seng Tech index direction"],
+            evidence=["起始港股科技市场语境"],
+            risk_flags=["使用前需要确认 ETF 成分和流动性"],
+            next_actions=["核对 ETF 详情", "对比恒生科技指数方向"],
             confidence="low",
         ),
         DiscoveryCandidate(
-            display_name="CSI 300 ETF proxy",
+            display_name="沪深 300 ETF 代理观察",
             symbol="510300.SH",
             market="CN",
             asset_type="ETF",
-            related_theme="China policy and consumption watch",
-            why_watch="Broad A-share proxy for separating market beta from sector-specific ideas.",
-            evidence=["Starter A-share broad-market context"],
-            risk_flags=["Tracking error and local-market liquidity should be checked"],
-            next_actions=["Pull A-share ETF prices", "Compare CSI 300 and sector boards"],
+            related_theme="中国政策与消费观察",
+            why_watch="用宽基 A 股代理区分市场 beta 和行业特定线索。",
+            evidence=["起始 A 股宽基市场语境"],
+            risk_flags=["需要检查跟踪误差和本地市场流动性"],
+            next_actions=["拉取 A 股 ETF 行情", "对比沪深 300 和行业板块"],
             confidence="low",
         ),
         DiscoveryCandidate(
-            display_name="China semiconductor equipment watch",
+            display_name="中国半导体设备观察",
             symbol=None,
             market="CN",
             asset_type="sector",
-            related_theme="AI infrastructure watch",
+            related_theme="AI 基础设施观察",
             why_watch=(
-                "Sector candidate for mapping AI infrastructure themes into "
-                "A-share supply chains."
+                "用于把 AI 基础设施主题映射到 A 股供应链。"
             ),
-            evidence=["Starter CN sector watch universe"],
-            risk_flags=["Policy support and export controls can both affect the theme"],
+            evidence=["起始 A 股行业观察池"],
+            risk_flags=["政策支持和出口管制都可能影响该主题"],
             next_actions=[
-                "Use AkShare/Tushare sector data",
-                "Map sector constituents",
-                "Check announcements",
+                "使用 AkShare/Tushare 行业数据",
+                "映射行业成分股",
+                "检查公告",
             ],
             confidence="low",
         ),

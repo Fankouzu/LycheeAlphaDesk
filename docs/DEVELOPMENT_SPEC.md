@@ -44,7 +44,7 @@ v0.1 should not deliver:
 - Live trading.
 - Broker account requirements.
 - Paid data source requirements.
-- Real LLM requirement.
+- Real LLM requirement for demo mode.
 - Real TimesFM requirement.
 
 ## 3. Technical Stack
@@ -154,6 +154,8 @@ This is a permanent interaction rule for the whole project:
 - Menus and option selection must use ↑/↓/←/→/Tab to move, Enter to select, and Esc to go back or exit.
 - Menus must not use numbers, letters, or typed command aliases as option selectors.
 - Typed text is allowed only for actual values, such as API keys, URLs, model names, symbols, or file paths.
+- v0.1 human-facing CLI/TUI copy is Chinese-first; machine identifiers such as provider names, command arguments, model IDs, and symbols may stay in their original form.
+- Potentially slow actions such as LLM calls, network requests, data pulls, and report generation must show a loading/waiting state before blocking work starts; failures must show readable errors so the terminal never feels frozen.
 - Non-interactive commands are allowed for automation and coding agents, but they must be explicit command arguments rather than hidden menu selections.
 - Non-TTY environments must not receive numeric or letter-based text-menu fallbacks.
 

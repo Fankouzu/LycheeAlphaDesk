@@ -6,6 +6,12 @@ from textual.widgets import Input, OptionList, Static
 
 import lychee_alphadesk.tui.app as tui_app
 from lychee_alphadesk.core.config import set_openai_compatible_llm
+from lychee_alphadesk.core.discovery import (
+    DiscoveryCandidate,
+    DiscoveryReport,
+    DiscoverySource,
+    DiscoveryTheme,
+)
 from lychee_alphadesk.core.live_data import PullResult
 from lychee_alphadesk.tui.app import AlphaDeskApp
 
@@ -37,7 +43,7 @@ def test_dashboard_shows_cached_live_data_summary(tmp_path: Path) -> None:
             await pilot.pause()
             dashboard = app.query_one("#dashboard-summary", Static)
             text = str(dashboard.content)
-            assert "Live cache" in text
+            assert "本地数据缓存" in text
             assert "AAPL" in text
             assert "214.33" in text
 
@@ -51,7 +57,7 @@ def test_dashboard_has_keyboard_action_menu(tmp_path: Path) -> None:
             await pilot.pause()
             menu = app.query_one("#action-menu", OptionList)
             assert menu.highlighted == 0
-            assert "Today Discovery" in str(menu.get_option_at_index(0).prompt)
+            assert "今日市场发现" in str(menu.get_option_at_index(0).prompt)
 
             await pilot.press("down")
             await pilot.pause()
@@ -74,7 +80,7 @@ def test_dashboard_today_discovery_requires_llm_configuration(
 
             status = app.query_one("#action-status", Static)
             text = str(status.content)
-            assert "LLM provider is not configured" in text
+            assert "LLM 尚未配置" in text
             assert "lychee setup llm set" in text
             assert not (tmp_path / "data" / "discovery-today.json").exists()
             assert not app.query(Input)
@@ -148,12 +154,82 @@ def test_dashboard_today_discovery_action_writes_report_when_llm_configured(
 
             status = app.query_one("#action-status", Static)
             text = str(status.content)
-            assert "Today Discovery" in text
-            assert "Mode: llm-synthesized" in text
+            assert "今日市场发现" in text
+            assert "模式: llm-synthesized" in text
             assert "TUI model theme" in text
-            assert "Not investment advice" in text
+            assert "非投资建议" in text
             assert (tmp_path / "data" / "discovery-today.json").exists()
             assert not app.query(Input)
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_today_discovery_shows_loading_before_llm_call(
+    monkeypatch, tmp_path: Path
+) -> None:
+    observed_status: list[str] = []
+
+    def fake_report() -> DiscoveryReport:
+        return DiscoveryReport(
+            mode="llm-synthesized",
+            created_at="2026-07-05T00:00:00+00:00",
+            markets=["US", "HK", "CN"],
+            sources=[
+                DiscoverySource(
+                    provider="test-llm",
+                    market="US",
+                    description="test",
+                )
+            ],
+            themes=[
+                DiscoveryTheme(
+                    name="测试主题",
+                    markets=["US"],
+                    summary="测试摘要",
+                    evidence=["测试证据"],
+                    sectors=["科技"],
+                    risk_flags=["测试风险"],
+                    confidence="medium",
+                )
+            ],
+            candidates=[
+                DiscoveryCandidate(
+                    display_name="测试候选",
+                    symbol="TEST",
+                    market="US",
+                    asset_type="stock",
+                    related_theme="测试主题",
+                    why_watch="测试原因",
+                    evidence=["测试证据"],
+                    risk_flags=["测试风险"],
+                    next_actions=["继续研究"],
+                    confidence="medium",
+                    recommendation="research",
+                )
+            ],
+            warnings=[],
+            next_actions=["继续研究"],
+            disclaimer="非投资建议。",
+        )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+
+        def fake_build_today_discovery_report(**kwargs: object) -> DiscoveryReport:
+            status = app.query_one("#action-status", Static)
+            observed_status.append(str(status.content))
+            return fake_report()
+
+        monkeypatch.setattr(
+            tui_app,
+            "build_today_discovery_report",
+            fake_build_today_discovery_report,
+        )
+        async with app.run_test() as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+
+        assert any("正在调用 LLM" in status for status in observed_status)
 
     asyncio.run(run_case())
 
@@ -190,7 +266,7 @@ def test_dashboard_market_menu_action_pulls_prices(
 
             assert calls == [["AAPL", "TSLA"]]
             status = app.query_one("#action-status", Static)
-            assert "Pulled market prices: 2" in str(status.content)
+            assert "已拉取行情: 2" in str(status.content)
 
     asyncio.run(run_case())
 
@@ -209,7 +285,7 @@ def test_dashboard_symbol_prompt_handles_empty_submit(tmp_path: Path) -> None:
             await pilot.pause()
 
             status = app.query_one("#action-status", Static)
-            assert "No symbols entered." in str(status.content)
+            assert "未输入证券代码。" in str(status.content)
             app.query_one("#symbols-input", Input)
 
     asyncio.run(run_case())

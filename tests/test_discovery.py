@@ -16,6 +16,7 @@ def test_today_discovery_uses_llm_json_response() -> None:
         assert "chat/completions" in url
         prompt = str(body["messages"])
         assert '"markets": ["US"]' in prompt
+        assert "AI 基础设施观察" in prompt
         return {
             "choices": [
                 {
@@ -24,32 +25,32 @@ def test_today_discovery_uses_llm_json_response() -> None:
                         {
                           "themes": [
                             {
-                              "name": "Model generated AI theme",
+                              "name": "模型生成的 AI 主题",
                               "markets": ["US"],
-                              "summary": "The model selected an AI watch theme.",
-                              "evidence": ["LLM inspected the provided starter context."],
-                              "sectors": ["Semiconductors"],
-                              "risk_flags": ["Valuation risk"],
+                              "summary": "模型选择了 AI 观察主题。",
+                              "evidence": ["LLM 检查了提供的起始语境。"],
+                              "sectors": ["半导体"],
+                              "risk_flags": ["估值风险"],
                               "confidence": "medium"
                             }
                           ],
                           "candidates": [
                             {
-                              "display_name": "Model NVIDIA candidate",
+                              "display_name": "模型生成的 NVIDIA 候选",
                               "symbol": "NVDA",
                               "market": "US",
                               "asset_type": "stock",
-                              "related_theme": "Model generated AI theme",
-                              "why_watch": "The model linked NVIDIA to AI infrastructure.",
-                              "evidence": ["Starter context mentioned AI compute."],
-                              "risk_flags": ["Crowded trade risk"],
-                              "next_actions": ["Pull SEC filings"],
+                              "related_theme": "模型生成的 AI 主题",
+                              "why_watch": "模型把 NVIDIA 和 AI 基础设施联系起来。",
+                              "evidence": ["起始语境提到了 AI 算力。"],
+                              "risk_flags": ["交易拥挤风险"],
+                              "next_actions": ["拉取 SEC 公告"],
                               "confidence": "medium",
                               "recommendation": "research"
                             }
                           ],
-                          "warnings": ["Model warning"],
-                          "next_actions": ["Drill down into filings"]
+                          "warnings": ["模型风险提示"],
+                          "next_actions": ["继续查看公告"]
                         }
                         """
                     }
@@ -61,9 +62,9 @@ def test_today_discovery_uses_llm_json_response() -> None:
 
     assert report.mode == "llm-synthesized"
     assert report.markets == ["US"]
-    assert report.themes[0].name == "Model generated AI theme"
-    assert report.candidates[0].display_name == "Model NVIDIA candidate"
+    assert report.themes[0].name == "模型生成的 AI 主题"
+    assert report.candidates[0].display_name == "模型生成的 NVIDIA 候选"
     assert report.warnings == [
-        "Model warning",
-        "Candidates are research targets only and are not buy/sell recommendations.",
+        "模型风险提示",
+        "候选仅用于研究和观察，不是买入或卖出建议。",
     ]

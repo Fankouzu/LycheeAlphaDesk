@@ -12,9 +12,9 @@ def test_demo_policy_passes_required_safety_rules() -> None:
     result = validate_policy(policy)
 
     assert result.errors == []
-    assert "Live trading is disabled" in result.passes
-    assert "Human approval is required" in result.passes
-    assert "Minimum cash weight is 30%" in result.passes
+    assert "实盘交易已关闭" in result.passes
+    assert "已要求人工确认" in result.passes
+    assert "最低现金比例不低于 30%" in result.passes
 
 
 def test_policy_rejects_live_trading_without_human_approval(tmp_path: Path) -> None:
@@ -38,8 +38,8 @@ decision_requires:
     policy = load_policy(policy_file)
     result = validate_policy(policy)
 
-    assert "Live trading is not allowed in v0.1" in result.errors
-    assert "human_approval is required" in result.errors
+    assert "v0.1 不允许开启实盘交易" in result.errors
+    assert "必须启用人工确认" in result.errors
 
 
 def test_policy_requires_supported_base_currency(tmp_path: Path) -> None:

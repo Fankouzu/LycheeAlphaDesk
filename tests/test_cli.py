@@ -15,7 +15,7 @@ def test_demo_command_reports_available_demo_files() -> None:
     result = runner.invoke(app, ["demo"])
 
     assert result.exit_code == 0
-    assert "Demo workspace ready" in result.stdout
+    assert "演示工作区已就绪" in result.stdout
     assert "examples/demo/policy.yaml" in result.stdout
 
 
@@ -23,24 +23,24 @@ def test_policy_check_command_prints_passes() -> None:
     result = runner.invoke(app, ["policy", "check", "examples/demo/policy.yaml"])
 
     assert result.exit_code == 0
-    assert "Policy check passed" in result.stdout
-    assert "Live trading is disabled" in result.stdout
+    assert "投资政策检查通过" in result.stdout
+    assert "实盘交易已关闭" in result.stdout
 
 
 def test_report_demo_generates_markdown_report(tmp_path: Path) -> None:
     result = runner.invoke(app, ["report", "--demo", "--output-dir", str(tmp_path)])
 
     assert result.exit_code == 0
-    assert "Report written:" in result.stdout
+    assert "报告已写入:" in result.stdout
 
     report_path = tmp_path / "daily-report-demo.md"
     assert report_path.exists()
     report = report_path.read_text(encoding="utf-8")
-    assert "# Lychee AlphaDesk Demo Daily Report" in report
-    assert "This report uses demo data" in report
-    assert "## Data Quality Status" in report
+    assert "# Lychee AlphaDesk 演示日报" in report
+    assert "本报告使用演示数据" in report
+    assert "## 数据质量状态" in report
     assert "market-data-present" in report
-    assert "Not investment advice" in report
+    assert "非投资建议" in report
 
 
 def test_audit_list_shows_generated_report(tmp_path: Path) -> None:
@@ -58,8 +58,8 @@ def test_data_snapshot_command_writes_unified_demo_snapshot(tmp_path: Path) -> N
     result = runner.invoke(app, ["data", "snapshot", "--demo", "--output-dir", str(tmp_path)])
 
     assert result.exit_code == 0
-    assert "Data snapshot written:" in result.stdout
-    assert "Prices: 3" in result.stdout
+    assert "数据快照已写入:" in result.stdout
+    assert "行情: 3" in result.stdout
     assert (tmp_path / "data-snapshot-demo.json").exists()
 
 
@@ -69,7 +69,7 @@ def test_data_health_command_shows_provider_quality() -> None:
     assert result.exit_code == 0
     assert "demo-market-data" in result.stdout
     assert "market-data-present" in result.stdout
-    assert "pass" in result.stdout
+    assert "通过" in result.stdout
 
 
 def test_discover_today_requires_llm_configuration(
@@ -80,7 +80,7 @@ def test_discover_today_requires_llm_configuration(
     result = runner.invoke(app, ["discover", "today", "--output-dir", str(tmp_path)])
 
     assert result.exit_code == 1
-    assert "LLM provider is not configured" in result.stdout
+    assert "LLM 尚未配置" in result.stdout
     assert "lychee setup llm set" in result.stdout
     assert not (tmp_path / "data" / "discovery-today.json").exists()
 
@@ -146,8 +146,8 @@ def test_discover_today_command_writes_report_when_llm_configured(
     result = runner.invoke(app, ["discover", "today", "--output-dir", str(tmp_path)])
 
     assert result.exit_code == 0
-    assert "Today Discovery written:" in result.stdout
-    assert "Not investment advice" in result.stdout
+    assert "今日市场发现已写入:" in result.stdout
+    assert "非投资建议" in result.stdout
     assert "US" in result.stdout
     assert "HK" in result.stdout
     assert "CN" in result.stdout
@@ -181,7 +181,7 @@ def test_data_pull_market_command_writes_live_cache(monkeypatch, tmp_path: Path)
     )
 
     assert result.exit_code == 0
-    assert "Pulled market rows: 2" in result.stdout
+    assert "已拉取行情: 2" in result.stdout
     assert "alpha_vantage" in result.stdout
 
 
@@ -221,7 +221,7 @@ def test_data_pull_news_command_writes_live_cache(monkeypatch, tmp_path: Path) -
     )
 
     assert result.exit_code == 0
-    assert "Pulled news events: 1" in result.stdout
+    assert "已拉取新闻事件: 1" in result.stdout
 
 
 def test_data_snapshot_command_reads_live_cache_by_default(tmp_path: Path) -> None:
@@ -236,6 +236,6 @@ def test_data_snapshot_command_reads_live_cache_by_default(tmp_path: Path) -> No
     result = runner.invoke(app, ["data", "snapshot", "--output-dir", str(tmp_path)])
 
     assert result.exit_code == 0
-    assert "Data snapshot written:" in result.stdout
-    assert "Mode: live" in result.stdout
+    assert "数据快照已写入:" in result.stdout
+    assert "模式: 实时" in result.stdout
     assert (tmp_path / "data-snapshot-live.json").exists()

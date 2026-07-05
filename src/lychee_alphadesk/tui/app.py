@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from typing import Literal
 
@@ -41,12 +42,12 @@ ActionId = Literal[
 
 class AlphaDeskApp(App[None]):
     TITLE = "Lychee AlphaDesk"
-    SUB_TITLE = "local investment workbench"
+    SUB_TITLE = "本地投资研究工作台"
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [
-        Binding("escape", "back", "Back", show=True),
-        Binding("q", "quit", "Quit", show=True),
-        Binding("ctrl+c", "quit", "Quit", show=False),
+        Binding("escape", "back", "返回", show=True),
+        Binding("q", "quit", "退出", show=True),
+        Binding("ctrl+c", "quit", "退出", show=False),
     ]
 
     def __init__(self, output_dir: Path = DEFAULT_OUTPUT_DIR) -> None:
@@ -57,23 +58,23 @@ class AlphaDeskApp(App[None]):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(self._dashboard_summary(), id="dashboard-summary")
-        yield Static("Actions", id="action-title")
+        yield Static("操作", id="action-title")
         yield OptionList(
-            Option("Today Discovery", id="today_discovery"),
-            Option("Manual symbol prices", id="pull_market"),
-            Option("Manual symbol news", id="pull_news"),
-            Option("Manual SEC filings", id="pull_filings"),
-            Option("Check data health", id="data_health"),
-            Option("Write live snapshot", id="write_snapshot"),
-            Option("Refresh dashboard", id="refresh"),
-            Option("Setup guidance", id="setup_help"),
-            Option("Quit", id="quit"),
+            Option("今日市场发现", id="today_discovery"),
+            Option("手动查看行情", id="pull_market"),
+            Option("手动查看新闻", id="pull_news"),
+            Option("手动查看美股公告", id="pull_filings"),
+            Option("检查数据健康", id="data_health"),
+            Option("写入实时快照", id="write_snapshot"),
+            Option("刷新面板", id="refresh"),
+            Option("配置指引", id="setup_help"),
+            Option("退出", id="quit"),
             id="action-menu",
             markup=False,
         )
         yield Container(
             Static(
-                "Use Up/Down/Tab to move, Enter to select, Esc to return.",
+                "使用 ↑/↓/Tab 移动，Enter 选择，Esc 返回。",
                 id="action-status",
             ),
             id="action-panel",
@@ -90,7 +91,7 @@ class AlphaDeskApp(App[None]):
         self.pending_action = None
         await self._replace_action_panel(
             Static(
-                "Use Up/Down/Tab to move, Enter to select, Esc to return.",
+                "使用 ↑/↓/Tab 移动，Enter 选择，Esc 返回。",
                 id="action-status",
             )
         )
@@ -106,14 +107,14 @@ class AlphaDeskApp(App[None]):
         elif action_id == "pull_market":
             await self._show_symbol_prompt(
                 "pull_market",
-                "Symbols for market prices, e.g. AAPL,TSLA,0700.HK",
+                "输入行情证券代码，例如 AAPL,TSLA,0700.HK",
             )
         elif action_id == "pull_news":
-            await self._show_symbol_prompt("pull_news", "Symbols for news, e.g. AAPL,TSLA")
+            await self._show_symbol_prompt("pull_news", "输入新闻证券代码，例如 AAPL,TSLA")
         elif action_id == "pull_filings":
             await self._show_symbol_prompt(
                 "pull_filings",
-                "US symbols for SEC filings, e.g. AAPL,TSLA",
+                "输入美股公告证券代码，例如 AAPL,TSLA",
             )
         elif action_id == "data_health":
             await self._show_data_health()
@@ -121,10 +122,10 @@ class AlphaDeskApp(App[None]):
             await self._write_live_snapshot()
         elif action_id == "refresh":
             self._refresh_dashboard()
-            self._set_status("Dashboard refreshed from local cache.")
+            self._set_status("面板已从本地缓存刷新。")
         elif action_id == "setup_help":
             self._set_status(
-                "Run `lychee setup` in your terminal to configure provider keys."
+                "请在终端运行 `lychee setup` 配置数据源和 LLM。"
             )
         elif action_id == "quit":
             self.exit()
@@ -133,23 +134,23 @@ class AlphaDeskApp(App[None]):
         event.stop()
         symbols = parse_symbols(event.value)
         if not symbols:
-            self._set_status("No symbols entered.")
+            self._set_status("未输入证券代码。")
             return
         await self._run_symbol_action(symbols)
 
     def _dashboard_summary(self) -> str:
         snapshot = build_cached_data_snapshot(self.output_dir)
         lines = [
-            "Live cache",
-            f"Prices: {snapshot.counts['prices']}",
-            f"News events: {snapshot.counts['news_events']}",
-            f"Filings: {snapshot.counts['filings']}",
+            "本地数据缓存",
+            f"行情: {snapshot.counts['prices']}",
+            f"新闻: {snapshot.counts['news_events']}",
+            f"公告: {snapshot.counts['filings']}",
         ]
         if snapshot.provider_names:
-            lines.append(f"Providers: {', '.join(snapshot.provider_names)}")
+            lines.append(f"数据源: {', '.join(snapshot.provider_names)}")
         if snapshot.prices:
             lines.append("")
-            lines.append("Latest prices")
+            lines.append("最新价格")
             for price in snapshot.prices[:8]:
                 lines.append(
                     f"{price.symbol:<10} {price.close:.2f} {price.currency} "
@@ -157,7 +158,7 @@ class AlphaDeskApp(App[None]):
                 )
         else:
             lines.append("")
-            lines.append("No live cache yet. Start with:")
+            lines.append("暂无实时缓存。请先运行:")
             lines.append("  lychee discover today")
         return "\n".join(lines)
 
@@ -165,7 +166,7 @@ class AlphaDeskApp(App[None]):
         self.pending_action = action
         await self._replace_action_panel(
             Static(
-                "Enter comma-separated symbols, then press Enter.",
+                "输入英文逗号分隔的证券代码，然后按 Enter。",
                 id="action-status",
             ),
             Input(placeholder=placeholder, id="symbols-input"),
@@ -173,11 +174,20 @@ class AlphaDeskApp(App[None]):
         self.set_focus(self.query_one("#symbols-input", Input))
 
     async def _show_today_discovery(self) -> None:
+        await self._replace_action_panel(
+            Static(
+                "正在调用 LLM 分析美股、港股和 A 股市场，请稍候...",
+                id="action-status",
+            )
+        )
         try:
-            report = build_today_discovery_report()
+            report = await asyncio.to_thread(
+                build_today_discovery_report,
+                output_dir=self.output_dir,
+            )
         except (DiscoveryLLMRequiredError, LLMProviderError) as error:
             await self._replace_action_panel(
-                Static(f"Action failed: {error}", id="action-status")
+                Static(f"操作失败: {error}", id="action-status")
             )
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
@@ -193,36 +203,36 @@ class AlphaDeskApp(App[None]):
     async def _run_symbol_action(self, symbols: list[str]) -> None:
         action = self.pending_action
         if action is None:
-            self._set_status("No action is active.")
+            self._set_status("当前没有正在执行的操作。")
             return
 
         try:
             if action == "pull_market":
                 result = pull_market_prices(symbols=symbols, output_dir=self.output_dir)
-                label = "market prices"
+                label = "行情"
             elif action == "pull_news":
                 result = pull_news_events(symbols=symbols, output_dir=self.output_dir)
-                label = "news events"
+                label = "新闻"
             elif action == "pull_filings":
                 result = pull_sec_filings(symbols=symbols, output_dir=self.output_dir)
-                label = "filings"
+                label = "公告"
             else:
-                self._set_status("This action does not accept symbols.")
+                self._set_status("这个操作不接收证券代码。")
                 return
         except (RuntimeError, ValueError) as error:
             await self._replace_action_panel(
-                Static(f"Action failed: {error}", id="action-status")
+                Static(f"操作失败: {error}", id="action-status")
             )
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
 
         lines = [
-            f"Pulled {label}: {result.count}",
-            f"Provider: {result.provider}",
-            f"Cache: {result.output_path}",
+            f"已拉取{label}: {result.count}",
+            f"数据源: {result.provider}",
+            f"缓存: {result.output_path}",
         ]
         for warning in result.warnings:
-            lines.append(f"WARNING: {warning}")
+            lines.append(f"警告: {warning}")
         self.pending_action = None
         self._refresh_dashboard()
         await self._replace_action_panel(Static("\n".join(lines), id="action-status"))
@@ -231,9 +241,9 @@ class AlphaDeskApp(App[None]):
     async def _show_data_health(self) -> None:
         checks = run_cached_data_health(self.output_dir)
         lines = [
-            "Data health",
+            "数据健康",
             *[
-                f"{check.status.upper():<7} {check.name} - {check.message}"
+                f"{_display_status(check.status):<4} {check.name} - {check.message}"
                 for check in checks
             ],
         ]
@@ -245,7 +255,7 @@ class AlphaDeskApp(App[None]):
         output_path = write_snapshot_json(snapshot, self.output_dir)
         self._refresh_dashboard()
         await self._replace_action_panel(
-            Static(f"Live snapshot written: {output_path}", id="action-status")
+            Static(f"实时快照已写入: {output_path}", id="action-status")
         )
         self.set_focus(self.query_one("#action-menu", OptionList))
 
@@ -264,3 +274,7 @@ class AlphaDeskApp(App[None]):
 
 def run_tui() -> None:
     AlphaDeskApp().run()
+
+
+def _display_status(status: str) -> str:
+    return {"pass": "通过", "warning": "警告", "error": "错误"}.get(status, status)

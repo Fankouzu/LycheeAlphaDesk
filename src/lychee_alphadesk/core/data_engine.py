@@ -95,19 +95,19 @@ def run_quality_checks(
             name="market-data-present",
             provider=DemoMarketDataProvider.name,
             count=len(prices),
-            noun="price rows",
+            noun="行情数据",
         ),
         _present_check(
             name="news-events-present",
             provider=DemoNewsProvider.name,
             count=len(news_events),
-            noun="news events",
+            noun="新闻事件",
         ),
         _present_check(
             name="filings-present",
             provider=DemoFilingProvider.name,
             count=len(filings),
-            noun="filing summaries",
+            noun="公告摘要",
         ),
     ]
 
@@ -119,7 +119,7 @@ def run_quality_checks(
             DataQualityCheck(
                 name="forecast-coverage",
                 status="warning",
-                message="Missing forecasts for: " + ", ".join(missing_forecasts),
+                message="缺少以下代码的预测: " + ", ".join(missing_forecasts),
                 provider=DemoForecastProvider.name,
             )
         )
@@ -128,7 +128,7 @@ def run_quality_checks(
             DataQualityCheck(
                 name="forecast-coverage",
                 status="pass",
-                message=f"Forecasts cover {len(forecasts)} symbols",
+                message=f"预测已覆盖 {len(forecasts)} 个代码",
                 provider=DemoForecastProvider.name,
             )
         )
@@ -179,12 +179,12 @@ def _present_check(*, name: str, provider: str, count: int, noun: str) -> DataQu
         return DataQualityCheck(
             name=name,
             status="error",
-            message=f"No {noun} loaded",
+            message=f"未加载{noun}",
             provider=provider,
         )
     return DataQualityCheck(
         name=name,
         status="pass",
-        message=f"Loaded {count} {noun}",
+        message=f"已加载 {count} 条{noun}",
         provider=provider,
     )

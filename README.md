@@ -19,6 +19,8 @@ It runs locally as a fast command-line and TUI application. It is not a trading 
 
 > Terminal-native. Research-first. Policy-first. Broker-agnostic. Human-approved.
 
+The current MVP uses Chinese-first human-facing CLI/TUI copy. Provider names, symbols, model IDs, and command arguments remain in their original technical form.
+
 ## 🚀 Quickstart
 
 ```bash

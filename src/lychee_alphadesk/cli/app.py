@@ -51,6 +51,7 @@ from lychee_alphadesk.core.research_db import (
 from lychee_alphadesk.core.workbench import (
     WorkbenchCheckResult,
     beginner_research_brief,
+    render_research_task_detail,
     run_workbench_check,
 )
 from lychee_alphadesk.tui.app import run_tui
@@ -529,6 +530,62 @@ def research_check(
         raise typer.Exit(code=1)
 
 
+@research_app.command("detail")
+def research_detail(
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="按证券代码选择研究任务，例如 STX、QQQ、0700.HK。"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="按任务名称选择研究任务，例如 Seagate。"),
+    ] = None,
+    status: Annotated[
+        str | None,
+        typer.Option("--status", help="按研究状态选择候选；默认处理 new。"),
+    ] = "new",
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多检查多少个研究候选。"),
+    ] = 5,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略已有缓存，强制重新拉取可自动补齐的数据。"),
+    ] = False,
+) -> None:
+    """输出单条研究任务的工作台详情。"""
+    result = run_workbench_check(
+        output_dir=output_dir,
+        status=status,
+        limit=limit,
+        force=force,
+    )
+    if not result.candidates:
+        console.print("研究队列为空。请先运行 `lychee discover today`。")
+        return
+    selected_index = _select_research_candidate(result, symbol=symbol, name=name)
+    if selected_index is None:
+        console.print("没有找到匹配的研究任务。")
+        console.print("可选任务:")
+        for candidate in result.candidates:
+            console.print(
+                f"- {candidate.display_name} | 入口: {candidate.observation_entry}",
+                soft_wrap=True,
+            )
+        raise typer.Exit(code=1)
+    candidate = result.candidates[selected_index]
+    packet = (
+        result.deepen_result.packets[selected_index]
+        if selected_index < len(result.deepen_result.packets)
+        else None
+    )
+    console.print(render_research_task_detail(candidate, packet), soft_wrap=True)
+
+
 @data_pull_app.command("market")
 def data_pull_market(
     symbols: Annotated[
@@ -713,6 +770,29 @@ def _print_workbench_check(result: WorkbenchCheckResult) -> None:
         table.add_row(gate.name, _display_workbench_gate_status(gate.status), gate.detail)
     console.print(table)
     console.print(result.beginner_brief, soft_wrap=True)
+
+
+def _select_research_candidate(
+    result: WorkbenchCheckResult,
+    *,
+    symbol: str | None,
+    name: str | None,
+) -> int | None:
+    if symbol:
+        target = symbol.strip().upper()
+        for index, candidate in enumerate(result.candidates):
+            symbols = [candidate.symbol or "", *candidate.proxy_symbols]
+            if any(item.upper() == target for item in symbols):
+                return index
+        return None
+    if name:
+        target_name = name.strip().lower()
+        for index, candidate in enumerate(result.candidates):
+            display_name = candidate.display_name.lower()
+            if display_name == target_name or target_name in display_name:
+                return index
+        return None
+    return 0
 
 
 def _display_workbench_status(status: str) -> str:

@@ -267,6 +267,16 @@ lychee research check --strict
 
 `research check` is the shared human/agent verification loop: it fills pullable data gaps, regenerates research packets, prints the `AlphaDesk 研究工作台`, and writes `.alphadesk/research/workbench-check-*.json`. The output must not read like a lesson and must not be just symbols or tables; it must show executable tasks, blocked tasks, evidence status, and the next-action queue. With `--strict`, the command exits non-zero when evidence, research entrypoints, proxy prices, or data gaps fail the current readiness gates.
 
+Inspect one research task in detail:
+
+```bash
+lychee research detail
+lychee research detail --symbol QQQ
+lychee research detail --name "Alibaba"
+```
+
+`research detail` runs the same workbench readiness loop, then prints a single task-level `研究结果`: entrypoint, signal reading, evidence matrix, price data, related news, filings/financial clues, data gaps, and executable refresh commands. Without `--symbol` or `--name`, it prints the first queued task so agents can run a non-interactive check.
+
 Current market-level and symbol-level cache commands:
 
 ```bash

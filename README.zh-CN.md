@@ -267,6 +267,16 @@ lychee research check --strict
 
 `research check` 是给人和 agent 共用的闭环验收入口：它会自动补齐可拉取数据、重新生成研究深挖包、输出 `AlphaDesk 研究工作台`，并写入 `.alphadesk/research/workbench-check-*.json`。工作台输出不能是课件式说明，也不能只是代码或表格；必须展示可执行任务、阻塞任务、证据状态和下一步队列。加上 `--strict` 后，如果证据、研究入口、代理行情或数据缺口任何一项未达标，命令会以非零退出码结束，便于自动化检查继续迭代。
 
+查看单条研究任务详情：
+
+```bash
+lychee research detail
+lychee research detail --symbol QQQ
+lychee research detail --name "Alibaba"
+```
+
+`research detail` 会运行同一套工作台自检，然后输出一条研究任务的 `研究结果`：入口、信号读数、证据矩阵、行情、相关新闻、公告/财报线索、数据缺口和可执行刷新命令。未传 `--symbol` 或 `--name` 时默认展示当前队列第一条任务，方便 agent 做非交互式自检。
+
 当前可用的市场级与 symbol 级 cache 命令：
 
 ```bash

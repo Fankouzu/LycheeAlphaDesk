@@ -260,6 +260,85 @@ def test_research_deepen_command_writes_research_packets(tmp_path: Path) -> None
     assert (tmp_path / "research").exists()
 
 
+def test_research_detail_command_prints_actionable_workbench_detail(
+    tmp_path: Path,
+) -> None:
+    _write_cli_research_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "AI storage demand rises",
+                        "summary": "Cloud infrastructure demand may affect hard drives.",
+                        "symbols": ["STX"],
+                        "source_url": "https://example.com/storage",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-02",
+                        "close": 110.5,
+                        "volume": 3210000,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "filings.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "date": "2026-07-01",
+                        "company": "Seagate",
+                        "form": "10-K",
+                        "summary": "STX 在 2026-07-01 提交了 10-K。",
+                        "source_url": "https://example.com/filing",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["research", "detail", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "研究结果" in result.stdout
+    assert "任务: Seagate [US]" in result.stdout
+    assert "信号读数:" in result.stdout
+    assert "证据矩阵" in result.stdout
+    assert "行情: STX 110.50 USD" in result.stdout
+    assert "AI storage demand rises" in result.stdout
+    assert "10-K 2026-07-01" in result.stdout
+    assert "可执行动作" in result.stdout
+    assert "lychee data pull market --symbols STX --provider auto --force" in result.stdout
+    assert "lychee data pull filings --symbols STX" in result.stdout
+
+
 def test_research_deepen_command_shows_proxy_mapping_symbols(tmp_path: Path) -> None:
     _write_cli_symbolless_mapping_seed(tmp_path)
     data_dir = tmp_path / "data"

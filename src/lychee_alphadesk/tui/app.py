@@ -44,6 +44,7 @@ class AlphaDeskApp(App[None]):
     TITLE = "Lychee AlphaDesk"
     SUB_TITLE = "本地投资研究工作台"
     ENABLE_COMMAND_PALETTE = False
+    ALLOW_SELECT = False
     BINDINGS = [
         Binding("escape", "back", "返回", show=True),
         Binding("q", "quit", "退出", show=True),

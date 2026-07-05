@@ -112,6 +112,10 @@ def test_textual_setup_menu_uses_option_list_keyboard_navigation(tmp_path: Path)
     asyncio.run(run_case())
 
 
+def test_textual_setup_disables_text_selection_to_avoid_mouse_selection_crash() -> None:
+    assert SetupApp.ALLOW_SELECT is False
+
+
 def test_textual_setup_app_can_store_selected_provider_value(
     monkeypatch, tmp_path: Path
 ) -> None:

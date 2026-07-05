@@ -301,3 +301,7 @@ def test_dashboard_disables_textual_command_palette(tmp_path: Path) -> None:
             assert app.screen.id != "--command-palette"
 
     asyncio.run(run_case())
+
+
+def test_dashboard_disables_text_selection_to_avoid_mouse_selection_crash() -> None:
+    assert AlphaDeskApp.ALLOW_SELECT is False

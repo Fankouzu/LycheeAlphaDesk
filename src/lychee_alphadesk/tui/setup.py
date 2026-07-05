@@ -39,6 +39,7 @@ SetupView = Literal[
 class SetupApp(App[None]):
     TITLE = "Lychee AlphaDesk 配置中心"
     SUB_TITLE = "仅使用键盘导航"
+    ALLOW_SELECT = False
     BINDINGS = [
         Binding("escape", "back", "返回 / 完成", show=True),
         Binding("ctrl+c", "quit", "退出", show=False),

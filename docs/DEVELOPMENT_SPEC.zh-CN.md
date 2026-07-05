@@ -137,7 +137,7 @@ lad
 - `lad data snapshot --demo` 写入统一 JSON 快照，包含市场、新闻、公告和预测数据。
 - `lychee discover today` 在不要求用户先输入股票代码的情况下，运行覆盖美股、港股和 A 股的发现优先流程。
 - `lad discover today --markets us,hk,cn` 会以 `stream: true` 调用已配置的 OpenAI-compatible `/chat/completions` 接口，解析模型返回的 JSON，并写入本地 `llm-synthesized` discovery report cache，包含主题、关注候选、证据引用、warning 和下一步动作。如果没有配置 LLM provider、API 请求失败，或模型没有返回有效 JSON，命令必须失败；不允许静默生成 fallback 报告。成功后必须同步写入 `.alphadesk/research.sqlite3`，作为研究队列和证据追踪的本地数据库。默认 LLM 读超时为 180 秒。
-- `lad data pull market` 将 Alpha Vantage 日线行情写入本地 live cache。
+- `lad data pull market` 将 Alpha Vantage 日线行情写入本地 live cache。默认使用行情 cache 的保质期和交易时段判断；`--force` 可强制刷新。
 - `lad data pull news` 将 Marketaux、Finnhub 或 NewsAPI 新闻事件写入本地 live cache。
 - `lad data pull filings` 将 SEC EDGAR 近期 filings 写入本地 live cache。
 - `lad data health` 检查 live cache 是否存在以及行数状态。
@@ -147,6 +147,23 @@ lad
 - `lad policy check` 校验投资政策文件，并打印违反项或警告。
 - `lad research queue` 列出 SQLite 研究库中的关注候选，包含状态、市场、代码、主题、证据数量和下一步动作数量。
 - `lad audit list` 列出已生成的报告和决策记录。
+
+## 数据新鲜度策略
+
+本地 cache 必须有明确保质期。默认路径优先复用未过期数据，只有过期、缺失或用户显式传入 `--force` 时才刷新。
+
+行情 cache 的保质期必须同时考虑数据类型和市场交易状态：
+
+- 美股常规交易时段按 9:30-16:00 ET 处理。
+- 港股常规交易时段按 9:30-12:00、13:00-16:00 HKT 处理。
+- A 股常规交易时段按 9:30-11:30、13:00-15:00 CST 处理。
+- 交易中默认 15 分钟保质期。
+- 港股/A 股午休期间默认不刷新，等下午开盘后再判断。
+- 收盘后允许做一次收盘确认刷新；确认后的行情 cache 冻结到下一个交易日开盘。
+- 周末默认不刷新；第一版暂不内置完整节假日日历。
+- `--force` 必须绕过保质期和交易时段判断。
+
+cache 状态写入 `.alphadesk/research.sqlite3` 的 `cache_entries` 表，记录 layer、cache_key、provider、artifact_path、created_at、expires_at、ttl_seconds、market、session_state、row_count 和 is_final_for_session。
 
 ## 交互规范
 

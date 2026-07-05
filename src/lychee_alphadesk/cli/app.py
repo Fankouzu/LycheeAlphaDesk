@@ -323,6 +323,10 @@ def data_pull_market(
         Path,
         typer.Option("--output-dir", help="实时缓存输出目录。"),
     ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略保质期和交易时段缓存策略，强制刷新行情。"),
+    ] = False,
 ) -> None:
     """拉取最新日线行情到本地缓存。"""
     try:
@@ -330,6 +334,7 @@ def data_pull_market(
             symbols=parse_symbols(symbols),
             output_dir=output_dir,
             provider_id=provider,
+            force=force,
         )
     except (RuntimeError, ValueError) as error:
         console.print(str(error))
@@ -407,7 +412,8 @@ def _print_pull_result(*, result_label: str, count: int, result: PullResult) -> 
     provider = result.provider
     output_path = result.output_path
     warnings = result.warnings
-    console.print(f"已拉取{result_label}: {count}")
+    action = "已拉取" if result.refreshed else "已使用缓存"
+    console.print(f"{action}{result_label}: {count}")
     console.print(f"数据源: {provider}")
     console.print(f"缓存: {output_path}", soft_wrap=True)
     for warning in warnings:

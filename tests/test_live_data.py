@@ -1,6 +1,8 @@
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from lychee_alphadesk.core.cache_freshness import record_cache_entry
 from lychee_alphadesk.core.config import default_config, save_config
 from lychee_alphadesk.core.live_data import (
     build_cached_data_snapshot,
@@ -45,6 +47,171 @@ def test_pull_market_prices_writes_alpha_vantage_cache(tmp_path: Path) -> None:
         "volume": 51230000,
         "currency": "USD",
     }
+
+
+def test_pull_market_prices_skips_fresh_open_market_cache(tmp_path: Path) -> None:
+    config = default_config()
+    config.providers["alpha_vantage"].value = "demo-alpha-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    cache_path = data_dir / "market-prices.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "created_at": "2026-07-06T13:55:00+00:00",
+                "warnings": [],
+                "rows": [
+                    {
+                        "symbol": "AAPL",
+                        "date": "2026-07-02",
+                        "close": 214.33,
+                        "volume": 51230000,
+                        "currency": "USD",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    now = datetime(2026, 7, 6, 14, 0, tzinfo=UTC)
+    record_cache_entry(
+        output_dir=tmp_path,
+        layer="market",
+        cache_key="market:alpha_vantage:AAPL",
+        provider="alpha_vantage",
+        artifact_path=cache_path,
+        created_at=now - timedelta(minutes=5),
+        expires_at=now + timedelta(minutes=10),
+        ttl_seconds=900,
+        row_count=1,
+        market="US",
+        session_state="open",
+        is_final_for_session=False,
+    )
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        raise AssertionError("fresh market cache should skip provider fetch")
+
+    result = pull_market_prices(
+        symbols=["AAPL"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        fetch_json=fetch_json,
+        now=now,
+    )
+
+    assert result.refreshed is False
+    assert result.count == 1
+    assert "行情缓存仍在保质期内" in result.warnings[0]
+
+
+def test_pull_market_prices_force_refreshes_fresh_cache(tmp_path: Path) -> None:
+    config = default_config()
+    config.providers["alpha_vantage"].value = "demo-alpha-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    cache_path = data_dir / "market-prices.json"
+    cache_path.write_text(
+        json.dumps({"provider": "alpha_vantage", "rows": []}),
+        encoding="utf-8",
+    )
+    now = datetime(2026, 7, 6, 14, 0, tzinfo=UTC)
+    record_cache_entry(
+        output_dir=tmp_path,
+        layer="market",
+        cache_key="market:alpha_vantage:AAPL",
+        provider="alpha_vantage",
+        artifact_path=cache_path,
+        created_at=now,
+        expires_at=now + timedelta(minutes=10),
+        ttl_seconds=900,
+        row_count=0,
+        market="US",
+        session_state="open",
+        is_final_for_session=False,
+    )
+
+    calls = 0
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        nonlocal calls
+        calls += 1
+        return {
+            "Time Series (Daily)": {
+                "2026-07-02": {"4. close": "214.33", "5. volume": "51230000"},
+            },
+        }
+
+    result = pull_market_prices(
+        symbols=["AAPL"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        fetch_json=fetch_json,
+        now=now,
+        force=True,
+    )
+
+    assert calls == 1
+    assert result.refreshed is True
+    assert result.count == 1
+
+
+def test_pull_market_prices_skips_final_cache_after_close(tmp_path: Path) -> None:
+    config = default_config()
+    config.providers["alpha_vantage"].value = "demo-alpha-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    cache_path = data_dir / "market-prices.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "AAPL",
+                        "date": "2026-07-06",
+                        "close": 220.0,
+                        "volume": 60000000,
+                        "currency": "USD",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    now = datetime(2026, 7, 6, 22, 0, tzinfo=UTC)
+    record_cache_entry(
+        output_dir=tmp_path,
+        layer="market",
+        cache_key="market:alpha_vantage:AAPL",
+        provider="alpha_vantage",
+        artifact_path=cache_path,
+        created_at=now - timedelta(hours=1),
+        expires_at=datetime(2026, 7, 7, 13, 30, tzinfo=UTC),
+        ttl_seconds=900,
+        row_count=1,
+        market="US",
+        session_state="closed",
+        is_final_for_session=True,
+    )
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        raise AssertionError("final close cache should skip after market close")
+
+    result = pull_market_prices(
+        symbols=["AAPL"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        fetch_json=fetch_json,
+        now=now,
+    )
+
+    assert result.refreshed is False
+    assert "收盘后跳过刷新" in result.warnings[0]
 
 
 def test_pull_news_events_writes_finnhub_cache(tmp_path: Path) -> None:

@@ -8,6 +8,10 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from lychee_alphadesk.core.cache_freshness import (
+    evaluate_market_cache,
+    record_market_cache,
+)
 from lychee_alphadesk.core.config import AlphaDeskConfig, load_config
 from lychee_alphadesk.core.data_engine import DataQualityCheck, DataSnapshot
 from lychee_alphadesk.providers.demo import (
@@ -42,6 +46,7 @@ class PullResult:
     count: int
     output_path: Path
     warnings: list[str]
+    refreshed: bool = True
 
 
 def pull_market_prices(
@@ -51,9 +56,32 @@ def pull_market_prices(
     output_dir: Path,
     provider_id: str = "alpha_vantage",
     fetch_json: JsonFetcher | None = None,
+    force: bool = False,
+    now: datetime | None = None,
 ) -> PullResult:
     if provider_id != "alpha_vantage":
         raise ValueError("当前版本仅支持通过 alpha_vantage 拉取行情")
+
+    if not symbols:
+        raise ValueError("请至少输入一个证券代码。")
+
+    freshness = evaluate_market_cache(
+        output_dir=output_dir,
+        provider=provider_id,
+        symbols=symbols,
+        now=now,
+        force=force,
+    )
+    if not freshness.should_refresh and freshness.entry is not None:
+        cache = _read_cache(output_dir, "market-prices.json")
+        return PullResult(
+            "market",
+            freshness.entry.provider,
+            len(cache.rows),
+            freshness.entry.artifact_path,
+            [freshness.reason],
+            refreshed=False,
+        )
 
     config = load_config(config_path)
     api_key = _configured_value(config.providers["alpha_vantage"].value, "Alpha Vantage")
@@ -83,6 +111,16 @@ def pull_market_prices(
         provider=provider_id,
         rows=[asdict(row) for row in rows],
         warnings=warnings,
+        now=now,
+    )
+    record_market_cache(
+        output_dir=output_dir,
+        provider=provider_id,
+        symbols=symbols,
+        artifact_path=output_path,
+        row_count=len(rows),
+        now=now,
+        forced=force,
     )
     return PullResult("market", provider_id, len(rows), output_path, warnings)
 
@@ -598,6 +636,7 @@ def _write_cache(
     provider: str,
     rows: list[dict[str, object]],
     warnings: list[str],
+    now: datetime | None = None,
 ) -> Path:
     data_dir = output_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -606,7 +645,7 @@ def _write_cache(
         json.dumps(
             {
                 "provider": provider,
-                "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "created_at": (now or datetime.now(UTC)).isoformat(timespec="seconds"),
                 "warnings": warnings,
                 "rows": rows,
             },

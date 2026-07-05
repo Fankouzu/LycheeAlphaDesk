@@ -246,6 +246,7 @@ Current symbol-level cache commands:
 
 ```bash
 lychee data pull market --symbols AAPL,TSLA
+lychee data pull market --symbols AAPL,TSLA --force
 lychee data pull news --symbols AAPL --provider auto
 lychee data pull filings --symbols AAPL,TSLA --limit 3
 lychee data health
@@ -258,6 +259,8 @@ Current live providers:
 - Market prices: Alpha Vantage daily time series.
 - News: Marketaux, Finnhub, or NewsAPI, selected with `--provider`; `auto` uses the first configured provider.
 - Filings: SEC EDGAR recent filings for US-listed symbols.
+
+Market-price cache now uses trading-session-aware freshness. US, HK, and China A-share symbols are checked against regular market hours before refreshing. During open sessions the default freshness window is 15 minutes; HK/CN lunch breaks, post-close final caches, and weekends prefer the local cache; `--force` ignores freshness and session state. The first implementation includes regular sessions and weekends only; full holiday calendars should come from a future trading-calendar provider.
 
 The live TUI dashboard reads the local cache and shows counts, providers, and latest cached prices. The `lychee` home screen should prioritize `Today Discovery`, then let users review watch candidates, check data health, configure providers, or manually drill down into known symbols. The Textual built-in command palette is disabled in the home screen; use the visible action menu instead. It does not place trades and does not produce investment advice.
 

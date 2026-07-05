@@ -174,6 +174,7 @@ def test_data_pull_market_command_writes_live_cache(monkeypatch, tmp_path: Path)
     def fake_pull_market_prices(**kwargs: object) -> PullResult:
         assert kwargs["symbols"] == ["AAPL", "TSLA"]
         assert kwargs["output_dir"] == tmp_path
+        assert kwargs["force"] is False
         return PullResult(
             domain="market",
             provider="alpha_vantage",
@@ -192,6 +193,36 @@ def test_data_pull_market_command_writes_live_cache(monkeypatch, tmp_path: Path)
     assert result.exit_code == 0
     assert "已拉取行情: 2" in result.stdout
     assert "alpha_vantage" in result.stdout
+
+
+def test_data_pull_market_command_passes_force(monkeypatch, tmp_path: Path) -> None:
+    def fake_pull_market_prices(**kwargs: object) -> PullResult:
+        assert kwargs["force"] is True
+        return PullResult(
+            domain="market",
+            provider="alpha_vantage",
+            count=1,
+            output_path=tmp_path / "data" / "market-prices.json",
+            warnings=[],
+        )
+
+    monkeypatch.setattr(cli_app, "pull_market_prices", fake_pull_market_prices)
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "pull",
+            "market",
+            "--symbols",
+            "AAPL",
+            "--force",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
 
 
 def test_data_pull_news_command_writes_live_cache(monkeypatch, tmp_path: Path) -> None:

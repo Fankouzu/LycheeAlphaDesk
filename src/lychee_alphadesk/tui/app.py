@@ -11,6 +11,7 @@ from textual.widgets.option_list import Option
 
 from lychee_alphadesk.core.data_engine import write_snapshot_json
 from lychee_alphadesk.core.discovery import (
+    DiscoveryDataRequiredError,
     DiscoveryLLMRequiredError,
     build_today_discovery_report,
     discovery_report_summary,
@@ -178,7 +179,7 @@ class AlphaDeskApp(App[None]):
     async def _show_today_discovery(self) -> None:
         await self._replace_action_panel(
             Static(
-                "正在调用 LLM 分析美股、港股和 A 股市场，请稍候...",
+                "正在准备市场级新闻，并调用 LLM 分析美股、港股和 A 股市场，请稍候...",
                 id="action-status",
             )
         )
@@ -187,7 +188,11 @@ class AlphaDeskApp(App[None]):
                 build_today_discovery_report,
                 output_dir=self.output_dir,
             )
-        except (DiscoveryLLMRequiredError, LLMProviderError) as error:
+        except (
+            DiscoveryDataRequiredError,
+            DiscoveryLLMRequiredError,
+            LLMProviderError,
+        ) as error:
             await self._replace_action_panel(
                 Static(f"操作失败: {error}", id="action-status")
             )

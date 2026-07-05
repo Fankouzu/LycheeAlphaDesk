@@ -135,6 +135,7 @@ def pull_market_prices(
 def pull_news_events(
     *,
     symbols: list[str],
+    config: AlphaDeskConfig | None = None,
     config_path: Path | None = None,
     output_dir: Path,
     provider_id: str = "auto",
@@ -144,7 +145,7 @@ def pull_news_events(
     force: bool = False,
     now: datetime | None = None,
 ) -> PullResult:
-    config = load_config(config_path)
+    active_config = config or load_config(config_path)
     start, end = _date_window(start_date, end_date)
     freshness = evaluate_news_cache(
         output_dir=output_dir,
@@ -172,14 +173,14 @@ def pull_news_events(
     selected_provider = ""
     last_error: RuntimeError | None = None
 
-    for candidate in _news_provider_candidates(config, provider_id, symbols):
+    for candidate in _news_provider_candidates(active_config, provider_id, symbols):
         try:
             rows = _pull_news_for_provider(
                 provider_id=candidate,
                 symbols=symbols,
                 start=start,
                 end=end,
-                config=config,
+                config=active_config,
                 fetch_json=fetcher,
             )
         except RuntimeError as error:

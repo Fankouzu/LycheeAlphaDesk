@@ -97,6 +97,33 @@ def test_discover_today_command_writes_report_when_llm_configured(
         "demo-model",
     )
 
+    def fake_pull_news_events(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == []
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        news_path = data_dir / "news-events.json"
+        news_path.write_text(
+            json.dumps(
+                {
+                    "provider": "newsapi",
+                    "created_at": "2026-07-06T10:00:00+00:00",
+                    "warnings": [],
+                    "rows": [
+                        {
+                            "timestamp": "2026-07-06T10:00:00+00:00",
+                            "headline": "CLI market news",
+                            "summary": "Prepared before LLM.",
+                            "symbols": ["MARKET"],
+                            "source_url": "https://example.com/cli-market-news",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("news", "newsapi", 1, news_path, [])
+
     def fake_post(
         url: str,
         headers: dict[str, str],
@@ -141,14 +168,18 @@ def test_discover_today_command_writes_report_when_llm_configured(
                     }
                 }
             ]
-        }
+            }
 
+    monkeypatch.setattr(
+        "lychee_alphadesk.core.discovery.pull_news_events",
+        fake_pull_news_events,
+    )
     monkeypatch.setattr("lychee_alphadesk.core.llm._post_json", fake_post)
 
     result = runner.invoke(app, ["discover", "today", "--output-dir", str(tmp_path)])
 
     assert result.exit_code == 0
-    assert "正在调用 LLM" in result.stdout
+    assert "正在准备市场级新闻" in result.stdout
     assert "今日市场发现已写入:" in result.stdout
     assert "研究库已更新:" in result.stdout
     assert "非投资建议" in result.stdout
@@ -170,6 +201,33 @@ def test_discover_today_command_writes_report_when_llm_configured(
     assert "研究队列" in queue_result.stdout
     assert "CLI model candidate" in queue_result.stdout
     assert "NVDA" in queue_result.stdout
+
+
+def test_discover_today_reports_market_news_preparation_error(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    set_openai_compatible_llm(
+        "https://llm.example.com/v1",
+        "sk-demo-secret",
+        "demo-model",
+    )
+
+    def fake_pull_news_events(**kwargs: object) -> PullResult:
+        raise ValueError("尚未配置新闻数据源")
+
+    monkeypatch.setattr(
+        "lychee_alphadesk.core.discovery.pull_news_events",
+        fake_pull_news_events,
+    )
+
+    result = runner.invoke(app, ["discover", "today", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "市场级新闻准备失败" in result.stdout
+    assert "尚未配置新闻数据源" in result.stdout
+    assert not (tmp_path / "data" / "discovery-today.json").exists()
 
 
 def test_data_pull_market_command_writes_live_cache(monkeypatch, tmp_path: Path) -> None:

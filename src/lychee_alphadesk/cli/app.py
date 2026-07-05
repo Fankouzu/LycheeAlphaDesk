@@ -23,6 +23,7 @@ from lychee_alphadesk.core.config import (
 from lychee_alphadesk.core.data_engine import build_demo_data_snapshot, write_snapshot_json
 from lychee_alphadesk.core.demo import REQUIRED_DEMO_FILES, check_demo_workspace
 from lychee_alphadesk.core.discovery import (
+    DiscoveryDataRequiredError,
     DiscoveryLLMRequiredError,
     build_today_discovery_report,
     discovery_report_summary,
@@ -295,10 +296,17 @@ def discover_today(
     except ValueError as error:
         console.print(str(error))
         raise typer.Exit(code=1) from error
-    console.print("正在调用 LLM 分析美股、港股和 A 股市场，请稍候...", soft_wrap=True)
+    console.print(
+        "正在准备市场级新闻，并调用 LLM 分析美股、港股和 A 股市场，请稍候...",
+        soft_wrap=True,
+    )
     try:
         report = build_today_discovery_report(selected_markets, output_dir=output_dir)
-    except (DiscoveryLLMRequiredError, LLMProviderError) as error:
+    except (
+        DiscoveryDataRequiredError,
+        DiscoveryLLMRequiredError,
+        LLMProviderError,
+    ) as error:
         console.print(str(error), soft_wrap=True)
         raise typer.Exit(code=1) from error
     output_path = write_discovery_report(report, output_dir)

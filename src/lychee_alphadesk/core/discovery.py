@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from lychee_alphadesk.core.config import AlphaDeskConfig, load_config
-from lychee_alphadesk.core.live_data import build_cached_data_snapshot
+from lychee_alphadesk.core.live_data import build_cached_data_snapshot, pull_news_events
 from lychee_alphadesk.core.llm import JsonPoster, request_chat_json
 
 DISCOVERY_CACHE_FILENAME = "discovery-today.json"
@@ -16,6 +16,10 @@ LLM_REQUIRED_MESSAGE = (
 
 
 class DiscoveryLLMRequiredError(RuntimeError):
+    pass
+
+
+class DiscoveryDataRequiredError(RuntimeError):
     pass
 
 
@@ -81,10 +85,16 @@ def build_today_discovery_report(
     config: AlphaDeskConfig | None = None,
     output_dir: Path | None = None,
     post_json: JsonPoster | None = None,
+    force_refresh: bool = False,
 ) -> DiscoveryReport:
     active_config = config or load_config()
     require_active_llm(active_config)
     selected_markets = markets or DEFAULT_MARKETS.copy()
+    _prepare_discovery_inputs(
+        config=active_config,
+        output_dir=output_dir,
+        force_refresh=force_refresh,
+    )
     context = _build_llm_context(selected_markets, output_dir)
     payload = request_chat_json(
         active_config,
@@ -122,6 +132,28 @@ def require_active_llm(config: AlphaDeskConfig) -> None:
     if llm.base_url and llm.api_key and llm.model:
         return
     raise DiscoveryLLMRequiredError(LLM_REQUIRED_MESSAGE)
+
+
+def _prepare_discovery_inputs(
+    *,
+    config: AlphaDeskConfig,
+    output_dir: Path | None,
+    force_refresh: bool,
+) -> None:
+    if output_dir is None:
+        return
+    try:
+        pull_news_events(
+            symbols=[],
+            config=config,
+            output_dir=output_dir,
+            provider_id="auto",
+            force=force_refresh,
+        )
+    except (RuntimeError, ValueError) as error:
+        raise DiscoveryDataRequiredError(
+            f"市场级新闻准备失败: {error}"
+        ) from error
 
 
 def write_discovery_report(report: DiscoveryReport, output_dir: Path) -> Path:

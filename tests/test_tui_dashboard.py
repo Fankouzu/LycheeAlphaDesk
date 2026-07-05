@@ -99,6 +99,33 @@ def test_dashboard_today_discovery_action_writes_report_when_llm_configured(
         "demo-model",
     )
 
+    def fake_pull_news_events(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == []
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        news_path = data_dir / "news-events.json"
+        news_path.write_text(
+            json.dumps(
+                {
+                    "provider": "newsapi",
+                    "created_at": "2026-07-06T10:00:00+00:00",
+                    "warnings": [],
+                    "rows": [
+                        {
+                            "timestamp": "2026-07-06T10:00:00+00:00",
+                            "headline": "TUI market news",
+                            "summary": "Prepared before LLM.",
+                            "symbols": ["MARKET"],
+                            "source_url": "https://example.com/tui-market-news",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("news", "newsapi", 1, news_path, [])
+
     def fake_post(
         url: str,
         headers: dict[str, str],
@@ -145,6 +172,10 @@ def test_dashboard_today_discovery_action_writes_report_when_llm_configured(
             ]
         }
 
+    monkeypatch.setattr(
+        "lychee_alphadesk.core.discovery.pull_news_events",
+        fake_pull_news_events,
+    )
     monkeypatch.setattr("lychee_alphadesk.core.llm._post_json", fake_post)
 
     async def run_case() -> None:
@@ -234,7 +265,7 @@ def test_dashboard_today_discovery_shows_loading_before_llm_call(
             await pilot.press("enter")
             await pilot.pause()
 
-        assert any("正在调用 LLM" in status for status in observed_status)
+        assert any("正在准备市场级新闻" in status for status in observed_status)
 
     asyncio.run(run_case())
 

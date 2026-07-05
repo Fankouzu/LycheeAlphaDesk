@@ -259,6 +259,14 @@ lychee research fill-gaps
 
 `research fill-gaps` 会读取研究队列和本地缓存，自动拉取缺失的行情，以及美股股票缺失的 SEC 公告，然后重新生成研究深挖包。行情补齐默认使用 `auto`：美股优先走 Alpha Vantage，港股/A 股走 Eastmoney 日 K 接口；主数据源失败时使用 Yahoo chart 兜底。没有证券代码的候选不会被系统乱猜；第一版会生成带原因、置信度和证据 ID 的可审计代理标的映射，并拉取代理标的行情，但仍要求用户在下钻前人工确认成分、流动性和可交易性。
 
+自动运行补缺、深挖和工作台自检：
+
+```bash
+lychee research check --strict
+```
+
+`research check` 是给人和 agent 共用的闭环验收入口：它会自动补齐可拉取数据、重新生成研究深挖包、输出“给新手的读法”，并写入 `.alphadesk/research/workbench-check-*.json`。加上 `--strict` 后，如果证据、研究入口、代理行情或数据缺口任何一项未达标，命令会以非零退出码结束，便于自动化检查继续迭代。
+
 当前可用的市场级与 symbol 级 cache 命令：
 
 ```bash

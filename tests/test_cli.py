@@ -306,6 +306,9 @@ def test_research_deepen_command_shows_proxy_mapping_symbols(tmp_path: Path) -> 
     assert result.exit_code == 0
     assert "代理" in result.stdout
     assert "2800.HK" in result.stdout
+    assert "给新手的读法" in result.stdout
+    assert "这不是买入建议" in result.stdout
+    assert "代理观察工具" in result.stdout
 
 
 def test_research_deepen_command_handles_empty_queue(tmp_path: Path) -> None:
@@ -427,6 +430,130 @@ def test_research_fill_gaps_command_reports_proxy_symbol_mappings(
     assert "代码映射" in result.stdout
     assert "已生成映射" in result.stdout
     assert "2800.HK" in result.stdout
+
+
+def test_research_check_command_runs_closed_loop_and_prints_beginner_report(
+    tmp_path: Path,
+) -> None:
+    _write_cli_symbolless_mapping_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "Hong Kong stocks face index pressure",
+                        "summary": "Hang Seng Index liquidity pressure should be mapped.",
+                        "symbols": ["MARKET"],
+                        "source_url": "https://example.com/hsi",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "auto",
+                "rows": [
+                    {
+                        "symbol": "2800.HK",
+                        "date": "2026-07-02",
+                        "close": 18.5,
+                        "volume": 1000000,
+                        "currency": "HKD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["research", "check", "--strict", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "工作台自检报告已写入" in result.stdout
+    assert "状态: 可继续研究" in result.stdout
+    assert "给新手的读法" in result.stdout
+    assert "2800.HK" in result.stdout
+    assert list((tmp_path / "research").glob("workbench-check-*.json"))
+
+
+def test_research_check_command_strict_fails_when_blocked(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _write_cli_research_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "AI storage demand rises",
+                        "summary": "Cloud infrastructure demand may affect hard drives.",
+                        "symbols": ["STX"],
+                        "source_url": "https://example.com/storage",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-02",
+                        "close": 110.5,
+                        "volume": 3210000,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    def failed_filings(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        return PullResult(
+            "filings",
+            "sec_edgar",
+            0,
+            output_dir / "data" / "filings.json",
+            ["SEC blocked"],
+        )
+
+    monkeypatch.setattr("lychee_alphadesk.core.workbench.pull_sec_filings", failed_filings)
+
+    result = runner.invoke(
+        app,
+        ["research", "check", "--strict", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 1
+    assert "状态: 未达标" in result.stdout
+    assert "暂时不要下结论" in result.stdout
+    assert "缺少 STX SEC 公告缓存" in result.stdout
 
 
 def test_discover_today_reports_market_news_preparation_error(

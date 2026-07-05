@@ -259,6 +259,14 @@ lychee research fill-gaps
 
 `research fill-gaps` reads the queue and local cache, pulls missing market prices and missing SEC filings for US stock candidates, then writes a fresh research packet. Price filling uses `auto` by default: US symbols use Alpha Vantage, HK/China symbols use Eastmoney daily bars, and Yahoo chart is used as a cross-market fallback when the primary source fails. Candidates without symbols are not silently guessed; the first implementation creates auditable proxy mappings with reasons, confidence, and evidence IDs, pulls proxy prices, and still requires the user to review constituents, liquidity, and tradability before drilling down.
 
+Automatically run gap filling, deepening, and workbench readiness checks:
+
+```bash
+lychee research check --strict
+```
+
+`research check` is the shared human/agent verification loop: it fills pullable data gaps, regenerates research packets, prints a beginner-readable brief, and writes `.alphadesk/research/workbench-check-*.json`. With `--strict`, the command exits non-zero when evidence, research entrypoints, proxy prices, or data gaps fail the current readiness gates.
+
 Current market-level and symbol-level cache commands:
 
 ```bash

@@ -25,8 +25,7 @@ from lychee_alphadesk.providers.demo import (
 JsonFetcher = Callable[[str, dict[str, str] | None], object]
 
 SEC_USER_AGENT = (
-    "LycheeAlphaDesk/0.1 research-workbench "
-    "(https://github.com/Fankouzu/LycheeAlphaDesk)"
+    "LycheeAlphaDesk/0.1 support@lychee.ai"
 )
 MARKET_NEWS_SYMBOL = "MARKET"
 MARKET_NEWS_QUERY = (

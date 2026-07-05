@@ -48,6 +48,11 @@ from lychee_alphadesk.core.research_db import (
     list_research_queue,
     write_discovery_research_run,
 )
+from lychee_alphadesk.core.workbench import (
+    WorkbenchCheckResult,
+    beginner_research_brief,
+    run_workbench_check,
+)
 from lychee_alphadesk.tui.app import run_tui
 from lychee_alphadesk.tui.setup import run_setup_tui
 
@@ -429,6 +434,7 @@ def research_deepen(
             f"缺口: {_display_values(data_gaps)}",
             soft_wrap=True,
         )
+    console.print(beginner_research_brief(result.packets), soft_wrap=True)
 
 
 @research_app.command("fill-gaps")
@@ -486,6 +492,41 @@ def research_fill_gaps(
             f"补齐后研究深挖包已写入: {deepen_result.artifact_path}",
             soft_wrap=True,
         )
+
+
+@research_app.command("check")
+def research_check(
+    status: Annotated[
+        str | None,
+        typer.Option("--status", help="按研究状态选择候选；默认处理 new。"),
+    ] = "new",
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多检查多少个研究候选。"),
+    ] = 5,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略已有缓存，强制重新拉取可自动补齐的数据。"),
+    ] = False,
+    strict: Annotated[
+        bool,
+        typer.Option("--strict", help="未达标时以非零退出码结束，供 agent/CI 使用。"),
+    ] = False,
+) -> None:
+    """自动补缺、重新深挖并检查工作台是否达到研究入口要求。"""
+    result = run_workbench_check(
+        output_dir=output_dir,
+        status=status,
+        limit=limit,
+        force=force,
+    )
+    _print_workbench_check(result)
+    if strict and not result.is_ready:
+        raise typer.Exit(code=1)
 
 
 @data_pull_app.command("market")
@@ -658,6 +699,35 @@ def _packet_proxy_symbols(payload: dict[str, object]) -> list[str]:
         if isinstance(row, dict) and isinstance(row.get("symbol"), str):
             symbols.append(row["symbol"])
     return symbols
+
+
+def _print_workbench_check(result: WorkbenchCheckResult) -> None:
+    if result.artifact_path is not None:
+        console.print(f"工作台自检报告已写入: {result.artifact_path}", soft_wrap=True)
+    console.print(f"状态: {_display_workbench_status(result.status)}")
+    table = Table(title="Lychee AlphaDesk 工作台自检")
+    table.add_column("检查项")
+    table.add_column("状态")
+    table.add_column("说明", overflow="fold")
+    for gate in result.gates:
+        table.add_row(gate.name, _display_workbench_gate_status(gate.status), gate.detail)
+    console.print(table)
+    console.print(result.beginner_brief, soft_wrap=True)
+
+
+def _display_workbench_status(status: str) -> str:
+    return {
+        "ready": "可继续研究",
+        "blocked": "未达标",
+    }.get(status, status)
+
+
+def _display_workbench_gate_status(status: str) -> str:
+    return {
+        "pass": "通过",
+        "fail": "失败",
+        "warn": "提醒",
+    }.get(status, status)
 
 
 def _display_gap_action_type(action_type: str) -> str:

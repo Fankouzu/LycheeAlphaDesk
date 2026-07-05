@@ -838,6 +838,7 @@ def test_fetch_errors_mask_secret_query_values(tmp_path: Path) -> None:
 def test_pull_sec_filings_writes_filing_cache(tmp_path: Path) -> None:
     def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
         assert headers and "LycheeAlphaDesk" in headers["User-Agent"]
+        assert "@" in headers["User-Agent"]
         if url.endswith("company_tickers.json"):
             return {
                 "0": {

@@ -5,7 +5,10 @@ import pytest
 
 import lychee_alphadesk.core.discovery as discovery_module
 from lychee_alphadesk.core.config import default_config
-from lychee_alphadesk.core.discovery import build_today_discovery_report
+from lychee_alphadesk.core.discovery import (
+    build_today_discovery_report,
+    discovery_report_summary,
+)
 from lychee_alphadesk.core.live_data import PullResult
 
 
@@ -133,6 +136,8 @@ def test_today_discovery_prepares_market_news_before_llm(
     ) -> object:
         prompt = str(body["messages"])
         assert "Market headline for discovery" in prompt
+        assert "news_001" in prompt
+        assert "evidence_pack" in prompt
         return _llm_payload()
 
     report = build_today_discovery_report(
@@ -143,6 +148,37 @@ def test_today_discovery_prepares_market_news_before_llm(
     )
 
     assert report.themes[0].name == "市场新闻驱动主题"
+
+
+def test_discovery_summary_expands_news_evidence_ids(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-03T07:59:56Z",
+                        "headline": "The AI infrastructure boom is sending these stocks soaring",
+                        "summary": "Data center and chip demand are driving market attention.",
+                        "symbols": ["MARKET"],
+                        "source_url": "https://example.com/ai-infra",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    report = _report_with_news_evidence_id()
+
+    summary = discovery_report_summary(report, output_dir=tmp_path)
+
+    assert "证据来源" in summary
+    assert "news_001" in summary
+    assert "The AI infrastructure boom is sending these stocks soaring" in summary
+    assert "https://example.com/ai-infra" in summary
 
 
 def test_today_discovery_stops_when_market_news_preparation_fails(
@@ -192,7 +228,7 @@ def _llm_payload() -> dict[str, object]:
                           "name": "市场新闻驱动主题",
                           "markets": ["US"],
                           "summary": "模型基于市场新闻生成主题。",
-                          "evidence": ["Market headline for discovery"],
+                          "evidence": ["news_001"],
                           "sectors": ["Technology"],
                           "risk_flags": ["新闻样本有限"],
                           "confidence": "medium"
@@ -206,7 +242,7 @@ def _llm_payload() -> dict[str, object]:
                           "asset_type": "sector",
                           "related_theme": "市场新闻驱动主题",
                           "why_watch": "模型引用了市场新闻。",
-                          "evidence": ["Market headline for discovery"],
+                          "evidence": ["news_001"],
                           "risk_flags": ["需要继续钻取"],
                           "next_actions": ["拉取相关个股新闻"],
                           "confidence": "medium",
@@ -221,3 +257,47 @@ def _llm_payload() -> dict[str, object]:
             }
         ]
     }
+
+
+def _report_with_news_evidence_id() -> discovery_module.DiscoveryReport:
+    return discovery_module.DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T00:00:00+00:00",
+        markets=["US"],
+        sources=[
+            discovery_module.DiscoverySource(
+                provider="openai-compatible-llm",
+                market="US",
+                description="test",
+            )
+        ],
+        themes=[
+            discovery_module.DiscoveryTheme(
+                name="AI 基础设施主题",
+                markets=["US"],
+                summary="测试主题。",
+                evidence=["news_001"],
+                sectors=["Technology"],
+                risk_flags=["样本有限"],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            discovery_module.DiscoveryCandidate(
+                display_name="AI 基础设施候选",
+                symbol=None,
+                market="US",
+                asset_type="sector",
+                related_theme="AI 基础设施主题",
+                why_watch="测试原因。",
+                evidence=["news_001"],
+                risk_flags=["需要验证"],
+                next_actions=["继续研究"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=[],
+        next_actions=["继续研究"],
+        disclaimer="非投资建议。",
+    )

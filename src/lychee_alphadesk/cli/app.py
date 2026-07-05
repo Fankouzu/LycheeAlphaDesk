@@ -313,7 +313,7 @@ def discover_today(
     db_path = write_discovery_research_run(report, output_dir, output_path)
     console.print(f"今日市场发现已写入: {output_path}", soft_wrap=True)
     console.print(f"研究库已更新: {db_path}", soft_wrap=True)
-    console.print(discovery_report_summary(report))
+    console.print(discovery_report_summary(report, output_dir=output_dir))
 
 
 @research_app.command("queue")

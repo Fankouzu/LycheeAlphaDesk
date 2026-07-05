@@ -204,7 +204,11 @@ class AlphaDeskApp(App[None]):
             Static(
                 "\n".join(
                     [
-                        discovery_report_summary(report, output_path),
+                        discovery_report_summary(
+                            report,
+                            output_path,
+                            output_dir=self.output_dir,
+                        ),
                         "",
                         f"研究库已更新: {db_path}",
                     ]

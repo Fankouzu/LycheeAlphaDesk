@@ -125,15 +125,16 @@ The main user journey is discovery-first, not symbol-first. A beginner should no
 The planned `Today Discovery` flow is:
 
 ```text
-US/HK/CN market context -> broad news and events -> LLM synthesis -> watch candidates -> drilldown data
+US/HK/CN market context -> broad news and events -> evidence pack -> LLM synthesis -> watch candidates -> drilldown data
 ```
 
 The first discovery pass covers US stocks, Hong Kong stocks, and China A-shares together:
 
 - Market overview: indexes, ETFs, sector moves, volume, breadth, and unusual movement.
 - News scan: global financial news, regional market news, company news, and industry themes.
+- Evidence pack: news is converted into citable IDs such as `news_001`, with obvious direct-pick noise filtered out.
 - Company events: SEC filings, HKEX announcements, CNINFO-style announcements, earnings events, guidance, and IPO/new-share opportunities.
-- LLM analysis: market themes, affected industries, related companies or ETFs, evidence summaries, risk flags, and next data pulls.
+- LLM analysis: market themes, affected industries, related companies or ETFs, evidence IDs, risk flags, and next data pulls.
 
 The output is a research watchlist, not investment advice. The system should say "watch", "research", and "drill down"; it should not make buy/sell calls or target-price claims.
 
@@ -228,7 +229,7 @@ First-slice discovery command:
 lychee discover today
 ```
 
-This command requires an active LLM provider configured through `lychee setup`. It first checks or pulls market-level news cache, then calls the configured OpenAI-compatible `/chat/completions` endpoint with `stream: true`, parses the model's JSON response, and writes an `llm-synthesized` research report to `.alphadesk/data/discovery-today.json`. If no suitable news provider is available, the LLM provider is missing, the request fails, or the model does not return valid JSON, Today Discovery fails instead of silently generating a fallback report. The default LLM read timeout is 180 seconds.
+This command requires an active LLM provider configured through `lychee setup`. It first checks or pulls market-level news cache, turns news into a citable evidence pack, then calls the configured OpenAI-compatible `/chat/completions` endpoint with `stream: true`, parses the model's JSON response, and writes an `llm-synthesized` research report to `.alphadesk/data/discovery-today.json`. If no suitable news provider is available, the LLM provider is missing, the request fails, or the model does not return valid JSON, Today Discovery fails instead of silently generating a fallback report. The default LLM read timeout is 180 seconds.
 
 After a successful Today Discovery run, themes and watch candidates are also written to the local SQLite research database:
 

@@ -4,6 +4,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from lychee_alphadesk.core.config import AlphaDeskConfig, load_config
+from lychee_alphadesk.core.evidence import (
+    EvidenceItem,
+    build_news_evidence_pack,
+    evidence_lookup,
+)
 from lychee_alphadesk.core.live_data import build_cached_data_snapshot, pull_news_events
 from lychee_alphadesk.core.llm import JsonPoster, request_chat_json
 
@@ -167,11 +172,17 @@ def write_discovery_report(report: DiscoveryReport, output_dir: Path) -> Path:
     return output_path
 
 
-def discovery_report_summary(report: DiscoveryReport, output_path: Path | None = None) -> str:
+def discovery_report_summary(
+    report: DiscoveryReport,
+    output_path: Path | None = None,
+    output_dir: Path | None = None,
+) -> str:
     lines = ["今日市场发现", f"模式: {report.mode}"]
     lines.append(f"市场: {', '.join(report.markets)}")
     if output_path is not None:
         lines.append(f"缓存: {output_path}")
+    evidence_items = build_news_evidence_pack(output_dir) if output_dir else []
+    evidence_by_id = evidence_lookup(evidence_items)
     lines.append("")
     lines.append(report.disclaimer)
     lines.append("")
@@ -186,6 +197,11 @@ def discovery_report_summary(report: DiscoveryReport, output_path: Path | None =
             f"- {candidate.display_name}{symbol} [{candidate.market}]: "
             f"{candidate.why_watch}"
         )
+    evidence_lines = _summary_evidence_lines(report, evidence_by_id)
+    if evidence_lines:
+        lines.append("")
+        lines.append("证据来源")
+        lines.extend(evidence_lines)
     if report.warnings:
         lines.append("")
         lines.append("风险提示")
@@ -213,12 +229,13 @@ def _build_llm_context(markets: list[str], output_dir: Path | None) -> dict[str,
     }
     if output_dir is not None:
         snapshot = build_cached_data_snapshot(output_dir)
+        evidence_pack = build_news_evidence_pack(output_dir)
         context["local_live_cache"] = {
             "available": True,
             "counts": snapshot.counts,
             "providers": snapshot.provider_names,
             "prices": [asdict(price) for price in snapshot.prices[:20]],
-            "news_events": [asdict(event) for event in snapshot.news_events[:30]],
+            "evidence_pack": [asdict(item) for item in evidence_pack],
             "filings": [asdict(filing) for filing in snapshot.filings[:20]],
         }
     return context
@@ -231,7 +248,7 @@ def _build_discovery_messages(context: dict[str, object]) -> list[dict[str, str]
                 "name": "string",
                 "markets": ["US"],
                 "summary": "string",
-                "evidence": ["string"],
+                "evidence": ["evidence_id"],
                 "sectors": ["string"],
                 "risk_flags": ["string"],
                 "confidence": "low|medium|high",
@@ -245,7 +262,7 @@ def _build_discovery_messages(context: dict[str, object]) -> list[dict[str, str]
                 "asset_type": "stock|ETF|sector|index|other",
                 "related_theme": "string",
                 "why_watch": "string",
-                "evidence": ["string"],
+                "evidence": ["evidence_id"],
                 "risk_flags": ["string"],
                 "next_actions": ["string"],
                 "confidence": "low|medium|high",
@@ -263,7 +280,9 @@ def _build_discovery_messages(context: dict[str, object]) -> list[dict[str, str]
         "Use watch/research/drill-down language only. "
         "Return 最多 3 个主题 and 最多 5 个关注候选. "
         "Keep every string concise and evidence-focused. "
-        "Every theme and candidate must cite evidence from the provided context."
+        "Every theme and candidate must cite evidence IDs from "
+        "local_live_cache.evidence_pack, such as news_001. "
+        "If there is no useful evidence ID, return fewer candidates."
     )
     user_prompt = (
         "请为股市初学者生成今日市场发现。\n\n"
@@ -274,6 +293,33 @@ def _build_discovery_messages(context: dict[str, object]) -> list[dict[str, str]
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
+
+
+def _summary_evidence_lines(
+    report: DiscoveryReport,
+    evidence_by_id: dict[str, EvidenceItem],
+) -> list[str]:
+    used_ids: list[str] = []
+    for theme in report.themes[:3]:
+        used_ids.extend(theme.evidence)
+    for candidate in report.candidates[:5]:
+        used_ids.extend(candidate.evidence)
+
+    lines: list[str] = []
+    seen: set[str] = set()
+    for evidence_id in used_ids:
+        if evidence_id in seen:
+            continue
+        seen.add(evidence_id)
+        item = evidence_by_id.get(evidence_id)
+        if item is None:
+            continue
+        lines.append(
+            f"- {item.id}: {item.headline} "
+            f"({item.provider}, {item.timestamp or '时间未知'})"
+        )
+        lines.append(f"  来源: {item.source_url}")
+    return lines
 
 
 def _parse_themes(payload: dict[str, object]) -> list[DiscoveryTheme]:

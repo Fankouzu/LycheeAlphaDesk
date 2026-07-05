@@ -220,7 +220,7 @@ The product entry point is discovery-first.
 The engine starts from broad evidence and then narrows into themes and candidates:
 
 ```text
-US/HK/CN market context -> broad news and events -> LLM synthesis -> watch candidates -> drilldown data
+US/HK/CN market context -> broad news and events -> evidence pack -> LLM synthesis -> watch candidates -> drilldown data
 ```
 
 Required market coverage:
@@ -235,11 +235,13 @@ The discovery report must include:
 
 - Market coverage and missing-provider warnings.
 - Source list with provider names and timestamps.
-- Themes with summaries, evidence, related sectors, risk flags, and confidence levels.
-- Watch candidates with display names, optional symbols, markets, asset types, evidence, risk flags, and suggested next data pulls.
+- Themes with summaries, evidence IDs, related sectors, risk flags, and confidence levels.
+- Watch candidates with display names, optional symbols, markets, asset types, evidence IDs, risk flags, and suggested next data pulls.
 - A clear disclaimer that candidates are research targets, not buy/sell recommendations.
 
-The LLM may summarize, cluster, extract, compare, and suggest next research steps. It must not produce direct buy/sell calls, target prices, automatic allocations, or live trading instructions.
+News and events must be converted into an evidence pack before entering the LLM. Evidence items use stable local IDs such as `news_001` and include headline, summary, source_url, timestamp, provider, symbols, and tags. The evidence pack should filter obvious direct-pick noise such as direct buy picks, target-price articles, and analyst-rating articles.
+
+The LLM may summarize, cluster, extract, compare, and suggest next research steps. It must cite evidence IDs from the evidence pack instead of vague evidence descriptions. It must not produce direct buy/sell calls, target prices, automatic allocations, or live trading instructions.
 
 If no LLM provider is configured, if the API request fails, or if the model does not return valid JSON, the command must fail with setup/error guidance and must not write a discovery cache.
 

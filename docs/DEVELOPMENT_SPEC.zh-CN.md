@@ -135,7 +135,7 @@ lad
 - `lad data health --demo` 打印 provider 级数据质量检查。
 - `lad data snapshot --demo` 写入统一 JSON 快照，包含市场、新闻、公告和预测数据。
 - `lychee discover today` 在不要求用户先输入股票代码的情况下，运行覆盖美股、港股和 A 股的发现优先流程。
-- `lad discover today --markets us,hk,cn` 写入本地 discovery report cache，包含主题、关注候选、证据引用、warning 和下一步动作。
+- `lad discover today --markets us,hk,cn` 写入本地 discovery report cache，包含主题、关注候选、证据引用、warning 和下一步动作。第一版可以先使用确定性的 fallback 报告，后续再接入 provider-backed 综合分析。
 - `lad data pull market` 将 Alpha Vantage 日线行情写入本地 live cache。
 - `lad data pull news` 将 Marketaux、Finnhub 或 NewsAPI 新闻事件写入本地 live cache。
 - `lad data pull filings` 将 SEC EDGAR 近期 filings 写入本地 live cache。

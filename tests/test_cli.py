@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -68,6 +69,25 @@ def test_data_health_command_shows_provider_quality() -> None:
     assert "demo-market-data" in result.stdout
     assert "market-data-present" in result.stdout
     assert "pass" in result.stdout
+
+
+def test_discover_today_command_writes_fallback_report(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["discover", "today", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Today Discovery written:" in result.stdout
+    assert "Not investment advice" in result.stdout
+    assert "US" in result.stdout
+    assert "HK" in result.stdout
+    assert "CN" in result.stdout
+
+    report_path = tmp_path / "data" / "discovery-today.json"
+    assert report_path.exists()
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["mode"] == "fallback"
+    assert report["markets"] == ["US", "HK", "CN"]
+    assert report["themes"][0]["name"] == "AI infrastructure watch"
+    assert report["candidates"][0]["recommendation"] == "research"
 
 
 def test_data_pull_market_command_writes_live_cache(monkeypatch, tmp_path: Path) -> None:

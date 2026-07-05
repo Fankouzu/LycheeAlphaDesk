@@ -220,11 +220,13 @@ The initial LLM setup supports one custom OpenAI-compatible endpoint with a `bas
 
 The live-data path writes provider responses into local JSON cache files under `.alphadesk/data/`. This keeps the workbench auditable and lets the TUI dashboard start from local data instead of repeatedly hitting APIs.
 
-Planned discovery command:
+First-slice discovery command:
 
 ```bash
 lychee discover today
 ```
+
+This writes a fallback research report to `.alphadesk/data/discovery-today.json`. It covers US, HK, and CN markets with starter themes and watch candidates, then clearly marks that live LLM/provider synthesis is not active yet.
 
 Current symbol-level cache commands:
 
@@ -274,7 +276,7 @@ Never commit provider secrets. Do not paste real API keys into examples, issues,
 
 Implementation order:
 
-1. Add the discovery report model and `Today Discovery` TUI/CLI entry points.
+1. Keep expanding the first `Today Discovery` TUI/CLI slice from fallback reports into provider-backed reports.
 2. Add no-key providers first: yfinance, AkShare, GDELT, SEC EDGAR, HKMA.
 3. Add key-based providers behind optional extras and health checks.
 4. Add paid/licensed providers only as optional plugins.

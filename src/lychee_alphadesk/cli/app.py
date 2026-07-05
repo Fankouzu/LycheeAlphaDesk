@@ -17,6 +17,12 @@ from lychee_alphadesk.core.config import (
 )
 from lychee_alphadesk.core.data_engine import build_demo_data_snapshot, write_snapshot_json
 from lychee_alphadesk.core.demo import REQUIRED_DEMO_FILES, check_demo_workspace
+from lychee_alphadesk.core.discovery import (
+    build_today_discovery_report,
+    discovery_report_summary,
+    parse_markets,
+    write_discovery_report,
+)
 from lychee_alphadesk.core.live_data import (
     PullResult,
     build_cached_data_snapshot,
@@ -41,6 +47,7 @@ policy_app = typer.Typer(help="Investment policy commands.")
 audit_app = typer.Typer(help="Audit trail commands.")
 data_app = typer.Typer(help="Market, news, filing, and forecast data commands.")
 data_pull_app = typer.Typer(help="Pull live provider data into the local cache.")
+discover_app = typer.Typer(help="Discovery-first market research commands.")
 setup_app = typer.Typer(
     help="Open the configuration center or write a single config value.",
     invoke_without_command=True,
@@ -206,6 +213,29 @@ def data_health(
     for check in checks:
         table.add_row(check.name, check.status, check.provider, check.message)
     console.print(table)
+
+
+@discover_app.command("today")
+def discover_today(
+    markets: Annotated[
+        str,
+        typer.Option("--markets", help="Comma-separated markets: us,hk,cn."),
+    ] = "us,hk,cn",
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="Discovery cache output directory."),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """Write a beginner-friendly discovery report before symbol drilldown."""
+    try:
+        selected_markets = parse_markets(markets)
+    except ValueError as error:
+        console.print(str(error))
+        raise typer.Exit(code=1) from error
+    report = build_today_discovery_report(selected_markets)
+    output_path = write_discovery_report(report, output_dir)
+    console.print(f"Today Discovery written: {output_path}", soft_wrap=True)
+    console.print(discovery_report_summary(report))
 
 
 @data_pull_app.command("market")
@@ -414,6 +444,7 @@ def _keyboard_navigation_available() -> bool:
 
 app.add_typer(policy_app, name="policy")
 app.add_typer(audit_app, name="audit")
+app.add_typer(discover_app, name="discover")
 data_app.add_typer(data_pull_app, name="pull")
 app.add_typer(data_app, name="data")
 setup_app.add_typer(llm_setup_app, name="llm")

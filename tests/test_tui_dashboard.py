@@ -50,12 +50,30 @@ def test_dashboard_has_keyboard_action_menu(tmp_path: Path) -> None:
             await pilot.pause()
             menu = app.query_one("#action-menu", OptionList)
             assert menu.highlighted == 0
-            assert "Pull market prices" in str(menu.get_option_at_index(0).prompt)
+            assert "Today Discovery" in str(menu.get_option_at_index(0).prompt)
 
             await pilot.press("down")
             await pilot.pause()
 
             assert menu.highlighted == 1
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_today_discovery_action_writes_report(tmp_path: Path) -> None:
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+
+            status = app.query_one("#action-status", Static)
+            text = str(status.content)
+            assert "Today Discovery" in text
+            assert "AI infrastructure watch" in text
+            assert "Not investment advice" in text
+            assert (tmp_path / "data" / "discovery-today.json").exists()
+            assert not app.query(Input)
 
     asyncio.run(run_case())
 
@@ -80,6 +98,8 @@ def test_dashboard_market_menu_action_pulls_prices(
     async def run_case() -> None:
         app = AlphaDeskApp(output_dir=tmp_path)
         async with app.run_test() as pilot:
+            await pilot.press("down")
+            await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()
             app.query_one("#symbols-input", Input)
@@ -99,6 +119,8 @@ def test_dashboard_symbol_prompt_handles_empty_submit(tmp_path: Path) -> None:
     async def run_case() -> None:
         app = AlphaDeskApp(output_dir=tmp_path)
         async with app.run_test() as pilot:
+            await pilot.press("down")
+            await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()
             app.query_one("#symbols-input", Input)

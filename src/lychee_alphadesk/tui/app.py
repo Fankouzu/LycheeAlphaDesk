@@ -9,6 +9,11 @@ from textual.widgets import Footer, Header, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from lychee_alphadesk.core.data_engine import write_snapshot_json
+from lychee_alphadesk.core.discovery import (
+    build_today_discovery_report,
+    discovery_report_summary,
+    write_discovery_report,
+)
 from lychee_alphadesk.core.live_data import (
     build_cached_data_snapshot,
     parse_symbols,
@@ -20,6 +25,7 @@ from lychee_alphadesk.core.live_data import (
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR
 
 ActionId = Literal[
+    "today_discovery",
     "pull_market",
     "pull_news",
     "pull_filings",
@@ -51,9 +57,10 @@ class AlphaDeskApp(App[None]):
         yield Static(self._dashboard_summary(), id="dashboard-summary")
         yield Static("Actions", id="action-title")
         yield OptionList(
-            Option("Pull market prices", id="pull_market"),
-            Option("Pull news", id="pull_news"),
-            Option("Pull SEC filings", id="pull_filings"),
+            Option("Today Discovery", id="today_discovery"),
+            Option("Manual symbol prices", id="pull_market"),
+            Option("Manual symbol news", id="pull_news"),
+            Option("Manual SEC filings", id="pull_filings"),
             Option("Check data health", id="data_health"),
             Option("Write live snapshot", id="write_snapshot"),
             Option("Refresh dashboard", id="refresh"),
@@ -92,7 +99,9 @@ class AlphaDeskApp(App[None]):
     ) -> None:
         event.stop()
         action_id = event.option.id
-        if action_id == "pull_market":
+        if action_id == "today_discovery":
+            await self._show_today_discovery()
+        elif action_id == "pull_market":
             await self._show_symbol_prompt(
                 "pull_market",
                 "Symbols for market prices, e.g. AAPL,TSLA,0700.HK",
@@ -147,7 +156,7 @@ class AlphaDeskApp(App[None]):
         else:
             lines.append("")
             lines.append("No live cache yet. Start with:")
-            lines.append("  lychee data pull market --symbols AAPL,TSLA")
+            lines.append("  lychee discover today")
         return "\n".join(lines)
 
     async def _show_symbol_prompt(self, action: ActionId, placeholder: str) -> None:
@@ -160,6 +169,17 @@ class AlphaDeskApp(App[None]):
             Input(placeholder=placeholder, id="symbols-input"),
         )
         self.set_focus(self.query_one("#symbols-input", Input))
+
+    async def _show_today_discovery(self) -> None:
+        report = build_today_discovery_report()
+        output_path = write_discovery_report(report, self.output_dir)
+        await self._replace_action_panel(
+            Static(
+                discovery_report_summary(report, output_path),
+                id="action-status",
+            )
+        )
+        self.set_focus(self.query_one("#action-menu", OptionList))
 
     async def _run_symbol_action(self, symbols: list[str]) -> None:
         action = self.pending_action

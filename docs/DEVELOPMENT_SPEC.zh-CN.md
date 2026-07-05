@@ -150,6 +150,7 @@ lad
 - `lad report --demo` 使用内置 demo provider 生成 Markdown 日报。
 - `lad policy check` 校验投资政策文件，并打印违反项或警告。
 - `lad research queue` 列出 SQLite 研究库中的关注候选，包含状态、市场、代码、主题、证据数量和下一步动作数量。
+- `lad research deepen` 从研究队列生成二阶段研究深挖包，写入本地 SQLite `research_packets` 表和 `.alphadesk/research/research-packets-*.json`，包含候选身份、证据 ID、可展开证据、已缓存数据、数据缺口和下一步核验动作。
 - `lad audit list` 列出已生成的报告和决策记录。
 
 ## 数据新鲜度策略
@@ -244,6 +245,21 @@ Discovery report 必须包含：
 LLM 可以负责摘要、聚类、提取、比较和建议下一步研究数据。LLM 必须引用 evidence pack 中的证据 ID，不得只写模糊证据描述。系统必须校验 LLM 返回的证据字段；如果证据不是本地 evidence pack 中存在的 ID，例如 `news_001`，命令必须失败且不得写入 discovery cache 或研究队列。LLM 不得输出直接买入/卖出结论、目标价、自动仓位配置或实盘交易指令。
 
 如果没有配置 LLM provider、API 请求失败，或模型没有返回有效 JSON，命令必须失败并显示 setup/error 指引，而且不得写入 discovery cache。
+
+## 6.2 Research Deepen Engine
+
+Research Deepen 是 discovery 之后的二阶段研究准备层。它读取 SQLite 研究队列和本地 live cache，生成可审计研究包，而不是直接输出投资结论。
+
+研究深挖包必须包含：
+
+- 候选身份：candidate_id、display_name、symbol、market、asset_type、related_theme、why_watch、confidence 和 status。
+- discovery 证据 ID 及可展开证据详情。
+- 本地缓存数据：行情、相关新闻、公告。
+- 数据缺口：缺少 symbol、缺少行情、缺少公告或证据 ID 无法在当前本地缓存中解析。
+- 下一步核验动作。
+- 明确的非投资建议免责声明。
+
+Research Deepen 不得输出直接买入/卖出结论、目标价、自动仓位配置或实盘交易指令。
 
 ## 7. Provider 接口
 

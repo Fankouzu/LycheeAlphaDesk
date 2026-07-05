@@ -150,6 +150,7 @@ Command behavior:
 - `lad report --demo` generates a Markdown daily report from bundled demo providers.
 - `lad policy check` validates the policy file and prints violations or warnings.
 - `lad research queue` lists watch candidates from the SQLite research database with status, market, symbol, theme, evidence count, and next-action count.
+- `lad research deepen` creates second-stage research packets from the research queue, writing them to the local SQLite `research_packets` table and `.alphadesk/research/research-packets-*.json` with candidate identity, evidence IDs, expanded evidence, cached data, data gaps, and next verification actions.
 - `lad audit list` lists generated reports and decision records.
 
 ## Data Freshness Policy
@@ -244,6 +245,21 @@ News and events must be converted into an evidence pack before entering the LLM.
 The LLM may summarize, cluster, extract, compare, and suggest next research steps. It must cite evidence IDs from the evidence pack instead of vague evidence descriptions. The system must validate evidence fields returned by the LLM; if evidence is not an existing local evidence-pack ID such as `news_001`, the command must fail and must not write a discovery cache or research queue. The LLM must not produce direct buy/sell calls, target prices, automatic allocations, or live trading instructions.
 
 If no LLM provider is configured, if the API request fails, or if the model does not return valid JSON, the command must fail with setup/error guidance and must not write a discovery cache.
+
+## 6.2 Research Deepen Engine
+
+Research Deepen is the second-stage preparation layer after discovery. It reads the SQLite research queue and local live cache to generate auditable research packets instead of direct investment conclusions.
+
+Each research packet must include:
+
+- Candidate identity: candidate_id, display_name, symbol, market, asset_type, related_theme, why_watch, confidence, and status.
+- Discovery evidence IDs plus expanded evidence details.
+- Local cached data: price, related news, and filings.
+- Data gaps: missing symbol, missing price cache, missing filing cache, or evidence IDs that cannot be resolved from the current local cache.
+- Next verification actions.
+- A clear non-advice disclaimer.
+
+Research Deepen must not output direct buy/sell calls, target prices, automatic allocations, or live trading instructions.
 
 ## 7. Provider Interfaces
 

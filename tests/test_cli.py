@@ -8,7 +8,14 @@ import lychee_alphadesk.cli.app as cli_app
 from lychee_alphadesk.cli.app import app
 from lychee_alphadesk.core.cache_freshness import record_cache_entry
 from lychee_alphadesk.core.config import set_openai_compatible_llm
+from lychee_alphadesk.core.discovery import (
+    DiscoveryCandidate,
+    DiscoveryReport,
+    DiscoverySource,
+    DiscoveryTheme,
+)
 from lychee_alphadesk.core.live_data import PullResult
+from lychee_alphadesk.core.research_db import write_discovery_research_run
 
 runner = CliRunner()
 
@@ -201,6 +208,63 @@ def test_discover_today_command_writes_report_when_llm_configured(
     assert "研究队列" in queue_result.stdout
     assert "CLI model candidate" in queue_result.stdout
     assert "NVDA" in queue_result.stdout
+
+
+def test_research_deepen_command_writes_research_packets(tmp_path: Path) -> None:
+    _write_cli_research_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "AI storage demand rises",
+                        "summary": "Cloud infrastructure demand may affect hard drives.",
+                        "symbols": ["STX"],
+                        "source_url": "https://example.com/storage",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-02",
+                        "close": 110.5,
+                        "volume": 3210000,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["research", "deepen", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "研究深挖包已写入" in result.stdout
+    assert "Seagate" in result.stdout
+    assert "news_001" in result.stdout
+    assert (tmp_path / "research").exists()
+
+
+def test_research_deepen_command_handles_empty_queue(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["research", "deepen", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "研究队列为空" in result.stdout
 
 
 def test_discover_today_reports_market_news_preparation_error(
@@ -463,3 +527,52 @@ def test_data_snapshot_command_reads_live_cache_by_default(tmp_path: Path) -> No
     assert "数据快照已写入:" in result.stdout
     assert "模式: 实时" in result.stdout
     assert (tmp_path / "data-snapshot-live.json").exists()
+
+
+def _write_cli_research_seed(output_dir: Path) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["US"],
+        sources=[
+            DiscoverySource(
+                provider="test-llm",
+                market="US",
+                description="测试来源",
+            )
+        ],
+        themes=[
+            DiscoveryTheme(
+                name="AI 存储需求",
+                markets=["US"],
+                summary="AI 基础设施扩张可能影响存储设备需求。",
+                evidence=["news_001"],
+                sectors=["Technology"],
+                risk_flags=["供应链周期波动"],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="Seagate",
+                symbol="STX",
+                market="US",
+                asset_type="stock",
+                related_theme="AI 存储需求",
+                why_watch="硬盘供需可能改善。",
+                evidence=["news_001"],
+                risk_flags=["周期行业波动"],
+                next_actions=["检查最新行情", "阅读公告"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(
+        report,
+        output_dir,
+        output_dir / "data" / "discovery-today.json",
+    )

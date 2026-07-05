@@ -24,6 +24,18 @@ class ResearchQueueItem:
     status: str
 
 
+@dataclass(frozen=True)
+class ResearchPacketRecord:
+    packet_id: str
+    candidate_id: int
+    created_at: str
+    display_name: str
+    symbol: str | None
+    market: str
+    packet: dict[str, object]
+    artifact_path: str
+
+
 def research_db_path(output_dir: Path) -> Path:
     return output_dir / "research.sqlite3"
 
@@ -72,6 +84,27 @@ def init_research_db(output_dir: Path) -> Path:
             """
             CREATE INDEX IF NOT EXISTS idx_research_candidates_status_created
             ON research_candidates(status, created_at DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_packets (
+                packet_id TEXT PRIMARY KEY,
+                candidate_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                symbol TEXT,
+                market TEXT NOT NULL,
+                packet_json TEXT NOT NULL,
+                artifact_path TEXT NOT NULL,
+                FOREIGN KEY (candidate_id) REFERENCES research_candidates(candidate_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_research_packets_created
+            ON research_packets(created_at DESC)
             """
         )
     return db_path
@@ -209,6 +242,90 @@ def list_research_queue(
             next_actions=json.loads(row[11]),
             confidence=row[12],
             status=row[13],
+        )
+        for row in rows
+    ]
+
+
+def write_research_packet(
+    *,
+    output_dir: Path,
+    candidate_id: int,
+    packet_id: str,
+    created_at: str,
+    display_name: str,
+    symbol: str | None,
+    market: str,
+    packet: dict[str, object],
+    artifact_path: Path,
+) -> Path:
+    init_research_db(output_dir)
+    with sqlite3.connect(research_db_path(output_dir)) as connection:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO research_packets (
+                packet_id,
+                candidate_id,
+                created_at,
+                display_name,
+                symbol,
+                market,
+                packet_json,
+                artifact_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                packet_id,
+                candidate_id,
+                created_at,
+                display_name,
+                symbol,
+                market,
+                json.dumps(packet, ensure_ascii=False),
+                str(artifact_path),
+            ),
+        )
+    return research_db_path(output_dir)
+
+
+def list_research_packets(
+    output_dir: Path,
+    *,
+    limit: int = 20,
+) -> list[ResearchPacketRecord]:
+    db_path = init_research_db(output_dir)
+    if not db_path.exists():
+        return []
+
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                packet_id,
+                candidate_id,
+                created_at,
+                display_name,
+                symbol,
+                market,
+                packet_json,
+                artifact_path
+            FROM research_packets
+            ORDER BY created_at DESC, packet_id ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+    return [
+        ResearchPacketRecord(
+            packet_id=row[0],
+            candidate_id=row[1],
+            created_at=row[2],
+            display_name=row[3],
+            symbol=row[4],
+            market=row[5],
+            packet=json.loads(row[6]),
+            artifact_path=row[7],
         )
         for row in rows
     ]

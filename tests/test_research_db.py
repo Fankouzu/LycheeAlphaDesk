@@ -7,6 +7,7 @@ from lychee_alphadesk.core.discovery import (
     DiscoveryTheme,
 )
 from lychee_alphadesk.core.research_db import (
+    list_research_packets,
     list_research_queue,
     research_db_path,
     write_discovery_research_run,
@@ -71,3 +72,79 @@ def test_discovery_report_is_persisted_as_research_queue(tmp_path: Path) -> None
     assert candidate.status == "new"
     assert candidate.evidence == ["价格样本上涨", "主题证据"]
     assert candidate.next_actions == ["检查财报电话会", "比较 Western Digital"]
+
+
+def test_research_packets_are_persisted_for_queue_candidates(tmp_path: Path) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["US"],
+        sources=[
+            DiscoverySource(
+                provider="test-llm",
+                market="US",
+                description="测试来源",
+            )
+        ],
+        themes=[
+            DiscoveryTheme(
+                name="AI 存储需求",
+                markets=["US"],
+                summary="AI 基础设施扩张可能影响存储设备需求。",
+                evidence=["news_001"],
+                sectors=["Technology"],
+                risk_flags=["供应链周期波动"],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="Seagate",
+                symbol="STX",
+                market="US",
+                asset_type="stock",
+                related_theme="AI 存储需求",
+                why_watch="硬盘供需可能改善。",
+                evidence=["news_001"],
+                risk_flags=["周期行业波动"],
+                next_actions=["检查最新行情", "阅读公告"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    report_path = tmp_path / "data" / "discovery-today.json"
+    write_discovery_research_run(report, tmp_path, report_path)
+
+    packet_payload = {
+        "candidate": {"display_name": "Seagate", "symbol": "STX"},
+        "evidence": [{"id": "news_001", "headline": "AI storage demand rises"}],
+        "data_gaps": [],
+    }
+    db_path = research_db_path(tmp_path)
+
+    from lychee_alphadesk.core.research_db import write_research_packet
+
+    write_research_packet(
+        output_dir=tmp_path,
+        candidate_id=1,
+        packet_id="packet-test-001",
+        created_at="2026-07-05T11:00:00+00:00",
+        display_name="Seagate",
+        symbol="STX",
+        market="US",
+        packet=packet_payload,
+        artifact_path=tmp_path / "research" / "research-packets.json",
+    )
+    packets = list_research_packets(tmp_path)
+
+    assert db_path.exists()
+    assert len(packets) == 1
+    assert packets[0].packet_id == "packet-test-001"
+    assert packets[0].candidate_id == 1
+    assert packets[0].display_name == "Seagate"
+    assert packets[0].symbol == "STX"
+    assert packets[0].packet["evidence"][0]["id"] == "news_001"

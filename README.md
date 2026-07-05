@@ -243,6 +243,14 @@ This is not a server database and does not require deployment. It stores clues, 
 lychee research queue
 ```
 
+Turn queued candidates into second-stage research packets:
+
+```bash
+lychee research deepen
+```
+
+`research deepen` reads the SQLite research queue and local live cache, then writes `.alphadesk/research/research-packets-*.json`. Each packet includes candidate identity, evidence IDs, expanded news evidence, cached prices/news/filings, data gaps, and next verification actions. It does not produce buy/sell calls; it helps decide what evidence to collect next.
+
 Current market-level and symbol-level cache commands:
 
 ```bash

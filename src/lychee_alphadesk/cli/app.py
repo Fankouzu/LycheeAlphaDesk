@@ -43,6 +43,7 @@ from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
 from lychee_alphadesk.core.policy import load_policy, validate_policy
 from lychee_alphadesk.core.reports import generate_demo_report
+from lychee_alphadesk.core.research import deepen_research_queue
 from lychee_alphadesk.core.research_db import (
     list_research_queue,
     write_discovery_research_run,
@@ -367,6 +368,63 @@ def research_queue(
         )
 
 
+@research_app.command("deepen")
+def research_deepen(
+    status: Annotated[
+        str | None,
+        typer.Option("--status", help="按研究状态选择候选；默认处理 new。"),
+    ] = "new",
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多生成多少个研究深挖包。"),
+    ] = 5,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """从研究队列生成可审计的二阶段研究深挖包。"""
+    result = deepen_research_queue(output_dir=output_dir, status=status, limit=limit)
+    if not result.packets:
+        console.print("研究队列为空。请先运行 `lychee discover today`。")
+        return
+
+    if result.artifact_path is not None:
+        console.print(f"研究深挖包已写入: {result.artifact_path}", soft_wrap=True)
+    console.print(f"研究库已更新: {result.db_path}", soft_wrap=True)
+    table = Table(title="Lychee AlphaDesk 研究深挖包")
+    table.add_column("市场")
+    table.add_column("名称", overflow="fold")
+    table.add_column("代码")
+    table.add_column("证据")
+    table.add_column("缺口")
+    table.add_column("下一步")
+    for packet in result.packets:
+        payload = packet.packet
+        evidence_ids = payload.get("evidence_ids")
+        data_gaps = payload.get("data_gaps")
+        next_actions = payload.get("next_actions")
+        table.add_row(
+            packet.market,
+            packet.display_name,
+            packet.symbol or "-",
+            _display_count(evidence_ids),
+            _display_count(data_gaps),
+            _display_count(next_actions),
+        )
+    console.print(table)
+    console.print("研究深挖明细")
+    for packet in result.packets:
+        payload = packet.packet
+        evidence_ids = payload.get("evidence_ids")
+        data_gaps = payload.get("data_gaps")
+        console.print(
+            f"- {packet.display_name} ({packet.symbol or '-'}) [{packet.market}] "
+            f"证据: {_display_values(evidence_ids)} 缺口: {_display_values(data_gaps)}",
+            soft_wrap=True,
+        )
+
+
 @data_pull_app.command("market")
 def data_pull_market(
     symbols: Annotated[
@@ -510,6 +568,19 @@ def _display_session_state(state: str) -> str:
         "weekend": "周末",
         "ttl": "保质期",
     }.get(state, state)
+
+
+def _display_count(value: object) -> str:
+    return str(len(value)) if isinstance(value, list) else "0"
+
+
+def _display_values(value: object) -> str:
+    if not isinstance(value, list) or not value:
+        return "-"
+    separator = "；" if any("。" in str(item) or "缺少" in str(item) for item in value) else ", "
+    if separator == "；":
+        return separator.join(str(item).rstrip("。") for item in value) + "。"
+    return separator.join(str(item) for item in value)
 
 
 @setup_app.callback()

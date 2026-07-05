@@ -18,6 +18,10 @@ from lychee_alphadesk.core.research_db import (
     research_db_path,
     write_research_packet,
 )
+from lychee_alphadesk.core.symbol_mapping import (
+    SymbolMappingProposal,
+    suggest_symbol_mappings,
+)
 from lychee_alphadesk.providers.demo import FilingSummary, NewsEvent, PriceRow
 
 PullMarket = Callable[..., PullResult]
@@ -139,9 +143,8 @@ def fill_research_data_gaps(
     snapshot = build_cached_data_snapshot(output_dir)
     market_symbols = _symbols_missing_prices(queue, snapshot.prices, force=force)
     filing_symbols = _symbols_missing_filings(queue, snapshot.filings, force=force)
-    symbol_mapping_candidates = [
-        item.display_name for item in queue if not _normalized_symbol(item)
-    ]
+    symbol_mapping_items = [item for item in queue if not _normalized_symbol(item)]
+    symbol_mapping_candidates = [item.display_name for item in symbol_mapping_items]
 
     actions: list[ResearchGapFillAction] = []
     actions.append(
@@ -160,21 +163,8 @@ def fill_research_data_gaps(
             pull_filings=pull_filings,
         )
     )
-    if symbol_mapping_candidates:
-        actions.append(
-            ResearchGapFillAction(
-                action_type="symbol_mapping",
-                status="needs_input",
-                symbols=[],
-                count=len(symbol_mapping_candidates),
-                output_path=None,
-                warnings=[
-                    "以下候选缺少可直接拉取的证券代码: "
-                    + ", ".join(symbol_mapping_candidates)
-                ],
-                message="需要先映射到可交易标的或指数/ETF。",
-            )
-        )
+    if symbol_mapping_items:
+        actions.append(_symbol_mapping_gap_action(symbol_mapping_items))
 
     return ResearchGapFillResult(
         candidates_checked=len(queue),
@@ -204,6 +194,7 @@ def _build_research_packet(
         evidence_id for evidence_id in item.evidence if evidence_id not in evidence_by_id
     ]
     price = _latest_price(symbol, prices) if symbol else None
+    symbol_mapping = _symbol_mapping_rows(item, prices) if not symbol else []
     related_news = _related_news(symbol, item.display_name, news_events)
     related_filings = _related_filings(symbol, item.display_name, filings)
     data_gaps = _data_gaps(
@@ -212,6 +203,7 @@ def _build_research_packet(
         evidence_items=evidence_items,
         missing_evidence=missing_evidence,
         price=price,
+        symbol_mapping=symbol_mapping,
         related_news=related_news,
         related_filings=related_filings,
     )
@@ -232,12 +224,13 @@ def _build_research_packet(
         "missing_evidence_ids": missing_evidence,
         "local_data": {
             "price": price,
+            "symbol_mapping": symbol_mapping,
             "related_news": related_news,
             "filings": related_filings,
         },
         "risk_flags": item.risk_flags,
         "data_gaps": data_gaps,
-        "next_actions": _next_actions(item, symbol, data_gaps),
+        "next_actions": _next_actions(item, symbol, symbol_mapping, data_gaps),
         "disclaimer": "研究深挖包只用于决定下一步研究什么，不构成买卖建议。",
     }
     return ResearchPacket(
@@ -263,6 +256,11 @@ def _symbols_missing_prices(
         symbol = _normalized_symbol(item)
         if symbol and (force or symbol not in cached_symbols):
             symbols.append(symbol)
+        if not symbol:
+            for proposal in suggest_symbol_mappings(item):
+                proposal_symbol = proposal.symbol.upper()
+                if force or proposal_symbol not in cached_symbols:
+                    symbols.append(proposal_symbol)
     return _unique_preserving_order(symbols)
 
 
@@ -382,6 +380,41 @@ def _pull_filings_gap_action(
     )
 
 
+def _symbol_mapping_gap_action(
+    items: list[ResearchQueueItem],
+) -> ResearchGapFillAction:
+    proposals = [
+        proposal
+        for item in items
+        for proposal in suggest_symbol_mappings(item)
+    ]
+    symbols = _unique_preserving_order([proposal.symbol for proposal in proposals])
+    if not proposals:
+        return ResearchGapFillAction(
+            action_type="symbol_mapping",
+            status="needs_input",
+            symbols=[],
+            count=len(items),
+            output_path=None,
+            warnings=[
+                "以下候选缺少可直接拉取的证券代码: "
+                + ", ".join(item.display_name for item in items)
+            ],
+            message="需要先映射到可交易标的或指数/ETF。",
+        )
+    return ResearchGapFillAction(
+        action_type="symbol_mapping",
+        status="mapped",
+        symbols=symbols,
+        count=len(symbols),
+        output_path=None,
+        warnings=[
+            "代理映射仅用于研究下钻，需人工核对成分、流动性和是否可交易。"
+        ],
+        message="已生成可审计代理标的；代理行情由行情动作补齐。",
+    )
+
+
 def _gap_pull_status(result: PullResult, *, requested_count: int) -> str:
     if not result.refreshed:
         return "cached"
@@ -467,6 +500,22 @@ def _latest_price(symbol: str | None, prices: list[PriceRow]) -> dict[str, objec
     return None
 
 
+def _symbol_mapping_rows(
+    item: ResearchQueueItem,
+    prices: list[PriceRow],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for proposal in suggest_symbol_mappings(item):
+        row = _symbol_mapping_to_dict(proposal)
+        row["latest_price"] = _latest_price(proposal.symbol, prices)
+        rows.append(row)
+    return rows
+
+
+def _symbol_mapping_to_dict(proposal: SymbolMappingProposal) -> dict[str, object]:
+    return asdict(proposal)
+
+
 def _related_news(
     symbol: str | None,
     display_name: str,
@@ -515,12 +564,26 @@ def _data_gaps(
     evidence_items: list[dict[str, object]],
     missing_evidence: list[str],
     price: dict[str, object] | None,
+    symbol_mapping: list[dict[str, object]],
     related_news: list[dict[str, object]],
     related_filings: list[dict[str, object]],
 ) -> list[str]:
     gaps: list[str] = []
     if not symbol:
-        gaps.append("缺少可直接拉取的证券代码，需先映射到可交易标的或指数/ETF。")
+        if symbol_mapping:
+            missing_proxy_prices = [
+                str(row["symbol"])
+                for row in symbol_mapping
+                if row.get("latest_price") is None
+            ]
+            if missing_proxy_prices:
+                gaps.append(
+                    "代理标的行情尚未补齐: "
+                    + ", ".join(missing_proxy_prices)
+                    + "。"
+                )
+        else:
+            gaps.append("缺少可直接拉取的证券代码，需先映射到可交易标的或指数/ETF。")
     if missing_evidence:
         gaps.append("部分 discovery 证据 ID 未在当前本地新闻缓存中找到。")
     if not evidence_items and not related_news:
@@ -535,11 +598,16 @@ def _data_gaps(
 def _next_actions(
     item: ResearchQueueItem,
     symbol: str | None,
+    symbol_mapping: list[dict[str, object]],
     data_gaps: list[str],
 ) -> list[str]:
     if symbol:
         actions = list(dict.fromkeys(item.next_actions))
         actions.append(f"核对 {symbol} 行情、成交量和新闻证据是否支持同一主题。")
+    elif symbol_mapping:
+        actions = ["先审查代理标的映射，再把通过的代理标的加入下钻研究。"]
+        actions.extend(item.next_actions)
+        actions.append("核对代理标的行情、成交量和主题证据是否一致。")
     else:
         actions = ["先把观察对象映射到可交易代码，再进入行情和公告核验。"]
         actions.extend(item.next_actions)

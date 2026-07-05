@@ -260,6 +260,54 @@ def test_research_deepen_command_writes_research_packets(tmp_path: Path) -> None
     assert (tmp_path / "research").exists()
 
 
+def test_research_deepen_command_shows_proxy_mapping_symbols(tmp_path: Path) -> None:
+    _write_cli_symbolless_mapping_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "Hong Kong stocks face index pressure",
+                        "summary": "Hang Seng Index liquidity pressure should be mapped.",
+                        "symbols": ["MARKET"],
+                        "source_url": "https://example.com/hsi",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "auto",
+                "rows": [
+                    {
+                        "symbol": "2800.HK",
+                        "date": "2026-07-02",
+                        "close": 18.5,
+                        "volume": 1000000,
+                        "currency": "HKD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["research", "deepen", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "代理" in result.stdout
+    assert "2800.HK" in result.stdout
+
+
 def test_research_deepen_command_handles_empty_queue(tmp_path: Path) -> None:
     result = runner.invoke(app, ["research", "deepen", "--output-dir", str(tmp_path)])
 
@@ -336,6 +384,49 @@ def test_research_fill_gaps_command_runs_gap_fill_and_redeepens(
     assert "自动补数据完成" in result.stdout
     assert "STX" in result.stdout
     assert "补齐后研究深挖包已写入" in result.stdout
+
+
+def test_research_fill_gaps_command_reports_proxy_symbol_mappings(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _write_cli_symbolless_mapping_seed(tmp_path)
+
+    def fake_pull_market_prices(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == ["2800.HK"]
+        output_path = tmp_path / "data" / "market-prices.json"
+        output_path.parent.mkdir(exist_ok=True)
+        output_path.write_text(
+            json.dumps(
+                {
+                    "provider": "auto",
+                    "rows": [
+                        {
+                            "symbol": "2800.HK",
+                            "date": "2026-07-02",
+                            "close": 18.5,
+                            "volume": 1000000,
+                            "currency": "HKD",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("market", "auto", 1, output_path, [])
+
+    monkeypatch.setattr(
+        "lychee_alphadesk.core.research.pull_market_prices",
+        fake_pull_market_prices,
+    )
+
+    result = runner.invoke(app, ["research", "fill-gaps", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "代码映射" in result.stdout
+    assert "已生成映射" in result.stdout
+    assert "2800.HK" in result.stdout
 
 
 def test_discover_today_reports_market_news_preparation_error(
@@ -634,6 +725,55 @@ def _write_cli_research_seed(output_dir: Path) -> None:
                 evidence=["news_001"],
                 risk_flags=["周期行业波动"],
                 next_actions=["检查最新行情", "阅读公告"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(
+        report,
+        output_dir,
+        output_dir / "data" / "discovery-today.json",
+    )
+
+
+def _write_cli_symbolless_mapping_seed(output_dir: Path) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["HK"],
+        sources=[
+            DiscoverySource(
+                provider="test-llm",
+                market="HK",
+                description="测试来源",
+            )
+        ],
+        themes=[
+            DiscoveryTheme(
+                name="港股压力观察",
+                markets=["HK"],
+                summary="港股流动性变化需要先用宽基代理观察。",
+                evidence=["news_001"],
+                sectors=["Index"],
+                risk_flags=["宏观波动"],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="恒生指数压力观察",
+                symbol=None,
+                market="HK",
+                asset_type="index",
+                related_theme="港股压力观察",
+                why_watch="用于观察港股大盘压力。",
+                evidence=["news_001"],
+                risk_flags=["指数不能直接交易"],
+                next_actions=["映射到可交易 ETF"],
                 confidence="medium",
                 recommendation="research",
             )

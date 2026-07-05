@@ -479,9 +479,10 @@ def _pull_eastmoney_daily(
 
 
 def _pull_yahoo_chart(symbol: str, fetcher: JsonFetcher) -> PriceRow | None:
+    yahoo_symbol = _yahoo_chart_symbol(symbol)
     url = (
         "https://query1.finance.yahoo.com/v8/finance/chart/"
-        + urllib.parse.quote(symbol.upper(), safe="")
+        + urllib.parse.quote(yahoo_symbol, safe="")
         + "?"
         + urllib.parse.urlencode({"range": "5d", "interval": "1d"})
     )
@@ -614,6 +615,13 @@ def _eastmoney_secid(symbol: str) -> str | None:
     if normalized.endswith(".SZ"):
         return f"0.{normalized.removesuffix('.SZ')}"
     return None
+
+
+def _yahoo_chart_symbol(symbol: str) -> str:
+    normalized = symbol.upper()
+    if normalized.endswith(".SH"):
+        return normalized.removesuffix(".SH") + ".SS"
+    return normalized
 
 
 def _infer_symbol_currency(symbol: str) -> str:

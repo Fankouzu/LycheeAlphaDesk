@@ -396,6 +396,7 @@ def research_deepen(
     table.add_column("市场")
     table.add_column("名称", overflow="fold")
     table.add_column("代码")
+    table.add_column("代理", overflow="fold")
     table.add_column("证据")
     table.add_column("缺口")
     table.add_column("下一步")
@@ -404,10 +405,12 @@ def research_deepen(
         evidence_ids = payload.get("evidence_ids")
         data_gaps = payload.get("data_gaps")
         next_actions = payload.get("next_actions")
+        proxy_symbols = _packet_proxy_symbols(payload)
         table.add_row(
             packet.market,
             packet.display_name,
             packet.symbol or "-",
+            _display_values(proxy_symbols),
             _display_count(evidence_ids),
             _display_count(data_gaps),
             _display_count(next_actions),
@@ -418,9 +421,12 @@ def research_deepen(
         payload = packet.packet
         evidence_ids = payload.get("evidence_ids")
         data_gaps = payload.get("data_gaps")
+        proxy_symbols = _packet_proxy_symbols(payload)
         console.print(
             f"- {packet.display_name} ({packet.symbol or '-'}) [{packet.market}] "
-            f"证据: {_display_values(evidence_ids)} 缺口: {_display_values(data_gaps)}",
+            f"证据: {_display_values(evidence_ids)} "
+            f"代理: {_display_values(proxy_symbols)} "
+            f"缺口: {_display_values(data_gaps)}",
             soft_wrap=True,
         )
 
@@ -640,6 +646,20 @@ def _display_values(value: object) -> str:
     return separator.join(str(item) for item in value)
 
 
+def _packet_proxy_symbols(payload: dict[str, object]) -> list[str]:
+    local_data = payload.get("local_data")
+    if not isinstance(local_data, dict):
+        return []
+    symbol_mapping = local_data.get("symbol_mapping")
+    if not isinstance(symbol_mapping, list):
+        return []
+    symbols: list[str] = []
+    for row in symbol_mapping:
+        if isinstance(row, dict) and isinstance(row.get("symbol"), str):
+            symbols.append(row["symbol"])
+    return symbols
+
+
 def _display_gap_action_type(action_type: str) -> str:
     return {
         "market_prices": "行情",
@@ -655,6 +675,7 @@ def _display_gap_action_status(status: str) -> str:
         "partial": "部分完成",
         "skipped": "跳过",
         "failed": "失败",
+        "mapped": "已生成映射",
         "needs_input": "需人工处理",
     }.get(status, status)
 

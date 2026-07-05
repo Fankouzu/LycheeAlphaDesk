@@ -48,6 +48,67 @@ def test_deepen_research_queue_handles_symbolless_candidates(tmp_path: Path) -> 
     assert "先把观察对象映射到可交易代码" in packet["next_actions"][0]
 
 
+def test_deepen_research_queue_adds_auditable_proxy_mappings(
+    tmp_path: Path,
+) -> None:
+    _write_symbolless_mapping_seed(tmp_path)
+    _write_live_caches(tmp_path)
+
+    result = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    packet = result.packets[0].packet
+    symbol_mapping = packet["local_data"]["symbol_mapping"]
+
+    assert packet["candidate"]["symbol"] is None
+    assert symbol_mapping[0]["symbol"] == "2800.HK"
+    assert symbol_mapping[0]["requires_review"] is True
+    assert symbol_mapping[0]["latest_price"] is None
+    assert "代理标的行情尚未补齐: 2800.HK。" in packet["data_gaps"]
+    assert "先审查代理标的映射，再把通过的代理标的加入下钻研究。" in packet[
+        "next_actions"
+    ][0]
+
+
+def test_fill_research_data_gaps_pulls_proxy_mapping_prices_without_mutating_candidate(
+    tmp_path: Path,
+) -> None:
+    _write_symbolless_mapping_seed(tmp_path)
+    _write_live_caches(tmp_path, include_market=False, include_filings=False)
+
+    before = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+    assert "代理标的行情尚未补齐: 2800.HK。" in before.packets[0].packet["data_gaps"]
+
+    result = fill_research_data_gaps(
+        output_dir=tmp_path,
+        pull_market=_fake_proxy_market_pull,
+        pull_filings=_fake_filings_pull,
+    )
+    after = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 5, tzinfo=UTC),
+    )
+
+    mapping_action = next(
+        action for action in result.actions if action.action_type == "symbol_mapping"
+    )
+    packet = after.packets[0].packet
+    symbol_mapping = packet["local_data"]["symbol_mapping"]
+
+    assert result.market_symbols == ["2800.HK"]
+    assert result.symbol_mapping_candidates == ["恒生指数压力观察"]
+    assert mapping_action.status == "mapped"
+    assert mapping_action.symbols == ["2800.HK"]
+    assert "代理标的行情尚未补齐: 2800.HK。" not in packet["data_gaps"]
+    assert symbol_mapping[0]["latest_price"]["symbol"] == "2800.HK"
+    assert packet["candidate"]["symbol"] is None
+
+
 def test_fill_research_data_gaps_reduces_missing_price_and_filing_gaps(
     tmp_path: Path,
 ) -> None:
@@ -159,6 +220,55 @@ def _write_discovery_seed(tmp_path: Path, symbol: str | None) -> None:
     )
 
 
+def _write_symbolless_mapping_seed(tmp_path: Path) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["HK"],
+        sources=[
+            DiscoverySource(
+                provider="test-llm",
+                market="HK",
+                description="测试来源",
+            )
+        ],
+        themes=[
+            DiscoveryTheme(
+                name="港股压力观察",
+                markets=["HK"],
+                summary="港股流动性变化需要先用宽基代理观察。",
+                evidence=["news_001"],
+                sectors=["Index"],
+                risk_flags=["宏观波动"],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="恒生指数压力观察",
+                symbol=None,
+                market="HK",
+                asset_type="index",
+                related_theme="港股压力观察",
+                why_watch="用于观察港股大盘压力。",
+                evidence=["news_001"],
+                risk_flags=["指数不能直接交易"],
+                next_actions=["映射到可交易 ETF"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(
+        report,
+        tmp_path,
+        tmp_path / "data" / "discovery-today.json",
+    )
+
+
 def _write_live_caches(
     tmp_path: Path,
     *,
@@ -199,6 +309,20 @@ def _fake_market_pull(**kwargs: object) -> PullResult:
     return PullResult(
         "market",
         "alpha_vantage",
+        1,
+        output_dir / "data" / "market-prices.json",
+        [],
+    )
+
+
+def _fake_proxy_market_pull(**kwargs: object) -> PullResult:
+    output_dir = kwargs["output_dir"]
+    assert isinstance(output_dir, Path)
+    assert kwargs["symbols"] == ["2800.HK"]
+    _write_market_cache(output_dir, ["2800.HK"])
+    return PullResult(
+        "market",
+        "auto",
         1,
         output_dir / "data" / "market-prices.json",
         [],

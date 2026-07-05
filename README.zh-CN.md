@@ -257,7 +257,7 @@ lychee research deepen
 lychee research fill-gaps
 ```
 
-`research fill-gaps` 会读取研究队列和本地缓存，自动拉取缺失的行情，以及美股股票缺失的 SEC 公告，然后重新生成研究深挖包。行情补齐默认使用 `auto`：美股优先走 Alpha Vantage，港股/A 股走 Eastmoney 日 K 接口；主数据源失败时使用 Yahoo chart 兜底。没有证券代码的候选不会被系统乱猜，会标记为需要先做代码映射。
+`research fill-gaps` 会读取研究队列和本地缓存，自动拉取缺失的行情，以及美股股票缺失的 SEC 公告，然后重新生成研究深挖包。行情补齐默认使用 `auto`：美股优先走 Alpha Vantage，港股/A 股走 Eastmoney 日 K 接口；主数据源失败时使用 Yahoo chart 兜底。没有证券代码的候选不会被系统乱猜；第一版会生成带原因、置信度和证据 ID 的可审计代理标的映射，并拉取代理标的行情，但仍要求用户在下钻前人工确认成分、流动性和可交易性。
 
 当前可用的市场级与 symbol 级 cache 命令：
 

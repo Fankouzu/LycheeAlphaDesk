@@ -243,6 +243,54 @@ def test_pull_market_prices_auto_falls_back_to_yahoo_chart(
     assert cache["rows"][1]["currency"] == "HKD"
 
 
+def test_pull_market_prices_yahoo_fallback_uses_ss_suffix_for_shanghai_symbols(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["alpha_vantage"].value = "demo-alpha-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    seen_urls: list[str] = []
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        seen_urls.append(url)
+        if "push2his.eastmoney.com" in url:
+            raise RuntimeError("Eastmoney unavailable")
+        assert "512480.SS" in url
+        assert "512480.SH" not in url
+        return {
+            "chart": {
+                "result": [
+                    {
+                        "meta": {"symbol": "512480.SS", "currency": "CNY"},
+                        "timestamp": [1782950400],
+                        "indicators": {
+                            "quote": [
+                                {
+                                    "close": [1.331],
+                                    "volume": [15949373],
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+        }
+
+    result = pull_market_prices(
+        symbols=["512480.SH"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        fetch_json=fetch_json,
+    )
+
+    assert result.count == 1
+    assert any("512480.SS" in url for url in seen_urls)
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["rows"][0]["symbol"] == "512480.SH"
+    assert cache["rows"][0]["currency"] == "CNY"
+
+
 def test_pull_market_prices_migrates_existing_research_db_without_cache_table(
     tmp_path: Path,
 ) -> None:

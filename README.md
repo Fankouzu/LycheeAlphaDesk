@@ -257,7 +257,7 @@ Automatically fill data that can be pulled from research gaps:
 lychee research fill-gaps
 ```
 
-`research fill-gaps` reads the queue and local cache, pulls missing market prices and missing SEC filings for US stock candidates, then writes a fresh research packet. Price filling uses `auto` by default: US symbols use Alpha Vantage, HK/China symbols use Eastmoney daily bars, and Yahoo chart is used as a cross-market fallback when the primary source fails. Candidates without symbols are not guessed automatically; they are marked as needing symbol mapping first.
+`research fill-gaps` reads the queue and local cache, pulls missing market prices and missing SEC filings for US stock candidates, then writes a fresh research packet. Price filling uses `auto` by default: US symbols use Alpha Vantage, HK/China symbols use Eastmoney daily bars, and Yahoo chart is used as a cross-market fallback when the primary source fails. Candidates without symbols are not silently guessed; the first implementation creates auditable proxy mappings with reasons, confidence, and evidence IDs, pulls proxy prices, and still requires the user to review constituents, liquidity, and tradability before drilling down.
 
 Current market-level and symbol-level cache commands:
 

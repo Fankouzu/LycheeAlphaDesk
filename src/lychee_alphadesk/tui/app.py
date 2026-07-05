@@ -66,6 +66,7 @@ class AlphaDeskApp(App[None]):
         self.pending_action: ActionId | None = None
         self.research_candidates: list[CandidateCheck] = []
         self.research_packets: list[ResearchPacket] = []
+        self.selected_research_index: int | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -117,6 +118,9 @@ class AlphaDeskApp(App[None]):
         action_id = event.option.id
         if isinstance(action_id, str) and action_id.startswith("research_task:"):
             await self._show_research_task_detail(action_id)
+            return
+        if isinstance(action_id, str) and action_id.startswith("research_detail:"):
+            await self._run_research_detail_action(action_id)
             return
         if action_id == "today_discovery":
             await self._show_today_discovery()
@@ -238,11 +242,132 @@ class AlphaDeskApp(App[None]):
             )
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
+        self.selected_research_index = index
         packet = self.research_packets[index] if index < len(self.research_packets) else None
+        actions = _research_detail_actions(candidate, packet)
         await self._replace_action_panel(
-            Static(_research_task_detail(candidate, packet), id="action-status")
+            Static(_research_task_detail(candidate, packet), id="action-status"),
+            OptionList(
+                *[
+                    Option(label, id=f"research_detail:{action_id}")
+                    for action_id, label in actions
+                ],
+                id="research-detail-action-menu",
+                markup=False,
+            ),
         )
-        self.set_focus(self.query_one("#action-menu", OptionList))
+        self.set_focus(self.query_one("#research-detail-action-menu", OptionList))
+
+    async def _run_research_detail_action(self, action_id: str) -> None:
+        action = action_id.removeprefix("research_detail:")
+        if action == "back_tasks":
+            await self._show_research_workbench()
+            return
+        selection = self.selected_research_index
+        if selection is None or selection >= len(self.research_candidates):
+            await self._replace_action_panel(
+                Static("研究任务不存在，请重新打开研究工作台。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        candidate = self.research_candidates[selection]
+        packet = (
+            self.research_packets[selection]
+            if selection < len(self.research_packets)
+            else None
+        )
+        symbols = _research_action_symbols(candidate)
+        if action in {"refresh_market", "refresh_news"} and not symbols:
+            await self._replace_action_panel(
+                Static(
+                    "这个任务还没有可刷新的证券代码或代理标的，请先完成入口映射。",
+                    id="action-status",
+                )
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static(
+                f"正在执行: {_research_action_name(action)}，请稍候...",
+                id="action-status",
+            )
+        )
+        try:
+            if action == "refresh_market":
+                result = await asyncio.to_thread(
+                    pull_market_prices,
+                    symbols=symbols,
+                    output_dir=self.output_dir,
+                    provider_id="auto",
+                    force=True,
+                )
+            elif action == "refresh_news":
+                result = await asyncio.to_thread(
+                    pull_news_events,
+                    symbols=symbols,
+                    output_dir=self.output_dir,
+                    provider_id="auto",
+                    force=True,
+                )
+            elif action == "refresh_filings":
+                filing_symbols = _filing_symbols(candidate, packet)
+                if not filing_symbols:
+                    await self._replace_action_panel(
+                        Static(
+                            "这个任务当前不适合自动拉取 SEC 公告。只有美股股票任务会启用该动作。",
+                            id="action-status",
+                        )
+                    )
+                    self.set_focus(self.query_one("#action-menu", OptionList))
+                    return
+                result = await asyncio.to_thread(
+                    pull_sec_filings,
+                    symbols=filing_symbols,
+                    output_dir=self.output_dir,
+                )
+            else:
+                await self._replace_action_panel(
+                    Static("未知研究动作。", id="action-status")
+                )
+                self.set_focus(self.query_one("#action-menu", OptionList))
+                return
+        except (RuntimeError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+
+        await self._refresh_research_state()
+        candidate = self.research_candidates[selection]
+        packet = (
+            self.research_packets[selection]
+            if selection < len(self.research_packets)
+            else None
+        )
+        actions = _research_detail_actions(candidate, packet)
+        status = _research_action_result(action, result.count, result.warnings)
+        await self._replace_action_panel(
+            Static(
+                _research_task_detail(candidate, packet, action_status=status),
+                id="action-status",
+            ),
+            OptionList(
+                *[
+                    Option(label, id=f"research_detail:{detail_action_id}")
+                    for detail_action_id, label in actions
+                ],
+                id="research-detail-action-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#research-detail-action-menu", OptionList))
+
+    async def _refresh_research_state(self) -> None:
+        result = await asyncio.to_thread(run_workbench_check, output_dir=self.output_dir)
+        self.research_candidates = list(result.candidates)
+        deepen_result = getattr(result, "deepen_result", None)
+        self.research_packets = list(getattr(deepen_result, "packets", []))
 
     async def _show_symbol_prompt(self, action: ActionId, placeholder: str) -> None:
         self.pending_action = action
@@ -403,6 +528,8 @@ def _research_task_label(candidate: CandidateCheck) -> str:
 def _research_task_detail(
     candidate: CandidateCheck,
     packet: ResearchPacket | None,
+    *,
+    action_status: str = "",
 ) -> str:
     packet_payload = packet.packet if packet is not None else {}
     local_data = _dict_value(packet_payload.get("local_data"))
@@ -411,16 +538,30 @@ def _research_task_detail(
     related_news = _dict_list(local_data.get("related_news"))
     filings = _dict_list(local_data.get("filings"))
     data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
+    commands = _research_action_commands(candidate, packet)
     lines = [
         "研究结果",
         f"任务: {candidate.display_name} [{candidate.market}]",
         f"入口: {candidate.observation_entry}",
         f"优先级: {candidate.priority}",
         f"证据状态: {candidate.evidence_status}",
+        "信号读数: "
+        + _signal_reading(candidate, price, evidence, related_news, filings, data_gaps),
         f"研究问题: {candidate.beginner_question}",
         "",
         f"当前研究结论: {candidate.what_to_check}",
         _price_line(price),
+        "",
+        "证据矩阵",
+        *_evidence_matrix_lines(
+            candidate=candidate,
+            packet=packet,
+            price=price,
+            evidence=evidence,
+            related_news=related_news,
+            filings=filings,
+            data_gaps=data_gaps,
+        ),
         "",
         "已采集证据",
         *_headline_lines(evidence, empty="暂无 discovery 证据。"),
@@ -436,8 +577,147 @@ def _research_task_detail(
     ]
     if candidate.proxy_symbols:
         lines.append("代理核验: 核对成分、费用、流动性和是否可交易。")
+    lines.extend(["", "可执行动作"])
+    if action_status:
+        lines.append(action_status)
+    lines.extend(f"- {command}" for command in commands)
     lines.append("")
-    lines.append("边界: 这是研究结果快照，不是买卖建议。")
+    lines.append("边界: 这是研究工作台快照，不是买卖建议。")
+    return "\n".join(lines)
+
+
+def _signal_reading(
+    candidate: CandidateCheck,
+    price: dict[str, object],
+    evidence: list[dict[str, object]],
+    related_news: list[dict[str, object]],
+    filings: list[dict[str, object]],
+    data_gaps: list[str],
+) -> str:
+    if data_gaps:
+        return f"阻塞: 还有 {_gap_summary(data_gaps)}。先补数据，再判断线索。"
+    if not price and not candidate.proxy_symbols:
+        return "证据不足: 缺少可观察行情，暂时只能保留在线索池。"
+    if not evidence and not related_news and not filings:
+        return "只具备行情: 还没有新闻、公告或财报佐证。"
+    if price and (evidence or related_news):
+        return "初步可研究: 已有行情和消息证据，下一步检查它们是否同向。"
+    if candidate.proxy_symbols:
+        return "代理观察: 先确认代理标的是否真的覆盖主题，再下钻。"
+    return "待增强证据: 还需要补齐更多可核验材料。"
+
+
+def _evidence_matrix_lines(
+    *,
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+    price: dict[str, object],
+    evidence: list[dict[str, object]],
+    related_news: list[dict[str, object]],
+    filings: list[dict[str, object]],
+    data_gaps: list[str],
+) -> list[str]:
+    asset_type = _asset_type(packet)
+    filing_status = "不适用"
+    if candidate.market.upper() == "US" and asset_type == "stock":
+        filing_status = f"{len(filings)} 条" if filings else "缺失"
+    elif filings:
+        filing_status = f"{len(filings)} 条"
+    proxy_status = _display_values(candidate.proxy_symbols)
+    return [
+        f"- 行情: {'已采集' if price else '缺失'}",
+        f"- Discovery 证据: {len(evidence)} 条",
+        f"- 相关新闻: {len(related_news)} 条",
+        f"- 公告/财报: {filing_status}",
+        f"- 代理标的: {proxy_status}",
+        f"- 数据缺口: {_gap_summary(data_gaps)}",
+    ]
+
+
+def _research_detail_actions(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> list[tuple[str, str]]:
+    actions = [
+        ("refresh_market", "刷新行情"),
+        ("refresh_news", "刷新新闻"),
+    ]
+    if _filing_symbols(candidate, packet):
+        actions.append(("refresh_filings", "刷新美股公告/财报"))
+    actions.append(("back_tasks", "返回研究任务列表"))
+    return actions
+
+
+def _research_action_commands(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> list[str]:
+    symbols = _research_action_symbols(candidate)
+    commands: list[str] = []
+    if symbols:
+        symbol_text = ",".join(symbols)
+        commands.append(
+            f"刷新行情: lychee data pull market --symbols {symbol_text} "
+            "--provider auto --force"
+        )
+        commands.append(
+            f"刷新新闻: lychee data pull news --symbols {symbol_text} "
+            "--provider auto --force"
+        )
+    else:
+        commands.append("刷新行情/新闻: 需要先完成可观察入口映射。")
+    filing_symbols = _filing_symbols(candidate, packet)
+    if filing_symbols:
+        commands.append(
+            f"刷新美股公告/财报: lychee data pull filings --symbols "
+            f"{','.join(filing_symbols)}"
+        )
+    return commands
+
+
+def _research_action_symbols(candidate: CandidateCheck) -> list[str]:
+    if candidate.symbol:
+        return [candidate.symbol]
+    return candidate.proxy_symbols
+
+
+def _filing_symbols(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> list[str]:
+    if candidate.market.upper() != "US" or not candidate.symbol:
+        return []
+    if _asset_type(packet) != "stock":
+        return []
+    return [candidate.symbol]
+
+
+def _asset_type(packet: ResearchPacket | None) -> str:
+    if packet is None:
+        return ""
+    candidate = _dict_value(packet.packet.get("candidate"))
+    return _string_value(candidate.get("asset_type"), default="").lower()
+
+
+def _research_action_name(action: str) -> str:
+    return {
+        "refresh_market": "刷新行情",
+        "refresh_news": "刷新新闻",
+        "refresh_filings": "刷新美股公告/财报",
+    }.get(action, action)
+
+
+def _research_action_result(
+    action: str,
+    count: int,
+    warnings: list[str],
+) -> str:
+    lines = [
+        f"已执行: {_research_action_name(action)}",
+        f"返回行数: {count}",
+    ]
+    if warnings:
+        lines.append("警告: " + "；".join(warnings[:3]))
     return "\n".join(lines)
 
 
@@ -499,6 +779,12 @@ def _gap_summary(data_gaps: list[str]) -> str:
     if not data_gaps:
         return "无"
     return "；".join(gap.rstrip("。；;,.， ") for gap in data_gaps if gap.strip())
+
+
+def _display_values(values: list[str]) -> str:
+    if not values:
+        return "-"
+    return ", ".join(values)
 
 
 def _dict_value(value: object) -> dict[str, object]:

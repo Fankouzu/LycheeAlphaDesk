@@ -163,7 +163,7 @@ def test_dashboard_research_workbench_action_runs_check(
     asyncio.run(run_case())
 
 
-def test_dashboard_research_task_selection_opens_start_detail(
+def test_dashboard_research_task_selection_opens_research_result_workbench(
     monkeypatch, tmp_path: Path
 ) -> None:
     class FakeWorkbenchResult:
@@ -258,6 +258,9 @@ def test_dashboard_research_task_selection_opens_start_detail(
             assert "研究结果" in text
             assert "纳斯达克100ETF观察" in text
             assert "入口: QQQ" in text
+            assert "信号读数:" in text
+            assert "证据矩阵" in text
+            assert "可执行动作" in text
             assert "当前研究结论:" in text
             assert "已采集证据" in text
             assert "Tech shares rebound with QQQ volume rising" in text
@@ -267,7 +270,120 @@ def test_dashboard_research_task_selection_opens_start_detail(
             assert "数据缺口: 无" in text
             assert "下一步动作:" in text
             assert "对比 QQQ 与 SPY。" in text
+            action_menu = app.query_one("#research-detail-action-menu", OptionList)
+            first_action = str(action_menu.get_option_at_index(0).prompt)
+            assert "刷新行情" in first_action
+            assert "lychee data pull market --symbols QQQ --provider auto --force" in text
             assert not app.query("#research-task-menu")
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_research_task_action_refreshes_market_data(
+    monkeypatch, tmp_path: Path
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakePullResult:
+        domain = "market"
+        provider = "auto"
+        count = 1
+        output_path = tmp_path / "data" / "market-prices.json"
+        warnings: list[str] = []
+
+    class FakeWorkbenchResult:
+        status = "ready"
+        ready_count = 1
+        blocked_count = 0
+        candidates = [
+            CandidateCheck(
+                display_name="纳斯达克100ETF观察",
+                market="US",
+                symbol="QQQ",
+                proxy_symbols=[],
+                evidence_count=1,
+                gap_count=0,
+                data_gaps=[],
+                status="ready",
+                explanation="",
+                beginner_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+                why_it_matters="",
+                observation_entry="QQQ",
+                what_to_check="对比 QQQ 与 SPY。",
+                next_step="检查成交量是否配合反弹",
+                priority="P2 待增强证据",
+                evidence_status="证据 1 条；缺口 0 个",
+            )
+        ]
+        deepen_result = ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[
+                ResearchPacket(
+                    packet_id="research:test:1",
+                    candidate_id=1,
+                    created_at="2026-07-05T10:00:00+00:00",
+                    display_name="纳斯达克100ETF观察",
+                    symbol="QQQ",
+                    market="US",
+                    packet={
+                        "candidate": {"asset_type": "ETF"},
+                        "evidence": [],
+                        "local_data": {
+                            "price": {},
+                            "related_news": [],
+                            "filings": [],
+                            "symbol_mapping": [],
+                        },
+                        "data_gaps": [],
+                    },
+                )
+            ],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        )
+        beginner_brief = "AlphaDesk 研究工作台"
+
+    def fake_pull_market_prices(**kwargs: object) -> FakePullResult:
+        calls.append(kwargs)
+        return FakePullResult()
+
+    monkeypatch.setattr(
+        tui_app,
+        "run_workbench_check",
+        lambda **kwargs: FakeWorkbenchResult(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app,
+        "pull_market_prices",
+        fake_pull_market_prices,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert calls == [
+                {
+                    "symbols": ["QQQ"],
+                    "output_dir": tmp_path,
+                    "provider_id": "auto",
+                    "force": True,
+                }
+            ]
+            detail = app.query_one("#action-status", Static)
+            text = str(detail.content)
+            assert "已执行: 刷新行情" in text
+            assert "返回行数: 1" in text
 
     asyncio.run(run_case())
 

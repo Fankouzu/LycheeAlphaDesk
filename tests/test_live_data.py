@@ -3,7 +3,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from lychee_alphadesk.core.cache_freshness import record_cache_entry
+from lychee_alphadesk.core.cache_freshness import list_cache_entries, record_cache_entry
 from lychee_alphadesk.core.config import default_config, save_config
 from lychee_alphadesk.core.live_data import (
     build_cached_data_snapshot,
@@ -292,6 +292,71 @@ def test_pull_news_events_writes_finnhub_cache(tmp_path: Path) -> None:
     assert cache["rows"][0]["headline"] == "Apple reports services growth"
     assert cache["rows"][0]["symbols"] == ["AAPL"]
     assert cache["rows"][0]["source_url"] == "https://example.com/aapl-news"
+    entries = list_cache_entries(tmp_path, layer="news")
+    assert len(entries) == 1
+    assert entries[0].provider == "finnhub"
+    assert entries[0].row_count == 1
+
+
+def test_pull_news_events_skips_fresh_cache(tmp_path: Path) -> None:
+    config = default_config()
+    config.providers["finnhub"].value = "demo-finnhub-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    cache_path = data_dir / "news-events.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "provider": "finnhub",
+                "created_at": "2026-07-06T10:00:00+00:00",
+                "warnings": [],
+                "rows": [
+                    {
+                        "timestamp": "2026-07-06T09:30:00+00:00",
+                        "headline": "Cached Apple news",
+                        "summary": "Cached summary.",
+                        "symbols": ["AAPL"],
+                        "source_url": "https://example.com/cached-aapl-news",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    record_cache_entry(
+        output_dir=tmp_path,
+        layer="news",
+        cache_key="news:finnhub:AAPL:2026-07-01:2026-07-03",
+        provider="finnhub",
+        artifact_path=cache_path,
+        created_at=datetime(2026, 7, 6, 10, 0, tzinfo=UTC),
+        expires_at=datetime(2026, 7, 6, 11, 0, tzinfo=UTC),
+        ttl_seconds=3600,
+        row_count=1,
+        market="mixed",
+        session_state="ttl",
+        is_final_for_session=False,
+    )
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        raise AssertionError("fresh news cache should skip provider fetch")
+
+    result = pull_news_events(
+        symbols=["AAPL"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="finnhub",
+        start_date="2026-07-01",
+        end_date="2026-07-03",
+        fetch_json=fetch_json,
+        now=datetime(2026, 7, 6, 10, 30, tzinfo=UTC),
+    )
+
+    assert result.refreshed is False
+    assert result.provider == "finnhub"
+    assert result.count == 1
+    assert "新闻缓存仍在保质期内" in result.warnings[0]
 
 
 def test_auto_news_provider_falls_back_when_first_configured_provider_fails(

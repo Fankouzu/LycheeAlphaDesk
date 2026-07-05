@@ -414,6 +414,10 @@ def data_pull_news(
         Path,
         typer.Option("--output-dir", help="实时缓存输出目录。"),
     ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略保质期，强制刷新新闻。"),
+    ] = False,
 ) -> None:
     """拉取市场新闻到本地缓存。"""
     try:
@@ -423,6 +427,7 @@ def data_pull_news(
             provider_id=provider,
             start_date=start_date,
             end_date=end_date,
+            force=force,
         )
     except (RuntimeError, ValueError) as error:
         console.print(str(error))
@@ -495,6 +500,7 @@ def _display_session_state(state: str) -> str:
         "post_close_refresh": "收盘确认窗口",
         "closed": "收盘",
         "weekend": "周末",
+        "ttl": "保质期",
     }.get(state, state)
 
 

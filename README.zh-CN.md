@@ -248,6 +248,7 @@ lychee research queue
 lychee data pull market --symbols AAPL,TSLA
 lychee data pull market --symbols AAPL,TSLA --force
 lychee data pull news --symbols AAPL --provider auto
+lychee data pull news --symbols AAPL --provider auto --force
 lychee data pull filings --symbols AAPL,TSLA --limit 3
 lychee data freshness
 lychee data health
@@ -262,6 +263,8 @@ lychee
 - 公告：SEC EDGAR 美股近期 filings。
 
 行情 cache 已接入交易时段感知保质期：美股、港股和 A 股会按常规交易时段判断是否需要刷新。交易中默认 15 分钟保质期；港股/A 股午休、收盘确认后、周末会优先使用缓存；`--force` 会忽略保质期和交易时段策略强制刷新。第一版只内置常规交易时段和周末判断，完整节假日日历后续接入交易日历 provider。
+
+新闻 cache 已接入基础保质期：默认 1 小时内复用本地缓存，避免 discovery 和手动钻取反复消耗 provider 配额；`--force` 可强制刷新新闻。
 
 查看本地缓存状态：
 

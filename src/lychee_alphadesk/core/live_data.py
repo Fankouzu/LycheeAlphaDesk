@@ -10,7 +10,9 @@ from pathlib import Path
 
 from lychee_alphadesk.core.cache_freshness import (
     evaluate_market_cache,
+    evaluate_news_cache,
     record_market_cache,
+    record_news_cache,
 )
 from lychee_alphadesk.core.config import AlphaDeskConfig, load_config
 from lychee_alphadesk.core.data_engine import DataQualityCheck, DataSnapshot
@@ -134,9 +136,31 @@ def pull_news_events(
     start_date: str | None = None,
     end_date: str | None = None,
     fetch_json: JsonFetcher | None = None,
+    force: bool = False,
+    now: datetime | None = None,
 ) -> PullResult:
     config = load_config(config_path)
     start, end = _date_window(start_date, end_date)
+    freshness = evaluate_news_cache(
+        output_dir=output_dir,
+        provider=provider_id,
+        symbols=symbols,
+        start_date=start,
+        end_date=end,
+        now=now,
+        force=force,
+    )
+    if not freshness.should_refresh and freshness.entry is not None:
+        cache = _read_cache(output_dir, "news-events.json")
+        return PullResult(
+            "news",
+            freshness.entry.provider,
+            len(cache.rows),
+            freshness.entry.artifact_path,
+            [freshness.reason],
+            refreshed=False,
+        )
+
     fetcher = fetch_json or _fetch_json
     warnings: list[str] = []
     rows: list[NewsEvent] = []
@@ -175,6 +199,19 @@ def pull_news_events(
         provider=selected_provider,
         rows=[asdict(row) for row in rows],
         warnings=warnings,
+        now=now,
+    )
+    record_news_cache(
+        output_dir=output_dir,
+        provider=selected_provider,
+        cache_provider=provider_id,
+        symbols=symbols,
+        start_date=start,
+        end_date=end,
+        artifact_path=output_path,
+        row_count=len(rows),
+        now=now,
+        forced=force,
     )
     return PullResult("news", selected_provider, len(rows), output_path, warnings)
 

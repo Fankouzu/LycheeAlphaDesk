@@ -248,6 +248,7 @@ Current symbol-level cache commands:
 lychee data pull market --symbols AAPL,TSLA
 lychee data pull market --symbols AAPL,TSLA --force
 lychee data pull news --symbols AAPL --provider auto
+lychee data pull news --symbols AAPL --provider auto --force
 lychee data pull filings --symbols AAPL,TSLA --limit 3
 lychee data freshness
 lychee data health
@@ -262,6 +263,8 @@ Current live providers:
 - Filings: SEC EDGAR recent filings for US-listed symbols.
 
 Market-price cache now uses trading-session-aware freshness. US, HK, and China A-share symbols are checked against regular market hours before refreshing. During open sessions the default freshness window is 15 minutes; HK/CN lunch breaks, post-close final caches, and weekends prefer the local cache; `--force` ignores freshness and session state. The first implementation includes regular sessions and weekends only; full holiday calendars should come from a future trading-calendar provider.
+
+News cache now has a basic freshness window: by default, local news cache is reused for 1 hour so discovery and manual drilldowns do not repeatedly consume provider quota; `--force` refreshes news explicitly.
 
 View local cache freshness with:
 

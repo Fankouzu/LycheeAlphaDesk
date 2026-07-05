@@ -10,6 +10,7 @@ from lychee_alphadesk.core.market_calendar import (
 )
 
 MARKET_CACHE_TTL_SECONDS = 15 * 60
+NEWS_CACHE_TTL_SECONDS = 60 * 60
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,16 @@ def market_cache_key(provider: str, symbols: list[str]) -> str:
     return f"market:{provider}:{normalized_symbols}"
 
 
+def news_cache_key(
+    provider: str,
+    symbols: list[str],
+    start_date: str,
+    end_date: str,
+) -> str:
+    normalized_symbols = ",".join(sorted(symbol.upper() for symbol in symbols))
+    return f"news:{provider}:{normalized_symbols}:{start_date}:{end_date}"
+
+
 def evaluate_market_cache(
     *,
     output_dir: Path,
@@ -74,6 +85,30 @@ def evaluate_market_cache(
     return CacheDecision(True, "行情缓存已过期。", entry)
 
 
+def evaluate_news_cache(
+    *,
+    output_dir: Path,
+    provider: str,
+    symbols: list[str],
+    start_date: str,
+    end_date: str,
+    now: datetime | None = None,
+    force: bool = False,
+) -> CacheDecision:
+    current = _ensure_aware(now or datetime.now(UTC))
+    cache_key = news_cache_key(provider, symbols, start_date, end_date)
+    entry = get_cache_entry(output_dir, "news", cache_key)
+    if force:
+        return CacheDecision(True, "用户强制刷新新闻缓存。", entry)
+    if entry is None:
+        return CacheDecision(True, "没有可用的新闻缓存。", None)
+    if not entry.artifact_path.exists():
+        return CacheDecision(True, "新闻缓存记录存在，但缓存文件缺失。", entry)
+    if current < entry.expires_at:
+        return CacheDecision(False, "新闻缓存仍在保质期内，跳过刷新。", entry)
+    return CacheDecision(True, "新闻缓存已过期。", entry)
+
+
 def record_market_cache(
     *,
     output_dir: Path,
@@ -100,6 +135,45 @@ def record_market_cache(
         market=",".join(sorted({state.market for state in states})),
         session_state=",".join(sorted({state.state for state in states})),
         is_final_for_session=_is_final_for_session(states),
+        forced=forced,
+    )
+
+
+def record_news_cache(
+    *,
+    output_dir: Path,
+    provider: str,
+    symbols: list[str],
+    start_date: str,
+    end_date: str,
+    artifact_path: Path,
+    row_count: int,
+    now: datetime | None = None,
+    forced: bool = False,
+    cache_provider: str | None = None,
+) -> CacheEntry:
+    current = _ensure_aware(now or datetime.now(UTC))
+    markets = ",".join(
+        sorted({infer_market_from_symbol(symbol) for symbol in symbols})
+    ) or "mixed"
+    return record_cache_entry(
+        output_dir=output_dir,
+        layer="news",
+        cache_key=news_cache_key(
+            cache_provider or provider,
+            symbols,
+            start_date,
+            end_date,
+        ),
+        provider=provider,
+        artifact_path=artifact_path,
+        created_at=current,
+        expires_at=current + timedelta(seconds=NEWS_CACHE_TTL_SECONDS),
+        ttl_seconds=NEWS_CACHE_TTL_SECONDS,
+        row_count=row_count,
+        market=markets,
+        session_state="ttl",
+        is_final_for_session=False,
         forced=forced,
     )
 

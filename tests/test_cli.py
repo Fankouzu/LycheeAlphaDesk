@@ -256,6 +256,31 @@ def test_data_freshness_command_lists_cache_entries(tmp_path: Path) -> None:
     assert "AAPL,TSLA" in result.stdout
 
 
+def test_data_freshness_command_translates_ttl_state(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "data" / "news-events.json"
+    artifact_path.parent.mkdir()
+    artifact_path.write_text('{"provider": "finnhub", "rows": []}', encoding="utf-8")
+    record_cache_entry(
+        output_dir=tmp_path,
+        layer="news",
+        cache_key="news:finnhub:AAPL:2026-07-01:2026-07-03",
+        provider="finnhub",
+        artifact_path=artifact_path,
+        created_at=datetime(2026, 7, 6, 10, 0, tzinfo=UTC),
+        expires_at=datetime(2026, 7, 6, 11, 0, tzinfo=UTC),
+        ttl_seconds=3600,
+        row_count=1,
+        market="US",
+        session_state="ttl",
+        is_final_for_session=False,
+    )
+
+    result = runner.invoke(app, ["data", "freshness", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "保质期" in result.stdout
+
+
 def test_data_freshness_command_handles_empty_cache(tmp_path: Path) -> None:
     result = runner.invoke(app, ["data", "freshness", "--output-dir", str(tmp_path)])
 
@@ -269,6 +294,7 @@ def test_data_pull_news_command_writes_live_cache(monkeypatch, tmp_path: Path) -
         assert kwargs["provider_id"] == "finnhub"
         assert kwargs["start_date"] == "2026-07-01"
         assert kwargs["end_date"] == "2026-07-03"
+        assert kwargs["force"] is False
         return PullResult(
             domain="news",
             provider="finnhub",
@@ -300,6 +326,36 @@ def test_data_pull_news_command_writes_live_cache(monkeypatch, tmp_path: Path) -
 
     assert result.exit_code == 0
     assert "已拉取新闻事件: 1" in result.stdout
+
+
+def test_data_pull_news_command_passes_force(monkeypatch, tmp_path: Path) -> None:
+    def fake_pull_news_events(**kwargs: object) -> PullResult:
+        assert kwargs["force"] is True
+        return PullResult(
+            domain="news",
+            provider="finnhub",
+            count=1,
+            output_path=tmp_path / "data" / "news-events.json",
+            warnings=[],
+        )
+
+    monkeypatch.setattr(cli_app, "pull_news_events", fake_pull_news_events)
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "pull",
+            "news",
+            "--symbols",
+            "AAPL",
+            "--force",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
 
 
 def test_data_snapshot_command_reads_live_cache_by_default(tmp_path: Path) -> None:

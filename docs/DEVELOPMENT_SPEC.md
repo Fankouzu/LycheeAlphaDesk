@@ -128,7 +128,7 @@ lad
 
 Command behavior:
 
-- `lad` opens the TUI with `Today Discovery` as the first action, followed by watch-candidate review, data health, provider setup guidance, manual symbol drilldown, snapshots, and quit.
+- `lad` opens the TUI with `今日市场发现` as the first action and `研究工作台` as the second action, followed by manual symbol drilldown, data health, provider setup guidance, snapshots, and quit.
 - `lad demo` verifies that demo files and local output directories exist.
 - `lad setup` opens the unified interactive configuration center for data providers and LLM providers.
 - `lad setup set` stores one provider key or token in the local config file for automation and agent use.
@@ -146,7 +146,7 @@ Command behavior:
 - `lad data freshness` only reads local `cache_entries` and displays cache layer, status, provider, cache key, market, session state, expiration time, and row count without triggering provider requests.
 - `lad data health` checks live cache presence and row counts.
 - `lad data snapshot` writes a unified JSON snapshot from the live cache.
-- The TUI home action menu must expose the discovery-first workflow before manual symbol workflows. Manual symbol entry remains available only as a drilldown path for users who already know which asset they want to inspect. The Textual built-in command palette is not a business-command surface and should stay disabled on the home screen to avoid terminal glyph-width issues.
+- The TUI home action menu must expose the discovery-first workflow and research workbench before manual symbol workflows. The `研究工作台` action must run the workbench readiness loop and display `AlphaDesk 研究工作台` executable tasks, next actions, and blocked tasks. Manual symbol entry remains available only as a drilldown path for users who already know which asset they want to inspect. The Textual built-in command palette is not a business-command surface and should stay disabled on the home screen to avoid terminal glyph-width issues.
 - `lad report --demo` generates a Markdown daily report from bundled demo providers.
 - `lad policy check` validates the policy file and prints violations or warnings.
 - `lad research queue` lists watch candidates from the SQLite research database with status, market, symbol, theme, evidence count, and next-action count.

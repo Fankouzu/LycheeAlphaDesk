@@ -59,11 +59,79 @@ def test_dashboard_has_keyboard_action_menu(tmp_path: Path) -> None:
             menu = app.query_one("#action-menu", OptionList)
             assert menu.highlighted == 0
             assert "今日市场发现" in str(menu.get_option_at_index(0).prompt)
+            assert "研究工作台" in str(menu.get_option_at_index(1).prompt)
 
             await pilot.press("down")
             await pilot.pause()
 
             assert menu.highlighted == 1
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_research_workbench_action_runs_check(
+    monkeypatch, tmp_path: Path
+) -> None:
+    observed_status: list[str] = []
+    calls: list[Path] = []
+    app_holder: list[AlphaDeskApp] = []
+
+    class FakeWorkbenchResult:
+        beginner_brief = "\n".join(
+            [
+                "AlphaDesk 研究工作台",
+                "状态: 可执行研究 | 可执行 1 | 阻塞 0 | 总任务 1",
+                "",
+                "今日研究任务",
+                "- 纳斯达克100ETF观察 [US] | 入口: QQQ | "
+                "优先级: P2 待增强证据 | 证据状态: 证据 1 条；缺口 0 个",
+                "  研究问题: 美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+                "  关键核验: 对比 QQQ 与 SPY。",
+                "  下一步: 检查成交量是否配合反弹",
+                "",
+                "下一步队列",
+                "- 纳斯达克100ETF观察: 检查成交量是否配合反弹",
+                "",
+                "阻塞任务",
+                "- 无。",
+            ]
+        )
+
+    def fake_run_workbench_check(**kwargs: object) -> FakeWorkbenchResult:
+        app = app_holder[0]
+        status = app.query_one("#action-status", Static)
+        observed_status.append(str(status.content))
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        calls.append(output_dir)
+        return FakeWorkbenchResult()
+
+    monkeypatch.setattr(
+        tui_app,
+        "run_workbench_check",
+        fake_run_workbench_check,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        app_holder.append(app)
+        async with app.run_test() as pilot:
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            status = app.query_one("#action-status", Static)
+            text = str(status.content)
+            assert calls == [tmp_path]
+            assert any("正在运行工作台自检" in item for item in observed_status)
+            assert "AlphaDesk 研究工作台" in text
+            assert "今日研究任务" in text
+            assert "下一步队列" in text
+            assert "QQQ" in text
+            assert "给新手的读法" not in text
+            assert not app.query(Input)
 
     asyncio.run(run_case())
 
@@ -290,7 +358,7 @@ def test_dashboard_market_menu_action_pulls_prices(
     async def run_case() -> None:
         app = AlphaDeskApp(output_dir=tmp_path)
         async with app.run_test() as pilot:
-            await pilot.press("down")
+            await pilot.press("down", "down")
             await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()
@@ -311,7 +379,7 @@ def test_dashboard_symbol_prompt_handles_empty_submit(tmp_path: Path) -> None:
     async def run_case() -> None:
         app = AlphaDeskApp(output_dir=tmp_path)
         async with app.run_test() as pilot:
-            await pilot.press("down")
+            await pilot.press("down", "down")
             await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()

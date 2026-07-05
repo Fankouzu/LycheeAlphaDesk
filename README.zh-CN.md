@@ -300,7 +300,7 @@ lychee data freshness
 
 这个命令只读取 `.alphadesk/research.sqlite3` 的 `cache_entries`，展示层级、状态、数据源、缓存 key、市场、交易状态、过期时间和行数，不会触发任何 provider 请求。
 
-live TUI dashboard 会读取本地 cache，并展示数量、provider 和最新缓存价格。`lychee` 主界面应优先展示 `Today Discovery`，然后让用户查看关注候选、检查数据健康、配置 provider，或手动钻取已知股票代码。主界面禁用 Textual 内置 command palette，请使用可见 Action 菜单。它不会下单，也不会输出投资建议。
+live TUI dashboard 会读取本地 cache，并展示数量、provider 和最新缓存价格。`lychee` 主界面应优先展示 `今日市场发现`，第二项是 `研究工作台`，用于运行工作台自检并展示可执行任务、下一步队列和阻塞任务；之后才是手动钻取已知股票代码、数据健康、配置指引和快照等辅助动作。主界面禁用 Textual 内置 command palette，请使用可见 Action 菜单。它不会下单，也不会输出投资建议。
 
 建议优先接入：
 

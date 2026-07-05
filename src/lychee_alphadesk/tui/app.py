@@ -28,9 +28,11 @@ from lychee_alphadesk.core.live_data import (
 from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR
 from lychee_alphadesk.core.research_db import write_discovery_research_run
+from lychee_alphadesk.core.workbench import run_workbench_check
 
 ActionId = Literal[
     "today_discovery",
+    "research_workbench",
     "pull_market",
     "pull_news",
     "pull_filings",
@@ -64,6 +66,7 @@ class AlphaDeskApp(App[None]):
         yield Static("操作", id="action-title")
         yield OptionList(
             Option("今日市场发现", id="today_discovery"),
+            Option("研究工作台", id="research_workbench"),
             Option("手动查看行情", id="pull_market"),
             Option("手动查看新闻", id="pull_news"),
             Option("手动查看美股公告", id="pull_filings"),
@@ -107,6 +110,8 @@ class AlphaDeskApp(App[None]):
         action_id = event.option.id
         if action_id == "today_discovery":
             await self._show_today_discovery()
+        elif action_id == "research_workbench":
+            await self._show_research_workbench()
         elif action_id == "pull_market":
             await self._show_symbol_prompt(
                 "pull_market",
@@ -164,6 +169,29 @@ class AlphaDeskApp(App[None]):
             lines.append("暂无实时缓存。请先运行:")
             lines.append("  lychee discover today")
         return "\n".join(lines)
+
+    async def _show_research_workbench(self) -> None:
+        await self._replace_action_panel(
+            Static(
+                "正在运行工作台自检，并整理研究任务，请稍候...",
+                id="action-status",
+            )
+        )
+        try:
+            result = await asyncio.to_thread(
+                run_workbench_check,
+                output_dir=self.output_dir,
+            )
+        except (RuntimeError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static(result.beginner_brief, id="action-status")
+        )
+        self.set_focus(self.query_one("#action-menu", OptionList))
 
     async def _show_symbol_prompt(self, action: ActionId, placeholder: str) -> None:
         self.pending_action = action

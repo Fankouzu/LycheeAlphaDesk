@@ -8,6 +8,10 @@ from rich.table import Table
 
 from lychee_alphadesk.core import setup as setup_helpers
 from lychee_alphadesk.core.audit import init_audit_db, list_audit_records
+from lychee_alphadesk.core.cache_freshness import (
+    cache_entry_status,
+    list_cache_entries,
+)
 from lychee_alphadesk.core.config import (
     AlphaDeskConfig,
     ProviderSetupInfo,
@@ -228,6 +232,52 @@ def data_health(
     console.print(table)
 
 
+@data_app.command("freshness")
+def data_freshness(
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    layer: Annotated[
+        str | None,
+        typer.Option("--layer", help="只查看某一层缓存，例如 market。"),
+    ] = None,
+) -> None:
+    """查看本地缓存新鲜度。"""
+    entries = list_cache_entries(output_dir, layer=layer)
+    if not entries:
+        console.print("暂无缓存新鲜度记录。请先运行 `lychee data pull ...`。")
+        return
+
+    table = Table(title="Lychee AlphaDesk 数据新鲜度")
+    table.add_column("层级")
+    table.add_column("状态")
+    table.add_column("数据源")
+    table.add_column("缓存 Key", overflow="fold")
+    table.add_column("市场")
+    table.add_column("交易状态")
+    table.add_column("过期时间")
+    table.add_column("行数")
+    for entry in entries:
+        table.add_row(
+            entry.layer,
+            _display_cache_status(cache_entry_status(entry)),
+            entry.provider,
+            entry.cache_key,
+            entry.market,
+            _display_session_state(entry.session_state),
+            entry.expires_at.isoformat(timespec="seconds"),
+            str(entry.row_count),
+        )
+    console.print(table)
+    console.print("缓存明细")
+    for entry in entries:
+        console.print(
+            f"- {entry.cache_key} 状态: {_display_cache_status(cache_entry_status(entry))} "
+            f"数据源: {entry.provider} 过期: {entry.expires_at.isoformat(timespec='seconds')}"
+        )
+
+
 @discover_app.command("today")
 def discover_today(
     markets: Annotated[
@@ -426,6 +476,26 @@ def _display_mode(mode: str) -> str:
 
 def _display_status(status: str) -> str:
     return {"pass": "通过", "warning": "警告", "error": "错误"}.get(status, status)
+
+
+def _display_cache_status(status: str) -> str:
+    return {
+        "fresh": "有效",
+        "expired": "过期",
+        "final_for_session": "收盘确认",
+        "failed": "失败",
+    }.get(status, status)
+
+
+def _display_session_state(state: str) -> str:
+    return {
+        "pre_open": "开盘前",
+        "open": "交易中",
+        "lunch_break": "午休",
+        "post_close_refresh": "收盘确认窗口",
+        "closed": "收盘",
+        "weekend": "周末",
+    }.get(state, state)
 
 
 @setup_app.callback()

@@ -220,20 +220,53 @@ def get_cache_entry(output_dir: Path, layer: str, cache_key: str) -> CacheEntry 
         ).fetchone()
     if row is None:
         return None
-    return CacheEntry(
-        layer=row[0],
-        cache_key=row[1],
-        provider=row[2],
-        artifact_path=Path(row[3]),
-        created_at=_parse_datetime(row[4]),
-        expires_at=_parse_datetime(row[5]),
-        ttl_seconds=row[6],
-        status=row[7],
-        row_count=row[8],
-        market=row[9],
-        session_state=row[10],
-        is_final_for_session=bool(row[11]),
-    )
+    return _cache_entry_from_row(row)
+
+
+def list_cache_entries(output_dir: Path, layer: str | None = None) -> list[CacheEntry]:
+    db_path = cache_db_path(output_dir)
+    if not db_path.exists():
+        return []
+    _init_cache_db(output_dir)
+    where_clause = ""
+    parameters: tuple[str, ...] = ()
+    if layer:
+        where_clause = "WHERE layer = ?"
+        parameters = (layer,)
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT
+                layer,
+                cache_key,
+                provider,
+                artifact_path,
+                created_at,
+                expires_at,
+                ttl_seconds,
+                status,
+                row_count,
+                market,
+                session_state,
+                is_final_for_session
+            FROM cache_entries
+            {where_clause}
+            ORDER BY layer, cache_key
+            """,
+            parameters,
+        ).fetchall()
+    return [_cache_entry_from_row(row) for row in rows]
+
+
+def cache_entry_status(entry: CacheEntry, now: datetime | None = None) -> str:
+    current = _ensure_aware(now or datetime.now(UTC))
+    if entry.status != "fresh":
+        return entry.status
+    if current >= entry.expires_at:
+        return "expired"
+    if entry.is_final_for_session:
+        return "final_for_session"
+    return "fresh"
 
 
 def _init_cache_db(output_dir: Path) -> None:
@@ -265,6 +298,23 @@ def _init_cache_db(output_dir: Path) -> None:
             ON cache_entries(layer, expires_at)
             """
         )
+
+
+def _cache_entry_from_row(row: tuple[object, ...]) -> CacheEntry:
+    return CacheEntry(
+        layer=str(row[0]),
+        cache_key=str(row[1]),
+        provider=str(row[2]),
+        artifact_path=Path(str(row[3])),
+        created_at=_parse_datetime(str(row[4])),
+        expires_at=_parse_datetime(str(row[5])),
+        ttl_seconds=int(str(row[6])),
+        status=str(row[7]),
+        row_count=int(str(row[8])),
+        market=str(row[9]),
+        session_state=str(row[10]),
+        is_final_for_session=bool(int(str(row[11]))),
+    )
 
 
 def _state_for_symbol(symbol: str, now: datetime) -> MarketSessionState:

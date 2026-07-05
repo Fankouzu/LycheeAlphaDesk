@@ -114,6 +114,7 @@ lad data snapshot --demo
 lad data pull market --symbols AAPL,TSLA
 lad data pull news --symbols AAPL --provider auto
 lad data pull filings --symbols AAPL,TSLA --limit 3
+lad data freshness
 lad data health
 lad data snapshot
 lad report --demo
@@ -140,6 +141,7 @@ lad
 - `lad data pull market` 将 Alpha Vantage 日线行情写入本地 live cache。默认使用行情 cache 的保质期和交易时段判断；`--force` 可强制刷新。
 - `lad data pull news` 将 Marketaux、Finnhub 或 NewsAPI 新闻事件写入本地 live cache。
 - `lad data pull filings` 将 SEC EDGAR 近期 filings 写入本地 live cache。
+- `lad data freshness` 只读取本地 `cache_entries`，展示缓存层级、状态、provider、cache key、市场、交易状态、过期时间和行数，不触发 provider 请求。
 - `lad data health` 检查 live cache 是否存在以及行数状态。
 - `lad data snapshot` 基于 live cache 写入统一 JSON 快照。
 - TUI 主界面 Action 菜单必须先暴露发现优先流程，再暴露手动 symbol 流程。手动输入股票代码只作为已经知道关注对象后的钻取路径保留。Textual 内置 command palette 不是业务命令入口，并且应在主界面保持禁用，以避免终端 glyph 宽度显示问题。

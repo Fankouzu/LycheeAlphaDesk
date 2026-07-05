@@ -114,6 +114,7 @@ lad data snapshot --demo
 lad data pull market --symbols AAPL,TSLA
 lad data pull news --symbols AAPL --provider auto
 lad data pull filings --symbols AAPL,TSLA --limit 3
+lad data freshness
 lad data health
 lad data snapshot
 lad report --demo
@@ -140,6 +141,7 @@ Command behavior:
 - `lad data pull market` writes Alpha Vantage daily prices into the local live cache. It uses market-cache freshness and trading-session checks by default; `--force` bypasses them.
 - `lad data pull news` writes Marketaux, Finnhub, or NewsAPI events into the local live cache.
 - `lad data pull filings` writes recent SEC EDGAR filings into the local live cache.
+- `lad data freshness` only reads local `cache_entries` and displays cache layer, status, provider, cache key, market, session state, expiration time, and row count without triggering provider requests.
 - `lad data health` checks live cache presence and row counts.
 - `lad data snapshot` writes a unified JSON snapshot from the live cache.
 - The TUI home action menu must expose the discovery-first workflow before manual symbol workflows. Manual symbol entry remains available only as a drilldown path for users who already know which asset they want to inspect. The Textual built-in command palette is not a business-command surface and should stay disabled on the home screen to avoid terminal glyph-width issues.

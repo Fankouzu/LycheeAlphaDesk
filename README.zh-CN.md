@@ -249,6 +249,7 @@ lychee data pull market --symbols AAPL,TSLA
 lychee data pull market --symbols AAPL,TSLA --force
 lychee data pull news --symbols AAPL --provider auto
 lychee data pull filings --symbols AAPL,TSLA --limit 3
+lychee data freshness
 lychee data health
 lychee data snapshot
 lychee
@@ -261,6 +262,14 @@ lychee
 - 公告：SEC EDGAR 美股近期 filings。
 
 行情 cache 已接入交易时段感知保质期：美股、港股和 A 股会按常规交易时段判断是否需要刷新。交易中默认 15 分钟保质期；港股/A 股午休、收盘确认后、周末会优先使用缓存；`--force` 会忽略保质期和交易时段策略强制刷新。第一版只内置常规交易时段和周末判断，完整节假日日历后续接入交易日历 provider。
+
+查看本地缓存状态：
+
+```bash
+lychee data freshness
+```
+
+这个命令只读取 `.alphadesk/research.sqlite3` 的 `cache_entries`，展示层级、状态、数据源、缓存 key、市场、交易状态、过期时间和行数，不会触发任何 provider 请求。
 
 live TUI dashboard 会读取本地 cache，并展示数量、provider 和最新缓存价格。`lychee` 主界面应优先展示 `Today Discovery`，然后让用户查看关注候选、检查数据健康、配置 provider，或手动钻取已知股票代码。主界面禁用 Textual 内置 command palette，请使用可见 Action 菜单。它不会下单，也不会输出投资建议。
 

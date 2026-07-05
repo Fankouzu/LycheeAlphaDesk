@@ -1,10 +1,12 @@
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from typer.testing import CliRunner
 
 import lychee_alphadesk.cli.app as cli_app
 from lychee_alphadesk.cli.app import app
+from lychee_alphadesk.core.cache_freshness import record_cache_entry
 from lychee_alphadesk.core.config import set_openai_compatible_llm
 from lychee_alphadesk.core.live_data import PullResult
 
@@ -223,6 +225,42 @@ def test_data_pull_market_command_passes_force(monkeypatch, tmp_path: Path) -> N
     )
 
     assert result.exit_code == 0
+
+
+def test_data_freshness_command_lists_cache_entries(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "data" / "market-prices.json"
+    artifact_path.parent.mkdir()
+    artifact_path.write_text('{"provider": "alpha_vantage", "rows": []}', encoding="utf-8")
+    record_cache_entry(
+        output_dir=tmp_path,
+        layer="market",
+        cache_key="market:alpha_vantage:AAPL,TSLA",
+        provider="alpha_vantage",
+        artifact_path=artifact_path,
+        created_at=datetime(2026, 7, 6, 14, 0, tzinfo=UTC),
+        expires_at=datetime(2026, 7, 7, 13, 30, tzinfo=UTC),
+        ttl_seconds=900,
+        row_count=2,
+        market="US",
+        session_state="closed",
+        is_final_for_session=True,
+    )
+
+    result = runner.invoke(app, ["data", "freshness", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "数据新鲜度" in result.stdout
+    assert "market" in result.stdout
+    assert "alpha_vantage" in result.stdout
+    assert "收盘确认" in result.stdout
+    assert "AAPL,TSLA" in result.stdout
+
+
+def test_data_freshness_command_handles_empty_cache(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["data", "freshness", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "暂无缓存新鲜度记录" in result.stdout
 
 
 def test_data_pull_news_command_writes_live_cache(monkeypatch, tmp_path: Path) -> None:

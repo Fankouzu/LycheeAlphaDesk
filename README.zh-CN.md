@@ -277,6 +277,15 @@ lychee research detail --name "Alibaba"
 
 `research detail` 会运行同一套工作台自检，然后输出一条研究任务的 `研究结果`：入口、信号读数、证据矩阵、行情、相关新闻、公告/财报线索、数据缺口和可执行刷新命令。未传 `--symbol` 或 `--name` 时默认展示当前队列第一条任务，方便 agent 做非交互式自检。
 
+执行单条研究任务的数据刷新链：
+
+```bash
+lychee research run
+lychee research run --symbol QQQ --force
+```
+
+`research run` 会选择一条研究任务，刷新该任务相关的行情、新闻和适用的美股公告/财报，然后重新运行工作台自检并输出更新后的 `研究结果`。每次执行会写入 `.alphadesk/research/research-run-*.json`，用于审计 agent 到底刷新了什么、返回多少数据、哪些动作失败或使用缓存。
+
 当前可用的市场级与 symbol 级 cache 命令：
 
 ```bash

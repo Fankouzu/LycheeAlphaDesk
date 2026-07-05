@@ -49,10 +49,13 @@ from lychee_alphadesk.core.research_db import (
     write_discovery_research_run,
 )
 from lychee_alphadesk.core.workbench import (
+    ResearchRunResult,
     WorkbenchCheckResult,
     beginner_research_brief,
     render_research_task_detail,
+    run_research_task,
     run_workbench_check,
+    select_research_candidate_index,
 )
 from lychee_alphadesk.tui.app import run_tui
 from lychee_alphadesk.tui.setup import run_setup_tui
@@ -567,7 +570,7 @@ def research_detail(
     if not result.candidates:
         console.print("研究队列为空。请先运行 `lychee discover today`。")
         return
-    selected_index = _select_research_candidate(result, symbol=symbol, name=name)
+    selected_index = select_research_candidate_index(result, symbol=symbol, name=name)
     if selected_index is None:
         console.print("没有找到匹配的研究任务。")
         console.print("可选任务:")
@@ -584,6 +587,49 @@ def research_detail(
         else None
     )
     console.print(render_research_task_detail(candidate, packet), soft_wrap=True)
+
+
+@research_app.command("run")
+def research_run(
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="按证券代码选择研究任务，例如 STX、QQQ、0700.HK。"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="按任务名称选择研究任务，例如 Seagate。"),
+    ] = None,
+    status: Annotated[
+        str | None,
+        typer.Option("--status", help="按研究状态选择候选；默认处理 new。"),
+    ] = "new",
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多检查多少个研究候选。"),
+    ] = 5,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略已有缓存，强制刷新本任务相关数据。"),
+    ] = False,
+) -> None:
+    """执行单条研究任务的数据刷新链，并输出更新后的研究结果。"""
+    try:
+        result = run_research_task(
+            output_dir=output_dir,
+            symbol=symbol,
+            name=name,
+            status=status,
+            limit=limit,
+            force=force,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    _print_research_run(result)
 
 
 @data_pull_app.command("market")
@@ -772,27 +818,53 @@ def _print_workbench_check(result: WorkbenchCheckResult) -> None:
     console.print(result.beginner_brief, soft_wrap=True)
 
 
-def _select_research_candidate(
-    result: WorkbenchCheckResult,
-    *,
-    symbol: str | None,
-    name: str | None,
-) -> int | None:
-    if symbol:
-        target = symbol.strip().upper()
-        for index, candidate in enumerate(result.candidates):
-            symbols = [candidate.symbol or "", *candidate.proxy_symbols]
-            if any(item.upper() == target for item in symbols):
-                return index
-        return None
-    if name:
-        target_name = name.strip().lower()
-        for index, candidate in enumerate(result.candidates):
-            display_name = candidate.display_name.lower()
-            if display_name == target_name or target_name in display_name:
-                return index
-        return None
-    return 0
+def _print_research_run(result: ResearchRunResult) -> None:
+    console.print(f"研究执行记录已写入: {result.artifact_path}", soft_wrap=True)
+    console.print(f"状态: {_display_research_run_status(result.status)}")
+    table = Table(title="Lychee AlphaDesk 研究执行链")
+    table.add_column("动作")
+    table.add_column("状态")
+    table.add_column("代码", overflow="fold")
+    table.add_column("行数")
+    table.add_column("说明", overflow="fold")
+    for action in result.actions:
+        table.add_row(
+            _display_research_action_type(action.action_type),
+            _display_research_action_status(action.status),
+            _display_values(action.symbols),
+            str(action.count),
+            action.message,
+        )
+    console.print(table)
+    for action in result.actions:
+        for warning in action.warnings:
+            console.print(f"警告: {warning}", soft_wrap=True)
+    console.print(result.detail, soft_wrap=True)
+
+
+def _display_research_run_status(status: str) -> str:
+    return {
+        "completed": "已完成",
+        "partial": "部分完成",
+    }.get(status, status)
+
+
+def _display_research_action_type(action_type: str) -> str:
+    return {
+        "refresh_market": "刷新行情",
+        "refresh_news": "刷新新闻",
+        "refresh_filings": "刷新美股公告/财报",
+        "none": "无自动动作",
+    }.get(action_type, action_type)
+
+
+def _display_research_action_status(status: str) -> str:
+    return {
+        "pulled": "已刷新",
+        "cached": "使用缓存",
+        "failed": "失败",
+        "skipped": "跳过",
+    }.get(status, status)
 
 
 def _display_workbench_status(status: str) -> str:

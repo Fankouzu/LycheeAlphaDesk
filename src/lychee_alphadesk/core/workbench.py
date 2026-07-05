@@ -7,6 +7,7 @@ from pathlib import Path
 from lychee_alphadesk.core.live_data import (
     PullResult,
     pull_market_prices,
+    pull_news_events,
     pull_sec_filings,
 )
 from lychee_alphadesk.core.research import (
@@ -18,6 +19,7 @@ from lychee_alphadesk.core.research import (
 )
 
 PullMarket = Callable[..., PullResult]
+PullNews = Callable[..., PullResult]
 PullFilings = Callable[..., PullResult]
 
 
@@ -67,6 +69,29 @@ class WorkbenchCheckResult:
     @property
     def is_ready(self) -> bool:
         return self.status == "ready"
+
+
+@dataclass(frozen=True)
+class ResearchRunAction:
+    action_type: str
+    status: str
+    symbols: list[str]
+    count: int
+    output_path: Path | None
+    warnings: list[str]
+    message: str
+
+
+@dataclass(frozen=True)
+class ResearchRunResult:
+    created_at: str
+    status: str
+    candidate: CandidateCheck
+    packet: ResearchPacket | None
+    actions: list[ResearchRunAction]
+    detail: str
+    artifact_path: Path
+    workbench_result: WorkbenchCheckResult
 
 
 def run_workbench_check(
@@ -124,6 +149,124 @@ def run_workbench_check(
         fill_result=fill_result,
         deepen_result=deepen_result,
     )
+
+
+def run_research_task(
+    *,
+    output_dir: Path,
+    symbol: str | None = None,
+    name: str | None = None,
+    status: str | None = "new",
+    limit: int = 5,
+    force: bool = False,
+    now: datetime | None = None,
+    pull_market: PullMarket | None = None,
+    pull_news: PullNews | None = None,
+    pull_filings: PullFilings | None = None,
+) -> ResearchRunResult:
+    created_at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
+    initial = run_workbench_check(
+        output_dir=output_dir,
+        status=status,
+        limit=limit,
+        force=False,
+        now=now,
+        pull_market=pull_market,
+        pull_filings=pull_filings,
+    )
+    selected_index = select_research_candidate_index(
+        initial,
+        symbol=symbol,
+        name=name,
+    )
+    if selected_index is None:
+        raise ValueError("没有找到匹配的研究任务。")
+
+    candidate = initial.candidates[selected_index]
+    packet = (
+        initial.deepen_result.packets[selected_index]
+        if selected_index < len(initial.deepen_result.packets)
+        else None
+    )
+    actions = _run_research_refresh_actions(
+        candidate=candidate,
+        packet=packet,
+        output_dir=output_dir,
+        force=force,
+        pull_market=pull_market or pull_market_prices,
+        pull_news=pull_news or pull_news_events,
+        pull_filings=pull_filings or pull_sec_filings,
+    )
+    refreshed = run_workbench_check(
+        output_dir=output_dir,
+        status=status,
+        limit=limit,
+        force=False,
+        now=now,
+        pull_market=pull_market,
+        pull_filings=pull_filings,
+    )
+    refreshed_index = select_research_candidate_index(
+        refreshed,
+        symbol=symbol or candidate.symbol,
+        name=name or candidate.display_name,
+    )
+    if refreshed_index is None:
+        refreshed_index = selected_index
+    refreshed_candidate = refreshed.candidates[refreshed_index]
+    refreshed_packet = (
+        refreshed.deepen_result.packets[refreshed_index]
+        if refreshed_index < len(refreshed.deepen_result.packets)
+        else None
+    )
+    action_status = _research_run_action_status(actions)
+    detail = render_research_task_detail(
+        refreshed_candidate,
+        refreshed_packet,
+        action_status=action_status,
+    )
+    run_status = "completed" if all(action.status != "failed" for action in actions) else "partial"
+    artifact_path = _write_research_run_artifact(
+        output_dir=output_dir,
+        created_at=created_at,
+        status=run_status,
+        candidate=refreshed_candidate,
+        actions=actions,
+        detail=detail,
+    )
+    return ResearchRunResult(
+        created_at=created_at,
+        status=run_status,
+        candidate=refreshed_candidate,
+        packet=refreshed_packet,
+        actions=actions,
+        detail=detail,
+        artifact_path=artifact_path,
+        workbench_result=refreshed,
+    )
+
+
+def select_research_candidate_index(
+    result: WorkbenchCheckResult,
+    *,
+    symbol: str | None,
+    name: str | None,
+) -> int | None:
+    if symbol:
+        target = symbol.strip().upper()
+        for index, candidate in enumerate(result.candidates):
+            symbols = [candidate.symbol or "", *candidate.proxy_symbols]
+            if any(item.upper() == target for item in symbols):
+                return index
+        return None
+    if name:
+        target_name = name.strip().lower()
+        for index, candidate in enumerate(result.candidates):
+            display_name = candidate.display_name.lower()
+            if display_name == target_name or target_name in display_name:
+                return index
+        return None
+    return 0 if result.candidates else None
 
 
 def beginner_research_brief(packets: list[ResearchPacket]) -> str:
@@ -271,6 +414,165 @@ def research_action_result(
     if warnings:
         lines.append("警告: " + "；".join(warnings[:3]))
     return "\n".join(lines)
+
+
+def _run_research_refresh_actions(
+    *,
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+    output_dir: Path,
+    force: bool,
+    pull_market: PullMarket,
+    pull_news: PullNews,
+    pull_filings: PullFilings,
+) -> list[ResearchRunAction]:
+    symbols = research_action_symbols(candidate)
+    actions: list[ResearchRunAction] = []
+    if symbols:
+        actions.append(
+            _pull_research_action(
+                action_type="refresh_market",
+                symbols=symbols,
+                call=lambda: pull_market(
+                    symbols=symbols,
+                    output_dir=output_dir,
+                    provider_id="auto",
+                    force=force,
+                ),
+            )
+        )
+        actions.append(
+            _pull_research_action(
+                action_type="refresh_news",
+                symbols=symbols,
+                call=lambda: pull_news(
+                    symbols=symbols,
+                    output_dir=output_dir,
+                    provider_id="auto",
+                    force=force,
+                ),
+            )
+        )
+    filing_symbols = research_filing_symbols(candidate, packet)
+    if filing_symbols:
+        actions.append(
+            _pull_research_action(
+                action_type="refresh_filings",
+                symbols=filing_symbols,
+                call=lambda: pull_filings(
+                    symbols=filing_symbols,
+                    output_dir=output_dir,
+                ),
+            )
+        )
+    if not actions:
+        actions.append(
+            ResearchRunAction(
+                action_type="none",
+                status="skipped",
+                symbols=[],
+                count=0,
+                output_path=None,
+                warnings=[],
+                message="当前研究任务没有可自动执行的刷新动作。",
+            )
+        )
+    return actions
+
+
+def _pull_research_action(
+    *,
+    action_type: str,
+    symbols: list[str],
+    call: Callable[[], PullResult],
+) -> ResearchRunAction:
+    try:
+        result = call()
+    except (RuntimeError, ValueError) as error:
+        return ResearchRunAction(
+            action_type=action_type,
+            status="failed",
+            symbols=symbols,
+            count=0,
+            output_path=None,
+            warnings=[str(error)],
+            message=f"{research_action_name(action_type)}失败。",
+        )
+    return ResearchRunAction(
+        action_type=action_type,
+        status="pulled" if result.refreshed else "cached",
+        symbols=symbols,
+        count=result.count,
+        output_path=result.output_path,
+        warnings=result.warnings,
+        message=f"{research_action_name(action_type)}完成。",
+    )
+
+
+def _research_run_action_status(actions: list[ResearchRunAction]) -> str:
+    lines = ["研究执行链"]
+    for action in actions:
+        symbol_text = ", ".join(action.symbols) if action.symbols else "-"
+        status = _display_action_status(action.status)
+        lines.append(
+            f"- {research_action_name(action.action_type)} | {status} | "
+            f"{symbol_text} | 返回 {action.count} 行"
+        )
+        if action.warnings:
+            lines.append("  警告: " + "；".join(action.warnings[:3]))
+    return "\n".join(lines)
+
+
+def _display_action_status(status: str) -> str:
+    return {
+        "pulled": "已刷新",
+        "cached": "使用缓存",
+        "failed": "失败",
+        "skipped": "跳过",
+    }.get(status, status)
+
+
+def _write_research_run_artifact(
+    *,
+    output_dir: Path,
+    created_at: str,
+    status: str,
+    candidate: CandidateCheck,
+    actions: list[ResearchRunAction],
+    detail: str,
+) -> Path:
+    research_dir = output_dir / "research"
+    research_dir.mkdir(parents=True, exist_ok=True)
+    output_path = research_dir / f"research-run-{_safe_timestamp(created_at)}.json"
+    output_path.write_text(
+        json.dumps(
+            {
+                "created_at": created_at,
+                "status": status,
+                "candidate": asdict(candidate),
+                "actions": [_research_run_action_to_dict(action) for action in actions],
+                "detail": detail,
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return output_path
+
+
+def _research_run_action_to_dict(action: ResearchRunAction) -> dict[str, object]:
+    return {
+        "action_type": action.action_type,
+        "status": action.status,
+        "symbols": action.symbols,
+        "count": action.count,
+        "output_path": str(action.output_path) if action.output_path else None,
+        "warnings": action.warnings,
+        "message": action.message,
+    }
 
 
 def _candidate_checks(packets: list[ResearchPacket]) -> list[CandidateCheck]:

@@ -277,6 +277,15 @@ lychee research detail --name "Alibaba"
 
 `research detail` runs the same workbench readiness loop, then prints a single task-level `研究结果`: entrypoint, signal reading, evidence matrix, price data, related news, filings/financial clues, data gaps, and executable refresh commands. Without `--symbol` or `--name`, it prints the first queued task so agents can run a non-interactive check.
 
+Execute the refresh chain for one research task:
+
+```bash
+lychee research run
+lychee research run --symbol QQQ --force
+```
+
+`research run` selects one research task, refreshes task-level prices, news, and applicable US filings/financial clues, then reruns the workbench check and prints the updated `研究结果`. Each run writes `.alphadesk/research/research-run-*.json` so humans and agents can audit which actions ran, how many rows returned, and which actions failed or used cache.
+
 Current market-level and symbol-level cache commands:
 
 ```bash

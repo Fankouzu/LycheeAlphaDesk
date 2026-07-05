@@ -339,6 +339,190 @@ def test_research_detail_command_prints_actionable_workbench_detail(
     assert "lychee data pull filings --symbols STX" in result.stdout
 
 
+def test_research_run_command_executes_refresh_chain_and_writes_artifact(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _write_cli_research_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-01",
+                        "close": 100.0,
+                        "volume": 1000000,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-01T09:00:00+00:00",
+                        "headline": "Old storage news",
+                        "summary": "Old storage signal.",
+                        "symbols": ["STX"],
+                        "source_url": "https://example.com/old-storage",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "filings.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "date": "2026-07-01",
+                        "company": "Seagate",
+                        "form": "10-K",
+                        "summary": "STX 在 2026-07-01 提交了 10-K。",
+                        "source_url": "https://example.com/10k",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    calls: list[tuple[str, list[str], bool]] = []
+
+    def fake_pull_market_prices(**kwargs: object) -> PullResult:
+        symbols = list(kwargs["symbols"])
+        force = bool(kwargs["force"])
+        calls.append(("market", symbols, force))
+        output_path = tmp_path / "data" / "market-prices.json"
+        output_path.write_text(
+            json.dumps(
+                {
+                    "provider": "auto",
+                    "rows": [
+                        {
+                            "symbol": "STX",
+                            "date": "2026-07-05",
+                            "close": 120.0,
+                            "volume": 4560000,
+                            "currency": "USD",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("market", "auto", 1, output_path, [])
+
+    def fake_pull_news_events(**kwargs: object) -> PullResult:
+        symbols = list(kwargs["symbols"])
+        force = bool(kwargs["force"])
+        calls.append(("news", symbols, force))
+        output_path = tmp_path / "data" / "news-events.json"
+        output_path.write_text(
+            json.dumps(
+                {
+                    "provider": "newsapi",
+                    "rows": [
+                        {
+                            "timestamp": "2026-07-05T09:00:00+00:00",
+                            "headline": "Updated AI storage news",
+                            "summary": "Fresh storage signal.",
+                            "symbols": ["STX"],
+                            "source_url": "https://example.com/updated-storage",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("news", "newsapi", 1, output_path, [])
+
+    def fake_pull_sec_filings(**kwargs: object) -> PullResult:
+        symbols = list(kwargs["symbols"])
+        calls.append(("filings", symbols, False))
+        output_path = tmp_path / "data" / "filings.json"
+        output_path.write_text(
+            json.dumps(
+                {
+                    "provider": "sec_edgar",
+                    "rows": [
+                        {
+                            "date": "2026-07-04",
+                            "company": "Seagate",
+                            "form": "8-K",
+                            "summary": "STX 在 2026-07-04 提交了 8-K。",
+                            "source_url": "https://example.com/8k",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("filings", "sec_edgar", 1, output_path, [])
+
+    monkeypatch.setattr(
+        "lychee_alphadesk.core.workbench.pull_market_prices",
+        fake_pull_market_prices,
+    )
+    monkeypatch.setattr(
+        "lychee_alphadesk.core.workbench.pull_news_events",
+        fake_pull_news_events,
+    )
+    monkeypatch.setattr(
+        "lychee_alphadesk.core.workbench.pull_sec_filings",
+        fake_pull_sec_filings,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "run",
+            "--symbol",
+            "STX",
+            "--force",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert calls == [
+        ("market", ["STX"], True),
+        ("news", ["STX"], True),
+        ("filings", ["STX"], False),
+    ]
+    assert "研究执行记录已写入" in result.stdout
+    assert "刷新行情" in result.stdout
+    assert "刷新新闻" in result.stdout
+    assert "刷新美股公告/财报" in result.stdout
+    assert "STX 120.00 USD" in result.stdout
+    assert "Updated AI storage news" in result.stdout
+    assert "8-K 2026-07-04" in result.stdout
+    artifacts = list((tmp_path / "research").glob("research-run-*.json"))
+    assert artifacts
+    payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
+    assert payload["candidate"]["symbol"] == "STX"
+    assert payload["actions"][0]["action_type"] == "refresh_market"
+    assert payload["detail"].startswith("研究结果")
+
+
 def test_research_deepen_command_shows_proxy_mapping_symbols(tmp_path: Path) -> None:
     _write_cli_symbolless_mapping_seed(tmp_path)
     data_dir = tmp_path / "data"

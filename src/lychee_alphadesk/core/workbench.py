@@ -88,10 +88,21 @@ class ResearchRunResult:
     status: str
     candidate: CandidateCheck
     packet: ResearchPacket | None
+    assessment: "ResearchAssessment"
     actions: list[ResearchRunAction]
     detail: str
     artifact_path: Path
     workbench_result: WorkbenchCheckResult
+
+
+@dataclass(frozen=True)
+class ResearchAssessment:
+    stage: str
+    stage_label: str
+    consistency: str
+    consistency_label: str
+    evidence_reading: str
+    next_decision: str
 
 
 def run_workbench_check(
@@ -225,12 +236,14 @@ def run_research_task(
         refreshed_packet,
         action_status=action_status,
     )
+    assessment = build_research_assessment(refreshed_candidate, refreshed_packet)
     run_status = "completed" if all(action.status != "failed" for action in actions) else "partial"
     artifact_path = _write_research_run_artifact(
         output_dir=output_dir,
         created_at=created_at,
         status=run_status,
         candidate=refreshed_candidate,
+        assessment=assessment,
         actions=actions,
         detail=detail,
     )
@@ -239,6 +252,7 @@ def run_research_task(
         status=run_status,
         candidate=refreshed_candidate,
         packet=refreshed_packet,
+        assessment=assessment,
         actions=actions,
         detail=detail,
         artifact_path=artifact_path,
@@ -289,12 +303,20 @@ def render_research_task_detail(
     filings = _dict_list(local_data.get("filings"))
     data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
     commands = research_action_commands(candidate, packet)
+    assessment = build_research_assessment(candidate, packet)
     lines = [
         "研究结果",
         f"任务: {candidate.display_name} [{candidate.market}]",
         f"入口: {candidate.observation_entry}",
         f"优先级: {candidate.priority}",
         f"证据状态: {candidate.evidence_status}",
+        "",
+        "研究状态",
+        f"- 阶段: {assessment.stage_label}",
+        f"- 一致性: {assessment.consistency_label}",
+        f"- 证据读数: {assessment.evidence_reading}",
+        f"- 下一步判断: {assessment.next_decision}",
+        "",
         "信号读数: "
         + _signal_reading(candidate, price, evidence, related_news, filings, data_gaps),
         f"研究问题: {candidate.beginner_question}",
@@ -334,6 +356,73 @@ def render_research_task_detail(
     lines.append("")
     lines.append("边界: 这是研究工作台快照，不是买卖建议。")
     return "\n".join(lines)
+
+
+def build_research_assessment(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> ResearchAssessment:
+    packet_payload = packet.packet if packet is not None else {}
+    local_data = _dict_value(packet_payload.get("local_data"))
+    price = _dict_value(local_data.get("price"))
+    evidence = _dict_list(packet_payload.get("evidence"))
+    related_news = _dict_list(local_data.get("related_news"))
+    filings = _dict_list(local_data.get("filings"))
+    data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
+    asset_type = _asset_type(packet)
+    if data_gaps:
+        return ResearchAssessment(
+            stage="blocked",
+            stage_label="待补数据",
+            consistency="blocked",
+            consistency_label="无法核验",
+            evidence_reading="还有数据缺口，不能判断证据是否互相支持。",
+            next_decision="先补齐数据缺口，再重新运行研究执行链。",
+        )
+    if candidate.proxy_symbols and not candidate.symbol:
+        return ResearchAssessment(
+            stage="proxy_review",
+            stage_label="代理核验",
+            consistency="pending_proxy_review",
+            consistency_label="待核验",
+            evidence_reading="这条线索通过代理标的观察，必须先确认代理是否覆盖主题。",
+            next_decision="核对代理成分、流动性、费用和可交易性，再决定是否下钻。",
+        )
+    has_news = bool(evidence or related_news)
+    filings_required = candidate.market.upper() == "US" and asset_type == "stock"
+    filings_ready = not filings_required or bool(filings)
+    if price and has_news and filings_ready:
+        return ResearchAssessment(
+            stage="ready_for_drilldown",
+            stage_label="可下钻研究",
+            consistency="pending_review",
+            consistency_label="待核验",
+            evidence_reading=_ready_evidence_reading(filings_required),
+            next_decision="进入下钻核验，检查行情、成交量、新闻和公告/财报是否指向同一主题。",
+        )
+    if price or has_news or filings:
+        return ResearchAssessment(
+            stage="evidence_building",
+            stage_label="继续补证据",
+            consistency="insufficient",
+            consistency_label="证据不足",
+            evidence_reading="已经有部分材料，但还不足以判断这条线索是否值得下钻。",
+            next_decision="继续补行情、新闻或公告/财报，再重新判断。",
+        )
+    return ResearchAssessment(
+        stage="empty",
+        stage_label="仅保留线索",
+        consistency="insufficient",
+        consistency_label="证据不足",
+        evidence_reading="当前没有可核验的行情、新闻或公告/财报材料。",
+        next_decision="先刷新数据，再决定是否进入研究队列。",
+    )
+
+
+def _ready_evidence_reading(filings_required: bool) -> str:
+    if filings_required:
+        return "行情、消息和公告/财报材料都已出现，可以开始核验它们是否同向。"
+    return "行情和消息材料都已出现，可以开始核验它们是否同向。"
 
 
 def research_detail_actions(
@@ -538,6 +627,7 @@ def _write_research_run_artifact(
     created_at: str,
     status: str,
     candidate: CandidateCheck,
+    assessment: ResearchAssessment,
     actions: list[ResearchRunAction],
     detail: str,
 ) -> Path:
@@ -550,6 +640,7 @@ def _write_research_run_artifact(
                 "created_at": created_at,
                 "status": status,
                 "candidate": asdict(candidate),
+                "assessment": asdict(assessment),
                 "actions": [_research_run_action_to_dict(action) for action in actions],
                 "detail": detail,
             },

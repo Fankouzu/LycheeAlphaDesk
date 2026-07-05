@@ -329,6 +329,9 @@ def test_research_detail_command_prints_actionable_workbench_detail(
     assert result.exit_code == 0
     assert "研究结果" in result.stdout
     assert "任务: Seagate [US]" in result.stdout
+    assert "研究状态" in result.stdout
+    assert "阶段: 可下钻研究" in result.stdout
+    assert "一致性: 待核验" in result.stdout
     assert "信号读数:" in result.stdout
     assert "证据矩阵" in result.stdout
     assert "行情: STX 110.50 USD" in result.stdout
@@ -513,12 +516,16 @@ def test_research_run_command_executes_refresh_chain_and_writes_artifact(
     assert "刷新新闻" in result.stdout
     assert "刷新美股公告/财报" in result.stdout
     assert "STX 120.00 USD" in result.stdout
+    assert "研究状态" in result.stdout
+    assert "阶段: 可下钻研究" in result.stdout
     assert "Updated AI storage news" in result.stdout
     assert "8-K 2026-07-04" in result.stdout
     artifacts = list((tmp_path / "research").glob("research-run-*.json"))
     assert artifacts
     payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
     assert payload["candidate"]["symbol"] == "STX"
+    assert payload["assessment"]["stage"] == "ready_for_drilldown"
+    assert payload["assessment"]["consistency"] == "pending_review"
     assert payload["actions"][0]["action_type"] == "refresh_market"
     assert payload["detail"].startswith("研究结果")
 

@@ -275,7 +275,7 @@ lychee research detail --symbol QQQ
 lychee research detail --name "Alibaba"
 ```
 
-`research detail` 会运行同一套工作台自检，然后输出一条研究任务的 `研究结果`：入口、信号读数、证据矩阵、行情、相关新闻、公告/财报线索、数据缺口和可执行刷新命令。未传 `--symbol` 或 `--name` 时默认展示当前队列第一条任务，方便 agent 做非交互式自检。
+`research detail` 会运行同一套工作台自检，然后输出一条研究任务的 `研究结果`：入口、研究状态、信号读数、证据矩阵、行情、相关新闻、公告/财报线索、数据缺口和可执行刷新命令。`研究状态` 只判断这条线索处于待补数据、代理核验、继续补证据还是可下钻研究；它不会给出买入、卖出、仓位或目标价。未传 `--symbol` 或 `--name` 时默认展示当前队列第一条任务，方便 agent 做非交互式自检。
 
 执行单条研究任务的数据刷新链：
 
@@ -284,7 +284,7 @@ lychee research run
 lychee research run --symbol QQQ --force
 ```
 
-`research run` 会选择一条研究任务，刷新该任务相关的行情、新闻和适用的美股公告/财报，然后重新运行工作台自检并输出更新后的 `研究结果`。每次执行会写入 `.alphadesk/research/research-run-*.json`，用于审计 agent 到底刷新了什么、返回多少数据、哪些动作失败或使用缓存。
+`research run` 会选择一条研究任务，刷新该任务相关的行情、新闻和适用的美股公告/财报，然后重新运行工作台自检并输出更新后的 `研究结果`。每次执行会写入 `.alphadesk/research/research-run-*.json`，用于审计 agent 到底刷新了什么、返回多少数据、哪些动作失败或使用缓存；审计记录也会保存结构化 `assessment`，包括阶段、一致性核验状态、证据读数和下一步判断。
 
 当前可用的市场级与 symbol 级 cache 命令：
 

@@ -275,7 +275,7 @@ lychee research detail --symbol QQQ
 lychee research detail --name "Alibaba"
 ```
 
-`research detail` runs the same workbench readiness loop, then prints a single task-level `研究结果`: entrypoint, signal reading, evidence matrix, price data, related news, filings/financial clues, data gaps, and executable refresh commands. Without `--symbol` or `--name`, it prints the first queued task so agents can run a non-interactive check.
+`research detail` runs the same workbench readiness loop, then prints a single task-level `研究结果`: entrypoint, research status, signal reading, evidence matrix, price data, related news, filings/financial clues, data gaps, and executable refresh commands. `研究状态` only tells whether the line is blocked, proxy-review-only, still building evidence, or ready for deeper research; it does not produce buy/sell, allocation, or target-price advice. Without `--symbol` or `--name`, it prints the first queued task so agents can run a non-interactive check.
 
 Execute the refresh chain for one research task:
 
@@ -284,7 +284,7 @@ lychee research run
 lychee research run --symbol QQQ --force
 ```
 
-`research run` selects one research task, refreshes task-level prices, news, and applicable US filings/financial clues, then reruns the workbench check and prints the updated `研究结果`. Each run writes `.alphadesk/research/research-run-*.json` so humans and agents can audit which actions ran, how many rows returned, and which actions failed or used cache.
+`research run` selects one research task, refreshes task-level prices, news, and applicable US filings/financial clues, then reruns the workbench check and prints the updated `研究结果`. Each run writes `.alphadesk/research/research-run-*.json` so humans and agents can audit which actions ran, how many rows returned, and which actions failed or used cache; the artifact also stores structured `assessment` with stage, consistency-review state, evidence reading, and next decision.
 
 Current market-level and symbol-level cache commands:
 

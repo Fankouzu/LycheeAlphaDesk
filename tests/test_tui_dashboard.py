@@ -14,6 +14,7 @@ from lychee_alphadesk.core.discovery import (
 )
 from lychee_alphadesk.core.live_data import PullResult
 from lychee_alphadesk.core.research_db import list_research_queue
+from lychee_alphadesk.core.workbench import CandidateCheck
 from lychee_alphadesk.tui.app import AlphaDeskApp
 
 
@@ -77,6 +78,29 @@ def test_dashboard_research_workbench_action_runs_check(
     app_holder: list[AlphaDeskApp] = []
 
     class FakeWorkbenchResult:
+        status = "ready"
+        ready_count = 1
+        blocked_count = 0
+        candidates = [
+            CandidateCheck(
+                display_name="纳斯达克100ETF观察",
+                market="US",
+                symbol="QQQ",
+                proxy_symbols=[],
+                evidence_count=1,
+                gap_count=0,
+                data_gaps=[],
+                status="ready",
+                explanation="",
+                beginner_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+                why_it_matters="",
+                observation_entry="QQQ",
+                what_to_check="对比 QQQ 与 SPY。",
+                next_step="检查成交量是否配合反弹",
+                priority="P2 待增强证据",
+                evidence_status="证据 1 条；缺口 0 个",
+            )
+        ]
         beginner_brief = "\n".join(
             [
                 "AlphaDesk 研究工作台",
@@ -127,11 +151,71 @@ def test_dashboard_research_workbench_action_runs_check(
             assert calls == [tmp_path]
             assert any("正在运行工作台自检" in item for item in observed_status)
             assert "AlphaDesk 研究工作台" in text
-            assert "今日研究任务" in text
-            assert "下一步队列" in text
-            assert "QQQ" in text
+            assert "选择一个研究任务，按 Enter 开始研究" in text
             assert "给新手的读法" not in text
+            task_menu = app.query_one("#research-task-menu", OptionList)
+            task_label = str(task_menu.get_option_at_index(0).prompt)
+            assert "纳斯达克100ETF观察" in task_label
+            assert "QQQ" in task_label
             assert not app.query(Input)
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_research_task_selection_opens_start_detail(
+    monkeypatch, tmp_path: Path
+) -> None:
+    class FakeWorkbenchResult:
+        status = "ready"
+        ready_count = 1
+        blocked_count = 0
+        candidates = [
+            CandidateCheck(
+                display_name="纳斯达克100ETF观察",
+                market="US",
+                symbol="QQQ",
+                proxy_symbols=[],
+                evidence_count=1,
+                gap_count=0,
+                data_gaps=[],
+                status="ready",
+                explanation="",
+                beginner_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+                why_it_matters="",
+                observation_entry="QQQ",
+                what_to_check="对比 QQQ 与 SPY。",
+                next_step="检查成交量是否配合反弹",
+                priority="P2 待增强证据",
+                evidence_status="证据 1 条；缺口 0 个",
+            )
+        ]
+        beginner_brief = "AlphaDesk 研究工作台"
+
+    monkeypatch.setattr(
+        tui_app,
+        "run_workbench_check",
+        lambda **kwargs: FakeWorkbenchResult(),
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            detail = app.query_one("#action-status", Static)
+            text = str(detail.content)
+            assert "开始研究" in text
+            assert "纳斯达克100ETF观察" in text
+            assert "入口: QQQ" in text
+            assert "第一步:" in text
+            assert "对比 QQQ 与 SPY。" in text
+            assert not app.query("#research-task-menu")
 
     asyncio.run(run_case())
 

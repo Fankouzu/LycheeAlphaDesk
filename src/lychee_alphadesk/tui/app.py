@@ -28,7 +28,11 @@ from lychee_alphadesk.core.live_data import (
 from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR
 from lychee_alphadesk.core.research_db import write_discovery_research_run
-from lychee_alphadesk.core.workbench import run_workbench_check
+from lychee_alphadesk.core.workbench import (
+    CandidateCheck,
+    WorkbenchCheckResult,
+    run_workbench_check,
+)
 
 ActionId = Literal[
     "today_discovery",
@@ -59,6 +63,7 @@ class AlphaDeskApp(App[None]):
         super().__init__()
         self.output_dir = output_dir
         self.pending_action: ActionId | None = None
+        self.research_candidates: list[CandidateCheck] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -108,6 +113,9 @@ class AlphaDeskApp(App[None]):
     ) -> None:
         event.stop()
         action_id = event.option.id
+        if isinstance(action_id, str) and action_id.startswith("research_task:"):
+            await self._show_research_task_detail(action_id)
+            return
         if action_id == "today_discovery":
             await self._show_today_discovery()
         elif action_id == "research_workbench":
@@ -188,8 +196,46 @@ class AlphaDeskApp(App[None]):
             )
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
+        self.research_candidates = list(result.candidates)
+        if not self.research_candidates:
+            await self._replace_action_panel(
+                Static(
+                    "AlphaDesk 研究工作台\n暂无研究任务。请先运行“今日市场发现”。",
+                    id="action-status",
+                )
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        self.pending_action = "research_workbench"
         await self._replace_action_panel(
-            Static(result.beginner_brief, id="action-status")
+            Static(
+                _research_workbench_intro(result),
+                id="action-status",
+            ),
+            OptionList(
+                *[
+                    Option(_research_task_label(candidate), id=f"research_task:{index}")
+                    for index, candidate in enumerate(self.research_candidates)
+                ],
+                id="research-task-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#research-task-menu", OptionList))
+
+    async def _show_research_task_detail(self, task_id: str) -> None:
+        raw_index = task_id.removeprefix("research_task:")
+        try:
+            index = int(raw_index)
+            candidate = self.research_candidates[index]
+        except (ValueError, IndexError):
+            await self._replace_action_panel(
+                Static("研究任务不存在，请重新打开研究工作台。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static(_research_task_detail(candidate), id="action-status")
         )
         self.set_focus(self.query_one("#action-menu", OptionList))
 
@@ -324,3 +370,54 @@ def run_tui() -> None:
 
 def _display_status(status: str) -> str:
     return {"pass": "通过", "warning": "警告", "error": "错误"}.get(status, status)
+
+
+def _research_workbench_intro(result: WorkbenchCheckResult) -> str:
+    return "\n".join(
+        [
+            "AlphaDesk 研究工作台",
+            "选择一个研究任务，按 Enter 开始研究。Esc 返回主菜单。",
+            (
+                f"状态: {_display_workbench_status(result.status)} | "
+                f"可执行 {result.ready_count} | 阻塞 {result.blocked_count} | "
+                f"总任务 {len(result.candidates)}"
+            ),
+        ]
+    )
+
+
+def _research_task_label(candidate: CandidateCheck) -> str:
+    return (
+        f"{candidate.display_name} [{candidate.market}] | "
+        f"入口: {candidate.observation_entry} | "
+        f"优先级: {candidate.priority} | "
+        f"{candidate.evidence_status}"
+    )
+
+
+def _research_task_detail(candidate: CandidateCheck) -> str:
+    lines = [
+        "开始研究",
+        f"任务: {candidate.display_name} [{candidate.market}]",
+        f"入口: {candidate.observation_entry}",
+        f"优先级: {candidate.priority}",
+        f"证据状态: {candidate.evidence_status}",
+        f"研究问题: {candidate.beginner_question}",
+        "",
+        f"第一步: {candidate.what_to_check}",
+        f"第二步: {candidate.next_step}",
+    ]
+    if candidate.data_gaps:
+        lines.append(f"阻塞: {'；'.join(candidate.data_gaps)}")
+    if candidate.proxy_symbols:
+        lines.append("代理核验: 核对成分、费用、流动性和是否可交易。")
+    lines.append("")
+    lines.append("说明: 这里仍然是研究任务，不是买卖建议。")
+    return "\n".join(lines)
+
+
+def _display_workbench_status(status: str) -> str:
+    return {
+        "ready": "可执行研究",
+        "blocked": "存在阻塞",
+    }.get(status, status)

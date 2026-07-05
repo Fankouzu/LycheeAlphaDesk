@@ -108,6 +108,11 @@ def build_today_discovery_report(
     )
     themes = _parse_themes(payload)
     candidates = _parse_candidates(payload)
+    _validate_evidence_ids(
+        themes=themes,
+        candidates=candidates,
+        allowed_ids=_allowed_evidence_ids(context),
+    )
     warnings = _optional_string_list(payload, "warnings")
     warnings.append("候选仅用于研究和观察，不是买入或卖出建议。")
     return DiscoveryReport(
@@ -293,6 +298,49 @@ def _build_discovery_messages(context: dict[str, object]) -> list[dict[str, str]
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
+
+
+def _allowed_evidence_ids(context: dict[str, object]) -> set[str]:
+    local_cache = context.get("local_live_cache")
+    if not isinstance(local_cache, dict):
+        return set()
+    evidence_pack = local_cache.get("evidence_pack")
+    if not isinstance(evidence_pack, list):
+        return set()
+    allowed_ids: set[str] = set()
+    for item in evidence_pack:
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            allowed_ids.add(item["id"])
+    return allowed_ids
+
+
+def _validate_evidence_ids(
+    *,
+    themes: list[DiscoveryTheme],
+    candidates: list[DiscoveryCandidate],
+    allowed_ids: set[str],
+) -> None:
+    if not allowed_ids:
+        return
+    for evidence_id in _report_evidence_ids(themes, candidates):
+        if not evidence_id.startswith("news_"):
+            raise DiscoveryLLMRequiredError(
+                "LLM 返回证据必须引用 evidence pack 证据 ID，例如 news_001。"
+            )
+        if evidence_id not in allowed_ids:
+            raise DiscoveryLLMRequiredError(f"LLM 返回未知证据 ID: {evidence_id}")
+
+
+def _report_evidence_ids(
+    themes: list[DiscoveryTheme],
+    candidates: list[DiscoveryCandidate],
+) -> list[str]:
+    evidence_ids: list[str] = []
+    for theme in themes:
+        evidence_ids.extend(theme.evidence)
+    for candidate in candidates:
+        evidence_ids.extend(candidate.evidence)
+    return evidence_ids
 
 
 def _summary_evidence_lines(

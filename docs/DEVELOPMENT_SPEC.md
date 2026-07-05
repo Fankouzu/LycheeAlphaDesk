@@ -241,7 +241,7 @@ The discovery report must include:
 
 News and events must be converted into an evidence pack before entering the LLM. Evidence items use stable local IDs such as `news_001` and include headline, summary, source_url, timestamp, provider, symbols, and tags. The evidence pack should filter obvious direct-pick noise such as direct buy picks, target-price articles, and analyst-rating articles.
 
-The LLM may summarize, cluster, extract, compare, and suggest next research steps. It must cite evidence IDs from the evidence pack instead of vague evidence descriptions. It must not produce direct buy/sell calls, target prices, automatic allocations, or live trading instructions.
+The LLM may summarize, cluster, extract, compare, and suggest next research steps. It must cite evidence IDs from the evidence pack instead of vague evidence descriptions. The system must validate evidence fields returned by the LLM; if evidence is not an existing local evidence-pack ID such as `news_001`, the command must fail and must not write a discovery cache or research queue. The LLM must not produce direct buy/sell calls, target prices, automatic allocations, or live trading instructions.
 
 If no LLM provider is configured, if the API request fails, or if the model does not return valid JSON, the command must fail with setup/error guidance and must not write a discovery cache.
 

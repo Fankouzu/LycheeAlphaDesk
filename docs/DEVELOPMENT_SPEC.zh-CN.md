@@ -241,7 +241,7 @@ Discovery report 必须包含：
 
 新闻和事件进入 LLM 前必须先整理成 evidence pack。证据项使用稳定的本地 ID，例如 `news_001`，并包含 headline、summary、source_url、timestamp、provider、symbols 和 tags。Evidence pack 应过滤明显荐股噪音，例如 direct buy picks、target price 或 analyst rating 文章。
 
-LLM 可以负责摘要、聚类、提取、比较和建议下一步研究数据。LLM 必须引用 evidence pack 中的证据 ID，不得只写模糊证据描述。LLM 不得输出直接买入/卖出结论、目标价、自动仓位配置或实盘交易指令。
+LLM 可以负责摘要、聚类、提取、比较和建议下一步研究数据。LLM 必须引用 evidence pack 中的证据 ID，不得只写模糊证据描述。系统必须校验 LLM 返回的证据字段；如果证据不是本地 evidence pack 中存在的 ID，例如 `news_001`，命令必须失败且不得写入 discovery cache 或研究队列。LLM 不得输出直接买入/卖出结论、目标价、自动仓位配置或实盘交易指令。
 
 如果没有配置 LLM provider、API 请求失败，或模型没有返回有效 JSON，命令必须失败并显示 setup/error 指引，而且不得写入 discovery cache。
 

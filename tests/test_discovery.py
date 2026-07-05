@@ -181,6 +181,52 @@ def test_discovery_summary_expands_news_evidence_ids(tmp_path: Path) -> None:
     assert "https://example.com/ai-infra" in summary
 
 
+def test_today_discovery_rejects_non_id_evidence_when_pack_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = _llm_config()
+    _patch_market_news(monkeypatch, tmp_path, config)
+
+    def fake_post(
+        url: str,
+        headers: dict[str, str],
+        body: dict[str, object],
+    ) -> object:
+        return _llm_payload_with_evidence(["Market headline for discovery"])
+
+    with pytest.raises(RuntimeError, match="证据 ID"):
+        build_today_discovery_report(
+            ["US"],
+            config=config,
+            output_dir=tmp_path,
+            post_json=fake_post,
+        )
+
+
+def test_today_discovery_rejects_unknown_evidence_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = _llm_config()
+    _patch_market_news(monkeypatch, tmp_path, config)
+
+    def fake_post(
+        url: str,
+        headers: dict[str, str],
+        body: dict[str, object],
+    ) -> object:
+        return _llm_payload_with_evidence(["news_999"])
+
+    with pytest.raises(RuntimeError, match="未知证据 ID"):
+        build_today_discovery_report(
+            ["US"],
+            config=config,
+            output_dir=tmp_path,
+            post_json=fake_post,
+        )
+
+
 def test_today_discovery_stops_when_market_news_preparation_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -257,6 +303,87 @@ def _llm_payload() -> dict[str, object]:
             }
         ]
     }
+
+
+def _llm_payload_with_evidence(evidence: list[str]) -> dict[str, object]:
+    content = {
+        "themes": [
+            {
+                "name": "测试主题",
+                "markets": ["US"],
+                "summary": "测试摘要。",
+                "evidence": evidence,
+                "sectors": ["Technology"],
+                "risk_flags": ["测试风险"],
+                "confidence": "medium",
+            }
+        ],
+        "candidates": [
+            {
+                "display_name": "测试候选",
+                "symbol": None,
+                "market": "US",
+                "asset_type": "sector",
+                "related_theme": "测试主题",
+                "why_watch": "测试原因。",
+                "evidence": evidence,
+                "risk_flags": ["测试风险"],
+                "next_actions": ["继续研究"],
+                "confidence": "medium",
+                "recommendation": "research",
+            }
+        ],
+        "warnings": [],
+        "next_actions": ["继续研究"],
+    }
+    return {"choices": [{"message": {"content": json.dumps(content, ensure_ascii=False)}}]}
+
+
+def _llm_config() -> object:
+    config = default_config()
+    config.llm.openai_compatible.base_url = "https://llm.example.com/v1"
+    config.llm.openai_compatible.api_key = "sk-demo-secret"
+    config.llm.openai_compatible.model = "demo-model"
+    return config
+
+
+def _patch_market_news(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    config: object,
+) -> None:
+    def fake_pull_news_events(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == []
+        assert kwargs["config"] == config
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        news_path = data_dir / "news-events.json"
+        news_path.write_text(
+            json.dumps(
+                {
+                    "provider": "newsapi",
+                    "rows": [
+                        {
+                            "timestamp": "2026-07-06T10:00:00+00:00",
+                            "headline": "Market headline for discovery",
+                            "summary": "Market news should reach the LLM context.",
+                            "symbols": ["MARKET"],
+                            "source_url": "https://example.com/market-news",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("news", "newsapi", 1, news_path, [])
+
+    monkeypatch.setattr(
+        discovery_module,
+        "pull_news_events",
+        fake_pull_news_events,
+        raising=False,
+    )
 
 
 def _report_with_news_evidence_id() -> discovery_module.DiscoveryReport:

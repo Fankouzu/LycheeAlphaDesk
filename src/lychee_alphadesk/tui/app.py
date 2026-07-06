@@ -30,9 +30,12 @@ from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR
 from lychee_alphadesk.core.research import ResearchPacket
 from lychee_alphadesk.core.research_db import write_discovery_research_run
 from lychee_alphadesk.core.workbench import (
+    RESEARCH_REVIEW_VERDICTS,
     CandidateCheck,
+    ResearchReviewResult,
     ResearchVerificationResult,
     WorkbenchCheckResult,
+    record_research_review,
     render_research_task_detail,
     research_action_name,
     research_action_result,
@@ -129,6 +132,9 @@ class AlphaDeskApp(App[None]):
             return
         if isinstance(action_id, str) and action_id.startswith("research_detail:"):
             await self._run_research_detail_action(action_id)
+            return
+        if isinstance(action_id, str) and action_id.startswith("research_review:"):
+            await self._run_research_review_action(action_id)
             return
         if action_id == "today_discovery":
             await self._show_today_discovery()
@@ -405,6 +411,63 @@ class AlphaDeskApp(App[None]):
         await self._replace_action_panel(
             Static(_research_verification_text(result), id="action-status"),
             OptionList(
+                *[
+                    Option(label, id=f"research_review:{verdict}")
+                    for verdict, label in _research_review_menu_options()
+                ],
+                Option("返回研究任务列表", id="research_detail:back_tasks"),
+                id="research-detail-action-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#research-detail-action-menu", OptionList))
+
+    async def _run_research_review_action(self, action_id: str) -> None:
+        verdict = action_id.removeprefix("research_review:")
+        verdict_label = RESEARCH_REVIEW_VERDICTS.get(verdict)
+        if verdict_label is None:
+            await self._replace_action_panel(
+                Static("未知复核判断。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        selection = self.selected_research_index
+        if selection is None or selection >= len(self.research_candidates):
+            await self._replace_action_panel(
+                Static("研究任务不存在，请重新打开研究工作台。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        candidate = self.research_candidates[selection]
+        symbols = research_action_symbols(candidate)
+        symbol = symbols[0] if symbols else None
+        name = None if symbol else candidate.display_name
+        note = f"TUI 快速复核: {verdict_label}"
+        await self._replace_action_panel(
+            Static(
+                f"正在记录复核判断: {verdict_label}，请稍候...",
+                id="action-status",
+            )
+        )
+        try:
+            result = await asyncio.to_thread(
+                record_research_review,
+                output_dir=self.output_dir,
+                symbol=symbol,
+                name=name,
+                verdict=verdict,
+                note=note,
+            )
+        except (RuntimeError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._refresh_research_state()
+        await self._replace_action_panel(
+            Static(_research_review_recorded_text(result), id="action-status"),
+            OptionList(
                 Option("返回研究任务列表", id="research_detail:back_tasks"),
                 id="research-detail-action-menu",
                 markup=False,
@@ -610,6 +673,35 @@ def _research_verification_text(result: ResearchVerificationResult) -> str:
     lines.extend(f"- {action}" for action in result.next_actions)
     lines.append("边界: 下钻核验不是买卖建议。")
     return "\n".join(lines)
+
+
+def _research_review_recorded_text(result: ResearchReviewResult) -> str:
+    counts = result.evidence_counts
+    return "\n".join(
+        [
+            "研究复核已记录",
+            f"记录: {result.artifact_path}",
+            f"研究库: {result.db_path}",
+            f"任务: {result.verification.candidate.display_name} "
+            f"[{result.verification.candidate.market}]",
+            f"复核判断: {result.verdict_label}",
+            f"备注: {result.note}",
+            (
+                "证据数量: "
+                f"支持 {counts['support']} | "
+                f"风险/反向待查 {counts['risk']} | "
+                f"待补 {counts['missing']}"
+            ),
+            "边界: 研究复核不是买卖建议。",
+        ]
+    )
+
+
+def _research_review_menu_options() -> list[tuple[str, str]]:
+    return [
+        (verdict, f"记录: {label}")
+        for verdict, label in RESEARCH_REVIEW_VERDICTS.items()
+    ]
 
 
 def _evidence_board_lines(title: str, rows: list[str]) -> list[str]:

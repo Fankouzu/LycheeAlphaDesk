@@ -62,6 +62,14 @@ def _fake_needs_more_evidence_decision_board() -> ResearchDecisionBoard:
     )
 
 
+def test_research_review_followup_actions_continue_research_offer_memo() -> None:
+    assert tui_app._research_review_followup_actions("continue_research") == [
+        ("generate_memo", "生成研究备忘录"),
+        ("verify_research", "重新下钻核验"),
+        ("back_tasks", "返回研究任务列表"),
+    ]
+
+
 def test_dashboard_shows_cached_live_data_summary(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -999,6 +1007,16 @@ def test_dashboard_research_verification_can_record_review_verdict(
             assert "研究复核已记录" in text
             assert "复核判断: 需要补证据" in text
             assert "研究复核不是买卖建议" in text
+            next_menu = app.query_one("#research-detail-action-menu", OptionList)
+            next_actions = [
+                str(next_menu.get_option_at_index(index).prompt)
+                for index in range(next_menu.option_count)
+            ]
+            assert next_actions[:3] == [
+                "刷新主题新闻",
+                "重新下钻核验",
+                "返回研究任务列表",
+            ]
 
     asyncio.run(run_case())
 

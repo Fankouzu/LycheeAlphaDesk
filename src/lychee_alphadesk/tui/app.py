@@ -567,7 +567,12 @@ class AlphaDeskApp(App[None]):
         await self._replace_action_panel(
             Static(_research_review_recorded_text(result), id="action-status"),
             OptionList(
-                Option("返回研究任务列表", id="research_detail:back_tasks"),
+                *[
+                    Option(label, id=f"research_detail:{action}")
+                    for action, label in _research_review_followup_actions(
+                        result.verdict
+                    )
+                ],
                 id="research-detail-action-menu",
                 markup=False,
             ),
@@ -857,24 +862,43 @@ def _research_verification_text(result: ResearchVerificationResult) -> str:
 
 def _research_review_recorded_text(result: ResearchReviewResult) -> str:
     counts = result.evidence_counts
-    return "\n".join(
-        [
-            "研究复核已记录",
-            f"记录: {result.artifact_path}",
-            f"研究库: {result.db_path}",
-            f"任务: {result.verification.candidate.display_name} "
-            f"[{result.verification.candidate.market}]",
-            f"复核判断: {result.verdict_label}",
-            f"备注: {result.note}",
-            (
-                "证据数量: "
-                f"支持 {counts['support']} | "
-                f"风险/反向待查 {counts['risk']} | "
-                f"待补 {counts['missing']}"
-            ),
-            "边界: 研究复核不是买卖建议。",
+    lines = [
+        "研究复核已记录",
+        f"记录: {result.artifact_path}",
+        f"研究库: {result.db_path}",
+        f"任务: {result.verification.candidate.display_name} "
+        f"[{result.verification.candidate.market}]",
+        f"复核判断: {result.verdict_label}",
+        f"备注: {result.note}",
+        (
+            "证据数量: "
+            f"支持 {counts['support']} | "
+            f"风险/反向待查 {counts['risk']} | "
+            f"待补 {counts['missing']}"
+        ),
+    ]
+    followups = _research_review_followup_actions(result.verdict)
+    if followups:
+        lines.extend(["", "工作台下一步"])
+        lines.extend(f"- {label}" for _, label in followups)
+    lines.append("边界: 研究复核不是买卖建议。")
+    return "\n".join(lines)
+
+
+def _research_review_followup_actions(verdict: str) -> list[tuple[str, str]]:
+    if verdict == "needs_more_evidence":
+        return [
+            ("refresh_topic_news", "刷新主题新闻"),
+            ("verify_research", "重新下钻核验"),
+            ("back_tasks", "返回研究任务列表"),
         ]
-    )
+    if verdict == "continue_research":
+        return [
+            ("generate_memo", "生成研究备忘录"),
+            ("verify_research", "重新下钻核验"),
+            ("back_tasks", "返回研究任务列表"),
+        ]
+    return [("back_tasks", "返回研究任务列表")]
 
 
 def _research_memo_text(result: ResearchMemoResult) -> str:

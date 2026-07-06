@@ -53,6 +53,7 @@ from lychee_alphadesk.core.workbench import (
     research_detail_actions,
     research_filing_symbols,
     run_workbench_check,
+    select_research_candidate_index,
     topic_news_query,
     verify_research_task,
 )
@@ -418,11 +419,19 @@ class AlphaDeskApp(App[None]):
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
 
-        await self._refresh_research_state()
-        candidate = self.research_candidates[selection]
+        refreshed = await self._refresh_research_state()
+        refreshed_index = select_research_candidate_index(
+            refreshed,
+            symbol=symbols[0] if symbols else None,
+            name=None if symbols else candidate.display_name,
+        )
+        if refreshed_index is None:
+            refreshed_index = selection
+        self.selected_research_index = refreshed_index
+        candidate = self.research_candidates[refreshed_index]
         packet = (
-            self.research_packets[selection]
-            if selection < len(self.research_packets)
+            self.research_packets[refreshed_index]
+            if refreshed_index < len(self.research_packets)
             else None
         )
         actions = research_detail_actions(candidate, packet)
@@ -579,11 +588,12 @@ class AlphaDeskApp(App[None]):
         )
         self.set_focus(self.query_one("#research-detail-action-menu", OptionList))
 
-    async def _refresh_research_state(self) -> None:
+    async def _refresh_research_state(self) -> WorkbenchCheckResult:
         result = await asyncio.to_thread(run_workbench_check, output_dir=self.output_dir)
         self.research_candidates = list(result.candidates)
         deepen_result = getattr(result, "deepen_result", None)
         self.research_packets = list(getattr(deepen_result, "packets", []))
+        return result
 
     async def _show_symbol_prompt(self, action: ActionId, placeholder: str) -> None:
         self.pending_action = action

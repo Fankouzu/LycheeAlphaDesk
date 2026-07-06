@@ -1021,6 +1021,140 @@ def test_dashboard_research_verification_can_record_review_verdict(
     asyncio.run(run_case())
 
 
+def test_dashboard_refresh_topic_news_keeps_current_research_task(
+    monkeypatch, tmp_path: Path
+) -> None:
+    refresh_calls: list[dict[str, object]] = []
+    workbench_calls = 0
+
+    def candidate(display_name: str, symbol: str) -> CandidateCheck:
+        return CandidateCheck(
+            display_name=display_name,
+            market="US",
+            symbol=symbol,
+            proxy_symbols=[],
+            evidence_count=1,
+            gap_count=0,
+            data_gaps=[],
+            status="ready",
+            explanation="",
+            beginner_question="这个主题是否值得继续研究？",
+            why_it_matters="",
+            observation_entry=symbol,
+            what_to_check=f"核验 {symbol} 证据方向。",
+            next_step="先补主题新闻。",
+            priority="P2 先复核证据",
+            evidence_status="证据 1 条；缺口 0 个",
+            evidence_quality="needs_review",
+        )
+
+    def packet(display_name: str, symbol: str, candidate_id: int) -> ResearchPacket:
+        return ResearchPacket(
+            packet_id=f"research:test:{candidate_id}",
+            candidate_id=candidate_id,
+            created_at="2026-07-05T10:00:00+00:00",
+            display_name=display_name,
+            symbol=symbol,
+            market="US",
+            packet={
+                "candidate": {
+                    "asset_type": "ETF",
+                    "related_theme": f"{symbol} technology theme",
+                    "why_watch": f"{symbol} theme needs review.",
+                },
+                "evidence": [],
+                "local_data": {
+                    "price": {},
+                    "related_news": [],
+                    "filings": [],
+                    "symbol_mapping": [],
+                },
+                "data_gaps": [],
+            },
+        )
+
+    qqq = candidate("纳斯达克100ETF观察", "QQQ")
+    spy = candidate("标普500ETF观察", "SPY")
+    qqq_packet = packet("纳斯达克100ETF观察", "QQQ", 1)
+    spy_packet = packet("标普500ETF观察", "SPY", 2)
+
+    class FakeWorkbenchResult:
+        status = "ready"
+        ready_count = 2
+        blocked_count = 0
+        artifact_path = None
+        db_path = tmp_path / "research.sqlite3"
+        beginner_brief = "AlphaDesk 研究工作台"
+
+        def __init__(
+            self,
+            candidates: list[CandidateCheck],
+            packets: list[ResearchPacket],
+        ) -> None:
+            self.candidates = candidates
+            self.deepen_result = ResearchDeepenResult(
+                created_at="2026-07-05T10:00:00+00:00",
+                packets=packets,
+                artifact_path=None,
+                db_path=tmp_path / "research.sqlite3",
+            )
+
+    def fake_run_workbench_check(**kwargs: object) -> FakeWorkbenchResult:
+        nonlocal workbench_calls
+        workbench_calls += 1
+        if workbench_calls == 1:
+            return FakeWorkbenchResult([qqq, spy], [qqq_packet, spy_packet])
+        return FakeWorkbenchResult([spy, qqq], [spy_packet, qqq_packet])
+
+    def fake_pull_news_events(**kwargs: object) -> PullResult:
+        refresh_calls.append(kwargs)
+        output_path = tmp_path / "data" / "news-events.json"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text("{}", encoding="utf-8")
+        return PullResult("news", "test-news", 2, output_path, [])
+
+    monkeypatch.setattr(
+        tui_app,
+        "run_workbench_check",
+        fake_run_workbench_check,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app,
+        "pull_news_events",
+        fake_pull_news_events,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            action_menu = app.query_one("#research-detail-action-menu", OptionList)
+            assert str(action_menu.get_option_at_index(2).prompt) == "刷新主题新闻"
+
+            await pilot.press("down", "down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert refresh_calls
+            assert refresh_calls[0]["symbols"] == ["QQQ"]
+            detail = app.query_one("#action-status", Static)
+            text = str(detail.content)
+            assert "任务: 纳斯达克100ETF观察 [US]" in text
+            assert "入口: QQQ" in text
+            assert "已执行: 刷新主题新闻" in text
+            assert "返回行数: 2" in text
+
+    asyncio.run(run_case())
+
+
 def test_dashboard_today_discovery_requires_llm_configuration(
     monkeypatch, tmp_path: Path
 ) -> None:

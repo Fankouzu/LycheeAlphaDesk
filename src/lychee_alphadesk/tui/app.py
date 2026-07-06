@@ -51,6 +51,7 @@ from lychee_alphadesk.core.workbench import (
     research_action_result,
     research_action_symbols,
     research_detail_actions,
+    research_evidence_change_detail_groups,
     research_filing_symbols,
     run_workbench_check,
     select_research_candidate_index,
@@ -857,6 +858,7 @@ def _research_verification_text(result: ResearchVerificationResult) -> str:
                 if result.evidence_change.previous_artifact_path
                 else []
             ),
+            *_evidence_change_detail_lines(result),
             "",
             "研究决策板",
             f"状态: {result.decision_board.workflow_label}",
@@ -877,6 +879,17 @@ def _research_verification_text(result: ResearchVerificationResult) -> str:
     lines.extend(f"- {action}" for action in result.next_actions)
     lines.append("边界: 下钻核验不是买卖建议。")
     return "\n".join(lines)
+
+
+def _evidence_change_detail_lines(result: ResearchVerificationResult) -> list[str]:
+    lines: list[str] = []
+    for title, rows in research_evidence_change_detail_groups(result.evidence_change):
+        if not rows:
+            continue
+        if not lines:
+            lines.extend(["", "证据变化明细"])
+        lines.extend(_evidence_board_lines(title, rows[:5]))
+    return lines
 
 
 def _research_review_recorded_text(result: ResearchReviewResult) -> str:

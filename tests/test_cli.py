@@ -772,8 +772,8 @@ def test_research_verify_reports_evidence_change_from_previous_snapshot(
                     "proxy_symbols": [],
                 },
                 "evidence_board": {
-                    "support": [],
-                    "risk": [],
+                    "support": ["旧支持证据: 仅有市场传闻。"],
+                    "risk": ["旧风险: 需要核验新闻来源。"],
                     "missing": ["旧核验缺少行情。"],
                 },
                 "decision_board": {
@@ -794,11 +794,22 @@ def test_research_verify_reports_evidence_change_from_previous_snapshot(
     assert result.exit_code == 0
     assert "证据变化" in result.stdout
     assert "支持证据增加" in result.stdout
+    assert "证据变化明细" in result.stdout
+    assert "新增支持证据" in result.stdout
+    assert "已补掉待补证据" in result.stdout
     artifacts = sorted((tmp_path / "research").glob("research-verification-*.json"))
     payload = json.loads(artifacts[-1].read_text(encoding="utf-8"))
     assert payload["evidence_change"]["status"] == "improved"
     assert payload["evidence_change"]["support_delta"] > 0
     assert payload["evidence_change"]["missing_delta"] == -1
+    assert any(
+        "STX 120.00 USD" in item
+        for item in payload["evidence_change"]["added"]["support"]
+    )
+    assert "旧支持证据: 仅有市场传闻。" in payload["evidence_change"]["removed"][
+        "support"
+    ]
+    assert "旧核验缺少行情。" in payload["evidence_change"]["removed"]["missing"]
     assert payload["evidence_change"]["previous_artifact_path"].endswith(
         "research-verification-20260704-010000Z.json"
     )

@@ -62,6 +62,7 @@ from lychee_alphadesk.core.workbench import (
     beginner_research_brief,
     record_research_review,
     render_research_task_detail,
+    research_evidence_change_detail_groups,
     run_research_task,
     run_workbench_check,
     select_research_candidate_index,
@@ -1175,6 +1176,15 @@ def _print_research_evidence_change(result: ResearchVerificationResult) -> None:
     console.print(f"摘要: {change.summary}", soft_wrap=True)
     if change.previous_artifact_path:
         console.print(f"上一份核验: {change.previous_artifact_path}", soft_wrap=True)
+    detail_groups = [
+        (title, rows)
+        for title, rows in research_evidence_change_detail_groups(change)
+        if rows
+    ]
+    if detail_groups:
+        console.print("证据变化明细")
+        for title, rows in detail_groups:
+            _print_evidence_board_column(title, rows[:5])
 
 
 def _print_research_review(result: ResearchReviewResult) -> None:

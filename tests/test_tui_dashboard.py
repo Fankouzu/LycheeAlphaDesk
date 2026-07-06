@@ -103,6 +103,12 @@ def test_research_verification_text_shows_evidence_change(tmp_path: Path) -> Non
             support_delta=1,
             risk_delta=0,
             missing_delta=-1,
+            added={"support": ["行情: QQQ 530.26 USD"], "risk": [], "missing": []},
+            removed={
+                "support": [],
+                "risk": [],
+                "missing": ["旧核验缺少行情。"],
+            },
             previous_artifact_path=str(
                 tmp_path / "research" / "research-verification-old.json"
             ),
@@ -119,6 +125,9 @@ def test_research_verification_text_shows_evidence_change(tmp_path: Path) -> Non
     assert "证据变化" in text
     assert "状态: 证据增强" in text
     assert "支持证据增加 1" in text
+    assert "证据变化明细" in text
+    assert "新增支持证据" in text
+    assert "已补掉待补证据" in text
     assert "上一份核验:" in text
 
 

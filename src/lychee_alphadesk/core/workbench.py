@@ -135,6 +135,12 @@ class ResearchEvidenceChange:
     support_delta: int
     risk_delta: int
     missing_delta: int
+    added: dict[str, list[str]] = field(
+        default_factory=lambda: _empty_evidence_change_items()
+    )
+    removed: dict[str, list[str]] = field(
+        default_factory=lambda: _empty_evidence_change_items()
+    )
     previous_artifact_path: str | None = None
     previous_created_at: str | None = None
 
@@ -816,6 +822,7 @@ def build_research_evidence_change(
     previous_board = _dict_value(previous_payload.get("evidence_board"))
     previous_counts = _evidence_board_counts(previous_board)
     current_counts = _evidence_board_counts(evidence_board)
+    added, removed = _evidence_board_diff(previous_board, evidence_board)
     support_delta = current_counts["support"] - previous_counts["support"]
     risk_delta = current_counts["risk"] - previous_counts["risk"]
     missing_delta = current_counts["missing"] - previous_counts["missing"]
@@ -835,6 +842,8 @@ def build_research_evidence_change(
         support_delta=support_delta,
         risk_delta=risk_delta,
         missing_delta=missing_delta,
+        added=added,
+        removed=removed,
         previous_artifact_path=str(previous),
         previous_created_at=_string_value(previous_payload.get("created_at")) or None,
     )
@@ -848,7 +857,22 @@ def _first_research_evidence_change() -> ResearchEvidenceChange:
         support_delta=0,
         risk_delta=0,
         missing_delta=0,
+        added=_empty_evidence_change_items(),
+        removed=_empty_evidence_change_items(),
     )
+
+
+def research_evidence_change_detail_groups(
+    change: ResearchEvidenceChange,
+) -> list[tuple[str, list[str]]]:
+    return [
+        ("新增支持证据", change.added["support"]),
+        ("已移除支持证据", change.removed["support"]),
+        ("新增风险/反向待查", change.added["risk"]),
+        ("已移除风险/反向待查", change.removed["risk"]),
+        ("新增待补证据", change.added["missing"]),
+        ("已补掉待补证据", change.removed["missing"]),
+    ]
 
 
 def _latest_matching_verification_artifact(
@@ -901,6 +925,41 @@ def _evidence_board_counts(board: Mapping[str, object]) -> dict[str, int]:
         "risk": len(_text_list(board.get("risk"))),
         "missing": len(_text_list(board.get("missing"))),
     }
+
+
+def _empty_evidence_change_items() -> dict[str, list[str]]:
+    return {
+        "support": [],
+        "risk": [],
+        "missing": [],
+    }
+
+
+def _evidence_board_diff(
+    previous_board: Mapping[str, object],
+    current_board: Mapping[str, object],
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    added = _empty_evidence_change_items()
+    removed = _empty_evidence_change_items()
+    for key in ("support", "risk", "missing"):
+        previous_items = _dedupe_text_list(_text_list(previous_board.get(key)))
+        current_items = _dedupe_text_list(_text_list(current_board.get(key)))
+        previous_set = set(previous_items)
+        current_set = set(current_items)
+        added[key] = [item for item in current_items if item not in previous_set]
+        removed[key] = [item for item in previous_items if item not in current_set]
+    return added, removed
+
+
+def _dedupe_text_list(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
 
 
 def _evidence_change_status(

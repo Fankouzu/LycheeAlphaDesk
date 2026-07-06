@@ -40,11 +40,14 @@ from lychee_alphadesk.core.research_memo import (
     generate_research_memo,
 )
 from lychee_alphadesk.core.workbench import (
+    RESEARCH_EVIDENCE_REVIEW_VERDICTS,
     RESEARCH_REVIEW_VERDICTS,
     CandidateCheck,
+    ResearchEvidenceReviewResult,
     ResearchReviewResult,
     ResearchVerificationResult,
     WorkbenchCheckResult,
+    record_research_evidence_review,
     record_research_review,
     render_research_task_detail,
     research_action_name,
@@ -93,6 +96,8 @@ class AlphaDeskApp(App[None]):
         self.research_candidates: list[CandidateCheck] = []
         self.research_packets: list[ResearchPacket] = []
         self.selected_research_index: int | None = None
+        self.current_research_verification: ResearchVerificationResult | None = None
+        self.pending_evidence_review_items: list[str] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -152,6 +157,9 @@ class AlphaDeskApp(App[None]):
             return
         if isinstance(action_id, str) and action_id.startswith("research_review:"):
             await self._run_research_review_action(action_id)
+            return
+        if isinstance(action_id, str) and action_id.startswith("research_evidence_review:"):
+            await self._run_research_evidence_review_action(action_id)
             return
         if action_id == "today_discovery":
             await self._show_today_discovery()
@@ -481,6 +489,8 @@ class AlphaDeskApp(App[None]):
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
         await self._refresh_research_state()
+        self.current_research_verification = result
+        self.pending_evidence_review_items = _pending_evidence_review_items(result)
         await self._replace_action_panel(
             Static(_research_verification_text(result), id="action-status"),
             OptionList(
@@ -488,6 +498,99 @@ class AlphaDeskApp(App[None]):
                     Option(label, id=f"research_review:{verdict}")
                     for verdict, label in _research_review_menu_options(
                         result.decision_board.suggested_verdict
+                    )
+                ],
+                *[
+                    Option(label, id=f"research_evidence_review:{action_id}")
+                    for action_id, label in _research_evidence_review_menu_options(
+                        result
+                    )
+                ],
+                Option("返回研究任务列表", id="research_detail:back_tasks"),
+                id="research-detail-action-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#research-detail-action-menu", OptionList))
+
+    async def _run_research_evidence_review_action(self, action_id: str) -> None:
+        payload = action_id.removeprefix("research_evidence_review:")
+        try:
+            verdict, raw_index = payload.split(":", 1)
+            evidence_index = int(raw_index)
+            evidence_text = self.pending_evidence_review_items[evidence_index]
+        except (ValueError, IndexError):
+            await self._replace_action_panel(
+                Static("证据复核动作不存在，请重新运行下钻核验。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        verdict_label = RESEARCH_EVIDENCE_REVIEW_VERDICTS.get(verdict)
+        if verdict_label is None:
+            await self._replace_action_panel(
+                Static("未知证据复核方向。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        selection = self.selected_research_index
+        if selection is None or selection >= len(self.research_candidates):
+            await self._replace_action_panel(
+                Static("研究任务不存在，请重新打开研究工作台。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        candidate = self.research_candidates[selection]
+        symbols = research_action_symbols(candidate)
+        symbol = symbols[0] if symbols else None
+        name = None if symbol else candidate.display_name
+        note = f"TUI 证据复核: {verdict_label}"
+        await self._replace_action_panel(
+            Static(
+                f"正在记录证据复核: {verdict_label}，请稍候...",
+                id="action-status",
+            )
+        )
+        try:
+            review_result = await asyncio.to_thread(
+                record_research_evidence_review,
+                output_dir=self.output_dir,
+                symbol=symbol,
+                name=name,
+                evidence_text=evidence_text,
+                verdict=verdict,
+                note=note,
+            )
+            verification = await asyncio.to_thread(
+                verify_research_task,
+                output_dir=self.output_dir,
+                symbol=symbol,
+                name=name,
+            )
+        except (RuntimeError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._refresh_research_state()
+        self.current_research_verification = verification
+        self.pending_evidence_review_items = _pending_evidence_review_items(verification)
+        await self._replace_action_panel(
+            Static(
+                _research_evidence_review_recorded_text(review_result, verification),
+                id="action-status",
+            ),
+            OptionList(
+                *[
+                    Option(label, id=f"research_review:{verdict_id}")
+                    for verdict_id, label in _research_review_menu_options(
+                        verification.decision_board.suggested_verdict
+                    )
+                ],
+                *[
+                    Option(label, id=f"research_evidence_review:{detail_action_id}")
+                    for detail_action_id, label in _research_evidence_review_menu_options(
+                        verification
                     )
                 ],
                 Option("返回研究任务列表", id="research_detail:back_tasks"),
@@ -917,6 +1020,26 @@ def _research_review_recorded_text(result: ResearchReviewResult) -> str:
     return "\n".join(lines)
 
 
+def _research_evidence_review_recorded_text(
+    result: ResearchEvidenceReviewResult,
+    verification: ResearchVerificationResult,
+) -> str:
+    return "\n".join(
+        [
+            "证据复核已记录",
+            f"记录: {result.artifact_path}",
+            f"研究库: {result.db_path}",
+            f"证据文本: {result.evidence_text}",
+            f"复核方向: {result.verdict_label}",
+            f"备注: {result.note}",
+            "边界: 单条证据复核不是买卖建议。",
+            "",
+            "更新后的下钻核验",
+            _research_verification_text(verification),
+        ]
+    )
+
+
 def _research_review_followup_actions(verdict: str) -> list[tuple[str, str]]:
     if verdict == "needs_more_evidence":
         return [
@@ -998,6 +1121,36 @@ def _research_review_menu_options(
         for verdict, label in RESEARCH_REVIEW_VERDICTS.items()
         if verdict != suggested_verdict
     )
+    return options
+
+
+def _pending_evidence_review_items(result: ResearchVerificationResult) -> list[str]:
+    items: list[str] = []
+    prefix = "新闻待判定: "
+    suffix = " 命中主题但方向未明。"
+    for row in result.evidence_board["risk"]:
+        if not row.startswith(prefix):
+            continue
+        evidence_text = row.removeprefix(prefix)
+        if evidence_text.endswith(suffix):
+            evidence_text = evidence_text.removesuffix(suffix)
+        if evidence_text and evidence_text not in items:
+            items.append(evidence_text)
+    return items
+
+
+def _research_evidence_review_menu_options(
+    result: ResearchVerificationResult,
+) -> list[tuple[str, str]]:
+    options: list[tuple[str, str]] = []
+    for index, evidence_text in enumerate(_pending_evidence_review_items(result)[:3]):
+        options.extend(
+            [
+                (f"support:{index}", f"标为支持证据: {evidence_text}"),
+                (f"reverse:{index}", f"标为风险/反向待查: {evidence_text}"),
+                (f"irrelevant:{index}", f"标为无关/排除: {evidence_text}"),
+            ]
+        )
     return options
 
 

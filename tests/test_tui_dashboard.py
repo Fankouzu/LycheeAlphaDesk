@@ -24,6 +24,7 @@ from lychee_alphadesk.core.workbench import (
     CandidateCheck,
     ResearchDecisionBoard,
     ResearchEvidenceChange,
+    ResearchEvidenceReviewResult,
     ResearchReviewResult,
     ResearchVerificationCheck,
     ResearchVerificationResult,
@@ -757,6 +758,205 @@ def test_dashboard_research_task_action_runs_drilldown_verification(
             assert "待补证据" in text
             assert "研究决策板" in text
             assert "建议记录: continue_research" in text
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_research_verification_can_review_pending_evidence(
+    monkeypatch, tmp_path: Path
+) -> None:
+    verify_calls: list[dict[str, object]] = []
+    evidence_review_calls: list[dict[str, object]] = []
+
+    class FakeWorkbenchResult:
+        status = "ready"
+        ready_count = 1
+        blocked_count = 0
+        candidates = [
+            CandidateCheck(
+                display_name="纳斯达克100ETF观察",
+                market="US",
+                symbol="QQQ",
+                proxy_symbols=[],
+                evidence_count=1,
+                gap_count=0,
+                data_gaps=[],
+                status="ready",
+                explanation="",
+                beginner_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+                why_it_matters="",
+                observation_entry="QQQ",
+                what_to_check="对比 QQQ 与 SPY。",
+                next_step="检查成交量是否配合反弹",
+                priority="P2 先复核证据",
+                evidence_status="证据 1 条；缺口 0 个",
+                evidence_quality="needs_review",
+            )
+        ]
+        deepen_result = ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[
+                ResearchPacket(
+                    packet_id="research:test:1",
+                    candidate_id=1,
+                    created_at="2026-07-05T10:00:00+00:00",
+                    display_name="纳斯达克100ETF观察",
+                    symbol="QQQ",
+                    market="US",
+                    packet={
+                        "candidate": {"asset_type": "ETF"},
+                        "evidence": [],
+                        "local_data": {
+                            "price": {},
+                            "related_news": [],
+                            "filings": [],
+                            "symbol_mapping": [],
+                        },
+                        "data_gaps": [],
+                    },
+                )
+            ],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        )
+        beginner_brief = "AlphaDesk 研究工作台"
+
+    def verification_result(*, reviewed: bool) -> ResearchVerificationResult:
+        candidate = FakeWorkbenchResult.candidates[0]
+        packet = FakeWorkbenchResult.deepen_result.packets[0]
+        return ResearchVerificationResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            status="pending_review",
+            status_label="待人工核验",
+            candidate=candidate,
+            packet=packet,
+            checks=[
+                ResearchVerificationCheck(
+                    name="证据方向核验",
+                    status="pass" if reviewed else "warn",
+                    detail=(
+                        "相关新闻方向初步支持研究问题: 支持 1 条；反向 0 条；方向待判定 0 条。"
+                        if reviewed
+                        else (
+                            "部分相关新闻方向未明，需要人工核验: "
+                            "支持 0 条；反向 0 条；方向待判定 1 条。"
+                        )
+                    ),
+                )
+            ],
+            evidence_board={
+                "support": [
+                    "行情: QQQ 530.26 USD",
+                    *(["新闻: QQQ tech rebound headline"] if reviewed else []),
+                ],
+                "risk": (
+                    []
+                    if reviewed
+                    else [
+                        "新闻待判定: QQQ tech rebound headline 命中主题但方向未明。"
+                    ]
+                ),
+                "missing": [],
+            },
+            decision_board=(
+                _fake_ready_decision_board()
+                if reviewed
+                else _fake_needs_more_evidence_decision_board()
+            ),
+            conclusion="一致性结论: 待人工核验。",
+            next_actions=["记录支持证据、反向证据和仍需补充的数据。"],
+            artifact_path=tmp_path / "research" / "research-verification-test.json",
+            workbench_result=FakeWorkbenchResult(),
+        )
+
+    def fake_verify_research_task(**kwargs: object) -> ResearchVerificationResult:
+        verify_calls.append(kwargs)
+        return verification_result(reviewed=bool(evidence_review_calls))
+
+    def fake_record_research_evidence_review(
+        **kwargs: object,
+    ) -> ResearchEvidenceReviewResult:
+        evidence_review_calls.append(kwargs)
+        candidate = FakeWorkbenchResult.candidates[0]
+        return ResearchEvidenceReviewResult(
+            created_at="2026-07-05T10:01:00+00:00",
+            verdict=str(kwargs["verdict"]),
+            verdict_label="支持证据",
+            evidence_text=str(kwargs["evidence_text"]),
+            note=str(kwargs["note"]),
+            candidate=candidate,
+            artifact_path=tmp_path / "research" / "research-evidence-review-test.json",
+            db_path=tmp_path / "research.sqlite3",
+        )
+
+    monkeypatch.setattr(
+        tui_app,
+        "run_workbench_check",
+        lambda **kwargs: FakeWorkbenchResult(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app,
+        "verify_research_task",
+        fake_verify_research_task,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app,
+        "record_research_evidence_review",
+        fake_record_research_evidence_review,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            action_menu = app.query_one("#research-detail-action-menu", OptionList)
+            verify_index = _option_index(action_menu, "下钻核验")
+            await pilot.press(*(["down"] * verify_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            review_menu = app.query_one("#research-detail-action-menu", OptionList)
+            review_labels = [
+                str(review_menu.get_option_at_index(index).prompt)
+                for index in range(review_menu.option_count)
+            ]
+            support_index = review_labels.index(
+                "标为支持证据: QQQ tech rebound headline"
+            )
+            await pilot.press(*(["down"] * support_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert evidence_review_calls == [
+                {
+                    "output_dir": tmp_path,
+                    "symbol": "QQQ",
+                    "name": None,
+                    "evidence_text": "QQQ tech rebound headline",
+                    "verdict": "support",
+                    "note": "TUI 证据复核: 支持证据",
+                }
+            ]
+            assert len(verify_calls) == 2
+            detail = app.query_one("#action-status", Static)
+            text = str(detail.content)
+            assert "证据复核已记录" in text
+            assert "更新后的下钻核验" in text
+            assert "新闻: QQQ tech rebound headline" in text
+            current_risk_section = text.split("风险/反向待查", 1)[1].split(
+                "待补证据",
+                1,
+            )[0]
+            assert "新闻待判定: QQQ tech rebound headline" not in current_risk_section
 
     asyncio.run(run_case())
 

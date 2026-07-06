@@ -1663,6 +1663,13 @@ def test_research_memo_command_writes_llm_research_memo(
     assert "STX 的研究线索" in result.stdout
     assert "反方审查" in result.stdout
     assert "下一步研究动作" in result.stdout
+    assert "工作台下一步" in result.stdout
+    assert (
+        "记录研究复核: lychee research review --symbol STX "
+        "--verdict continue_research"
+    ) in result.stdout
+    assert "重新下钻核验: lychee research verify --symbol STX" in result.stdout
+    assert "查看研究备忘录历史: lychee research memos --symbol STX" in result.stdout
     assert "不是买卖建议" in result.stdout
     artifacts = list((tmp_path / "research").glob("research-memo-*.json"))
     assert artifacts

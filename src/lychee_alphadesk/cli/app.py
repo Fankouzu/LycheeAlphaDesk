@@ -1570,7 +1570,28 @@ def _print_research_memo(result: ResearchMemoResult) -> None:
     console.print("下一步研究动作")
     for item in memo.next_research_steps:
         console.print(f"- {item}", soft_wrap=True)
+    _print_research_memo_next_steps(result)
     console.print("边界: 研究备忘录不是买卖建议。", soft_wrap=True)
+
+
+def _print_research_memo_next_steps(result: ResearchMemoResult) -> None:
+    selector = _research_selector(result.candidate.symbol, result.candidate.display_name)
+    note = _quote_cli_value("备忘录已生成，继续人工一致性复核。")
+    console.print("工作台下一步")
+    console.print(
+        "- 记录研究复核: "
+        f"lychee research review {selector} "
+        f"--verdict continue_research --note {note}",
+        soft_wrap=True,
+    )
+    console.print(
+        f"- 重新下钻核验: lychee research verify {selector}",
+        soft_wrap=True,
+    )
+    console.print(
+        f"- 查看研究备忘录历史: lychee research memos {selector}",
+        soft_wrap=True,
+    )
 
 
 def _print_evidence_board_column(title: str, rows: list[str]) -> None:

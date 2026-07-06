@@ -1,4 +1,5 @@
 .alphadesk/
+.omx/
 .env
 .env.*
 .mypy_cache/

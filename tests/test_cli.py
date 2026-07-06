@@ -604,6 +604,10 @@ def test_research_verify_command_writes_drilldown_checklist(
     assert "新闻核验" in result.stdout
     assert "公告/财报核验" in result.stdout
     assert "一致性结论: 待人工核验" in result.stdout
+    assert "证据板" in result.stdout
+    assert "支持证据" in result.stdout
+    assert "风险/反向待查" in result.stdout
+    assert "待补证据" in result.stdout
     artifacts = list((tmp_path / "research").glob("research-verification-*.json"))
     assert artifacts
     payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
@@ -611,6 +615,9 @@ def test_research_verify_command_writes_drilldown_checklist(
     assert payload["status"] == "pending_review"
     assert payload["checks"][0]["name"] == "行情核验"
     assert payload["checks"][0]["status"] == "pass"
+    assert payload["evidence_board"]["support"]
+    assert payload["evidence_board"]["risk"]
+    assert payload["evidence_board"]["missing"] == []
 
 
 def test_research_deepen_command_shows_proxy_mapping_symbols(tmp_path: Path) -> None:

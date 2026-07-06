@@ -293,7 +293,7 @@ lychee research verify
 lychee research verify --symbol QQQ
 ```
 
-`research verify` 会读取当前研究包，核验行情、成交量、新闻、公告/财报和代理标的是否具备继续研究所需的基础材料，并写入 `.alphadesk/research/research-verification-*.json`。它的“一致性结论”默认是待人工核验；系统不会把证据完整度直接解释为买入或卖出信号。
+`research verify` 会读取当前研究包，核验行情、成交量、新闻、公告/财报和代理标的是否具备继续研究所需的基础材料，并写入 `.alphadesk/research/research-verification-*.json`。输出会整理成“支持证据 / 风险或反向待查 / 待补证据”三栏证据板。它的“一致性结论”默认是待人工核验；系统不会把证据完整度直接解释为买入或卖出信号。
 
 当前可用的市场级与 symbol 级 cache 命令：
 

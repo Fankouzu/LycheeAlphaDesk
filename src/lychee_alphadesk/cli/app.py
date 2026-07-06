@@ -897,11 +897,24 @@ def _print_research_verification(result: ResearchVerificationResult) -> None:
             check.detail,
         )
     console.print(table)
+    console.print("证据板")
+    _print_evidence_board_column("支持证据", result.evidence_board["support"])
+    _print_evidence_board_column("风险/反向待查", result.evidence_board["risk"])
+    _print_evidence_board_column("待补证据", result.evidence_board["missing"])
     console.print(result.conclusion, soft_wrap=True)
     console.print("下一步")
     for action in result.next_actions:
         console.print(f"- {action}", soft_wrap=True)
     console.print("边界: 下钻核验不是买卖建议。", soft_wrap=True)
+
+
+def _print_evidence_board_column(title: str, rows: list[str]) -> None:
+    console.print(title)
+    if not rows:
+        console.print("- 无")
+        return
+    for row in rows:
+        console.print(f"- {row}", soft_wrap=True)
 
 
 def _display_verification_check_status(status: str) -> str:

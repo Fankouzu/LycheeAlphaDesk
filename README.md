@@ -293,7 +293,7 @@ lychee research verify
 lychee research verify --symbol QQQ
 ```
 
-`research verify` reads the current research packet, checks whether price, volume, news, filings/financial clues, and proxy instruments are present enough for deeper research, and writes `.alphadesk/research/research-verification-*.json`. Its consistency conclusion defaults to pending human review; the system does not convert evidence completeness into a buy/sell signal.
+`research verify` reads the current research packet, checks whether price, volume, news, filings/financial clues, and proxy instruments are present enough for deeper research, and writes `.alphadesk/research/research-verification-*.json`. It also organizes material into a three-column evidence board: support evidence, risks/reverse checks, and missing evidence. Its consistency conclusion defaults to pending human review; the system does not convert evidence completeness into a buy/sell signal.
 
 Current market-level and symbol-level cache commands:
 

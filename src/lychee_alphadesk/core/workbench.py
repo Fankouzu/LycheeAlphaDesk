@@ -120,6 +120,7 @@ class ResearchVerificationResult:
     candidate: CandidateCheck
     packet: ResearchPacket | None
     checks: list[ResearchVerificationCheck]
+    evidence_board: dict[str, list[str]]
     conclusion: str
     next_actions: list[str]
     artifact_path: Path
@@ -218,6 +219,7 @@ def verify_research_task(
         else None
     )
     checks = build_research_verification_checks(candidate, packet)
+    evidence_board = build_research_evidence_board(candidate, packet, checks)
     verify_status = _verification_status(checks)
     status_label = _verification_status_label(verify_status)
     conclusion = _verification_conclusion(verify_status)
@@ -229,6 +231,7 @@ def verify_research_task(
         status_label=status_label,
         candidate=candidate,
         checks=checks,
+        evidence_board=evidence_board,
         conclusion=conclusion,
         next_actions=next_actions,
     )
@@ -239,6 +242,7 @@ def verify_research_task(
         candidate=candidate,
         packet=packet,
         checks=checks,
+        evidence_board=evidence_board,
         conclusion=conclusion,
         next_actions=next_actions,
         artifact_path=artifact_path,
@@ -435,6 +439,53 @@ def build_research_verification_checks(
         )
     )
     return checks
+
+
+def build_research_evidence_board(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+    checks: list[ResearchVerificationCheck],
+) -> dict[str, list[str]]:
+    packet_payload = packet.packet if packet is not None else {}
+    local_data = _dict_value(packet_payload.get("local_data"))
+    price = _dict_value(local_data.get("price"))
+    evidence = _dict_list(packet_payload.get("evidence"))
+    related_news = _dict_list(local_data.get("related_news"))
+    filings = _dict_list(local_data.get("filings"))
+    support: list[str] = []
+    risk: list[str] = []
+    missing: list[str] = []
+    if price:
+        support.append(_price_line(price).removeprefix("行情: "))
+    for row in [*evidence, *related_news][:3]:
+        headline = _string_value(row.get("headline")) or "未命名新闻证据"
+        support.append(f"新闻: {headline}")
+    for row in filings[:2]:
+        form = _string_value(row.get("form")) or "公告"
+        date = _string_value(row.get("date"))
+        summary = _string_value(row.get("summary"))
+        filing = f"公告/财报: {form}"
+        if date:
+            filing += f" {date}"
+        if summary:
+            filing += f" - {summary}"
+        support.append(filing)
+    for check in checks:
+        if check.status == "fail":
+            missing.append(f"{check.name}: {check.detail}")
+        elif check.status == "warn":
+            risk.append(f"{check.name}: {check.detail}")
+    if candidate.proxy_symbols:
+        risk.append(
+            "代理标的: "
+            + ", ".join(candidate.proxy_symbols)
+            + " 需要人工核对成分、费用、流动性和可交易性。"
+        )
+    return {
+        "support": support,
+        "risk": risk,
+        "missing": missing,
+    }
 
 
 def select_research_candidate_index(
@@ -876,6 +927,7 @@ def _write_research_verification_artifact(
     status_label: str,
     candidate: CandidateCheck,
     checks: list[ResearchVerificationCheck],
+    evidence_board: dict[str, list[str]],
     conclusion: str,
     next_actions: list[str],
 ) -> Path:
@@ -890,6 +942,7 @@ def _write_research_verification_artifact(
                 "status_label": status_label,
                 "candidate": asdict(candidate),
                 "checks": [asdict(check) for check in checks],
+                "evidence_board": evidence_board,
                 "conclusion": conclusion,
                 "next_actions": next_actions,
                 "disclaimer": "下钻核验只检查证据完整度和待核验项，不构成买卖建议。",

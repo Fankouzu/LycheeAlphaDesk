@@ -476,7 +476,9 @@ class AlphaDeskApp(App[None]):
             OptionList(
                 *[
                     Option(label, id=f"research_review:{verdict}")
-                    for verdict, label in _research_review_menu_options()
+                    for verdict, label in _research_review_menu_options(
+                        result.decision_board.suggested_verdict
+                    )
                 ],
                 Option("返回研究任务列表", id="research_detail:back_tasks"),
                 id="research-detail-action-menu",
@@ -906,11 +908,23 @@ def _research_memo_text(result: ResearchMemoResult) -> str:
     )
 
 
-def _research_review_menu_options() -> list[tuple[str, str]]:
-    return [
+def _research_review_menu_options(
+    suggested_verdict: str | None = None,
+) -> list[tuple[str, str]]:
+    options: list[tuple[str, str]] = []
+    if suggested_verdict in RESEARCH_REVIEW_VERDICTS:
+        options.append(
+            (
+                suggested_verdict,
+                f"按工作台建议记录: {RESEARCH_REVIEW_VERDICTS[suggested_verdict]}",
+            )
+        )
+    options.extend(
         (verdict, f"记录: {label}")
         for verdict, label in RESEARCH_REVIEW_VERDICTS.items()
-    ]
+        if verdict != suggested_verdict
+    )
+    return options
 
 
 def _evidence_board_lines(title: str, rows: list[str]) -> list[str]:

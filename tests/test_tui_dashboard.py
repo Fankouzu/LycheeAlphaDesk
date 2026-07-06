@@ -50,6 +50,18 @@ def _fake_ready_decision_board() -> ResearchDecisionBoard:
     )
 
 
+def _fake_needs_more_evidence_decision_board() -> ResearchDecisionBoard:
+    return ResearchDecisionBoard(
+        workflow_state="direction_review",
+        workflow_label="拆分证据方向",
+        primary_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+        decision_rule="主题相关性已通过，但部分新闻方向待判定，暂时不能归入支持证据。",
+        suggested_verdict="needs_more_evidence",
+        suggested_verdict_label="需要补证据",
+        next_steps=["把新闻待判定逐条归类为支持、反向或无关。"],
+    )
+
+
 def test_dashboard_shows_cached_live_data_summary(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -892,6 +904,7 @@ def test_dashboard_research_verification_can_record_review_verdict(
     def fake_verification() -> ResearchVerificationResult:
         candidate = FakeWorkbenchResult.candidates[0]
         packet = FakeWorkbenchResult.deepen_result.packets[0]
+        decision_board = _fake_needs_more_evidence_decision_board()
         return ResearchVerificationResult(
             created_at="2026-07-05T10:00:00+00:00",
             status="pending_review",
@@ -910,7 +923,7 @@ def test_dashboard_research_verification_can_record_review_verdict(
                 "risk": ["一致性核验: 待人工核验行情、成交量、新闻是否同向。"],
                 "missing": [],
             },
-            decision_board=_fake_ready_decision_board(),
+            decision_board=decision_board,
             conclusion="一致性结论: 待人工核验。",
             next_actions=["记录支持证据、反向证据和仍需补充的数据。"],
             artifact_path=tmp_path / "research" / "research-verification-test.json",
@@ -920,11 +933,13 @@ def test_dashboard_research_verification_can_record_review_verdict(
     def fake_record_research_review(**kwargs: object) -> ResearchReviewResult:
         review_calls.append(kwargs)
         verification = fake_verification()
+        verdict = str(kwargs["verdict"])
+        verdict_label = "需要补证据" if verdict == "needs_more_evidence" else "继续研究"
         return ResearchReviewResult(
             created_at="2026-07-05T10:01:00+00:00",
-            verdict="continue_research",
-            verdict_label="继续研究",
-            note="TUI 快速复核: 继续研究",
+            verdict=verdict,
+            verdict_label=verdict_label,
+            note=f"TUI 快速复核: {verdict_label}",
             evidence_counts={"support": 1, "risk": 1, "missing": 0},
             verification=verification,
             artifact_path=tmp_path / "research" / "research-review-test.json",
@@ -965,7 +980,7 @@ def test_dashboard_research_verification_can_record_review_verdict(
 
             action_menu = app.query_one("#research-detail-action-menu", OptionList)
             first_review_action = str(action_menu.get_option_at_index(0).prompt)
-            assert "记录: 继续研究" in first_review_action
+            assert "按工作台建议记录: 需要补证据" in first_review_action
 
             await pilot.press("enter")
             await pilot.pause()
@@ -975,14 +990,14 @@ def test_dashboard_research_verification_can_record_review_verdict(
                     "output_dir": tmp_path,
                     "symbol": "QQQ",
                     "name": None,
-                    "verdict": "continue_research",
-                    "note": "TUI 快速复核: 继续研究",
+                    "verdict": "needs_more_evidence",
+                    "note": "TUI 快速复核: 需要补证据",
                 }
             ]
             detail = app.query_one("#action-status", Static)
             text = str(detail.content)
             assert "研究复核已记录" in text
-            assert "复核判断: 继续研究" in text
+            assert "复核判断: 需要补证据" in text
             assert "研究复核不是买卖建议" in text
 
     asyncio.run(run_case())

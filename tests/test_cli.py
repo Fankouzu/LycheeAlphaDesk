@@ -681,6 +681,9 @@ def test_research_verify_command_writes_drilldown_checklist(
     assert "支持证据" in result.stdout
     assert "风险/反向待查" in result.stdout
     assert "待补证据" in result.stdout
+    assert "研究决策板" in result.stdout
+    assert "状态: 可进入人工一致性复核" in result.stdout
+    assert "建议记录: continue_research" in result.stdout
     artifacts = list((tmp_path / "research").glob("research-verification-*.json"))
     assert artifacts
     payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
@@ -691,6 +694,9 @@ def test_research_verify_command_writes_drilldown_checklist(
     assert payload["evidence_board"]["support"]
     assert payload["evidence_board"]["risk"]
     assert payload["evidence_board"]["missing"] == []
+    assert payload["decision_board"]["workflow_state"] == "ready_for_review"
+    assert payload["decision_board"]["suggested_verdict"] == "continue_research"
+    assert "证据可以进入人工一致性复核" in payload["decision_board"]["decision_rule"]
 
 
 def test_research_verify_flags_off_topic_news_as_risk(
@@ -769,6 +775,9 @@ def test_research_verify_flags_off_topic_news_as_risk(
         check for check in payload["checks"] if check["name"] == "主题相关性核验"
     )
     assert topic_check["status"] == "warn"
+    assert payload["decision_board"]["workflow_state"] == "evidence_review"
+    assert payload["decision_board"]["suggested_verdict"] == "needs_more_evidence"
+    assert "主题关键词" in payload["decision_board"]["decision_rule"]
     support_text = "\n".join(payload["evidence_board"]["support"])
     risk_text = "\n".join(payload["evidence_board"]["risk"])
     assert "Luxury handbags gain popularity" not in support_text
@@ -853,6 +862,9 @@ def test_research_verify_flags_reverse_news_as_risk(
         check for check in payload["checks"] if check["name"] == "证据方向核验"
     )
     assert direction_check["status"] == "warn"
+    assert payload["decision_board"]["workflow_state"] == "risk_review"
+    assert payload["decision_board"]["suggested_verdict"] == "needs_more_evidence"
+    assert "反向证据" in payload["decision_board"]["decision_rule"]
     support_text = "\n".join(payload["evidence_board"]["support"])
     risk_text = "\n".join(payload["evidence_board"]["risk"])
     assert "STX hard drive demand falls" not in support_text

@@ -22,6 +22,7 @@ from lychee_alphadesk.core.research_db import (
 from lychee_alphadesk.core.research_memo import ResearchMemo, ResearchMemoResult
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
+    ResearchDecisionBoard,
     ResearchReviewResult,
     ResearchVerificationCheck,
     ResearchVerificationResult,
@@ -35,6 +36,18 @@ def _option_index(menu: OptionList, label: str) -> int:
         for index in range(menu.option_count)
     ]
     return labels.index(label)
+
+
+def _fake_ready_decision_board() -> ResearchDecisionBoard:
+    return ResearchDecisionBoard(
+        workflow_state="ready_for_review",
+        workflow_label="可进入人工一致性复核",
+        primary_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+        decision_rule="支持证据存在，暂无阻塞、反向证据或待补项，证据可以进入人工一致性复核。",
+        suggested_verdict="continue_research",
+        suggested_verdict_label="继续研究",
+        next_steps=["记录继续研究，并进入人工一致性复核。"],
+    )
 
 
 def test_dashboard_shows_cached_live_data_summary(tmp_path: Path) -> None:
@@ -601,6 +614,7 @@ def test_dashboard_research_task_action_runs_drilldown_verification(
                 "risk": ["一致性核验: 待人工核验行情、成交量、新闻是否同向。"],
                 "missing": [],
             },
+            decision_board=_fake_ready_decision_board(),
             conclusion="一致性结论: 待人工核验。",
             next_actions=["记录支持证据、反向证据和仍需补充的数据。"],
             artifact_path=tmp_path / "research" / "research-verification-test.json",
@@ -652,6 +666,8 @@ def test_dashboard_research_task_action_runs_drilldown_verification(
             assert "支持证据" in text
             assert "风险/反向待查" in text
             assert "待补证据" in text
+            assert "研究决策板" in text
+            assert "建议记录: continue_research" in text
 
     asyncio.run(run_case())
 
@@ -736,6 +752,7 @@ def test_dashboard_research_task_action_generates_llm_memo(
                 "risk": ["一致性核验: 待人工核验行情、成交量、新闻是否同向。"],
                 "missing": [],
             },
+            decision_board=_fake_ready_decision_board(),
             conclusion="一致性结论: 待人工核验。",
             next_actions=["记录支持证据、反向证据和仍需补充的数据。"],
             artifact_path=tmp_path / "research" / "research-verification-test.json",
@@ -893,6 +910,7 @@ def test_dashboard_research_verification_can_record_review_verdict(
                 "risk": ["一致性核验: 待人工核验行情、成交量、新闻是否同向。"],
                 "missing": [],
             },
+            decision_board=_fake_ready_decision_board(),
             conclusion="一致性结论: 待人工核验。",
             next_actions=["记录支持证据、反向证据和仍需补充的数据。"],
             artifact_path=tmp_path / "research" / "research-verification-test.json",

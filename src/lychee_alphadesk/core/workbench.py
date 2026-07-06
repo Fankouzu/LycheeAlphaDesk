@@ -117,6 +117,17 @@ class ResearchVerificationCheck:
 
 
 @dataclass(frozen=True)
+class ResearchDecisionBoard:
+    workflow_state: str
+    workflow_label: str
+    primary_question: str
+    decision_rule: str
+    suggested_verdict: str
+    suggested_verdict_label: str
+    next_steps: list[str]
+
+
+@dataclass(frozen=True)
 class ResearchVerificationResult:
     created_at: str
     status: str
@@ -125,6 +136,7 @@ class ResearchVerificationResult:
     packet: ResearchPacket | None
     checks: list[ResearchVerificationCheck]
     evidence_board: dict[str, list[str]]
+    decision_board: ResearchDecisionBoard
     conclusion: str
     next_actions: list[str]
     artifact_path: Path
@@ -283,6 +295,12 @@ def verify_research_task(
     )
     checks = build_research_verification_checks(candidate, packet)
     evidence_board = build_research_evidence_board(candidate, packet, checks)
+    decision_board = build_research_decision_board(
+        candidate,
+        packet,
+        checks,
+        evidence_board,
+    )
     verify_status = _verification_status(checks)
     status_label = _verification_status_label(verify_status)
     conclusion = _verification_conclusion(verify_status)
@@ -295,6 +313,7 @@ def verify_research_task(
         candidate=candidate,
         checks=checks,
         evidence_board=evidence_board,
+        decision_board=decision_board,
         conclusion=conclusion,
         next_actions=next_actions,
     )
@@ -306,6 +325,7 @@ def verify_research_task(
         packet=packet,
         checks=checks,
         evidence_board=evidence_board,
+        decision_board=decision_board,
         conclusion=conclusion,
         next_actions=next_actions,
         artifact_path=artifact_path,
@@ -644,6 +664,120 @@ def build_research_evidence_board(
         "risk": risk,
         "missing": missing,
     }
+
+
+def build_research_decision_board(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+    checks: list[ResearchVerificationCheck],
+    evidence_board: dict[str, list[str]],
+) -> ResearchDecisionBoard:
+    failed = [check for check in checks if check.status == "fail"]
+    topic_relevance = _news_topic_relevance(candidate, packet)
+    question = candidate.beginner_question.strip() or (
+        f"{candidate.display_name} 这条研究线索是否有足够证据继续下钻？"
+    )
+    if failed:
+        return _research_decision_board(
+            workflow_state="blocked",
+            workflow_label="存在阻塞",
+            primary_question=question,
+            decision_rule="至少一个必要核验失败，先补齐阻塞项再继续研究。",
+            suggested_verdict="blocked",
+            next_steps=[f"先处理{check.name}: {check.detail}" for check in failed[:3]],
+        )
+    if topic_relevance.matched_count == 0:
+        return _research_decision_board(
+            workflow_state="evidence_review",
+            workflow_label="先复核主题相关性",
+            primary_question=question,
+            decision_rule="现有新闻或证据没有命中研究主题关键词，不能把市场噪音当成研究依据。",
+            suggested_verdict="needs_more_evidence",
+            next_steps=[
+                "刷新主题新闻，并确认风险栏新闻是否真的回答研究问题。",
+                "如果仍无主题证据，先记录需要补证据，暂不生成研究备忘录。",
+            ],
+        )
+    if topic_relevance.reverse_count:
+        return _research_decision_board(
+            workflow_state="risk_review",
+            workflow_label="先看反向证据",
+            primary_question=question,
+            decision_rule="已出现反向证据，必须先解释风险栏内容，再决定是否继续研究。",
+            suggested_verdict="needs_more_evidence",
+            next_steps=[
+                "把反向证据逐条标注为真实反向、短期噪音或仍待判定。",
+                "补充同主题行情、成交量或公告证据，检查反向证据是否被数据确认。",
+            ],
+        )
+    if topic_relevance.neutral_count:
+        return _research_decision_board(
+            workflow_state="direction_review",
+            workflow_label="拆分证据方向",
+            primary_question=question,
+            decision_rule="主题相关性已通过，但部分新闻方向待判定，暂时不能归入支持证据。",
+            suggested_verdict="needs_more_evidence",
+            next_steps=[
+                "把新闻待判定逐条归类为支持、反向或无关。",
+                "只保留能回答研究问题的证据，再进入人工一致性复核。",
+            ],
+        )
+    if candidate.proxy_symbols:
+        return _research_decision_board(
+            workflow_state="proxy_review",
+            workflow_label="先核对代理标的",
+            primary_question=question,
+            decision_rule="当前任务依赖代理标的，必须先确认代理是否覆盖原主题。",
+            suggested_verdict="needs_more_evidence",
+            next_steps=[
+                "核对代理标的的成分、费用、成交额和是否可交易。",
+                "代理通过后再把代理行情和主题新闻放到同一证据板复核。",
+            ],
+        )
+    if not evidence_board.get("support"):
+        return _research_decision_board(
+            workflow_state="evidence_review",
+            workflow_label="先补支持证据",
+            primary_question=question,
+            decision_rule="证据板没有可用支持证据，不能进入一致性复核。",
+            suggested_verdict="needs_more_evidence",
+            next_steps=[
+                "补充行情、成交量、主题新闻或公告/财报证据。",
+                "支持栏出现可核验证据后再运行下钻核验。",
+            ],
+        )
+    return _research_decision_board(
+        workflow_state="ready_for_review",
+        workflow_label="可进入人工一致性复核",
+        primary_question=question,
+        decision_rule="支持证据存在，暂无阻塞、反向证据或待补项，证据可以进入人工一致性复核。",
+        suggested_verdict="continue_research",
+        next_steps=[
+            "记录继续研究，并进入人工一致性复核。",
+            "对照支持证据与风险栏，确认它们是否回答同一个研究问题。",
+            "下一步可生成研究备忘录，但仍不能得出买卖结论。",
+        ],
+    )
+
+
+def _research_decision_board(
+    *,
+    workflow_state: str,
+    workflow_label: str,
+    primary_question: str,
+    decision_rule: str,
+    suggested_verdict: str,
+    next_steps: list[str],
+) -> ResearchDecisionBoard:
+    return ResearchDecisionBoard(
+        workflow_state=workflow_state,
+        workflow_label=workflow_label,
+        primary_question=primary_question,
+        decision_rule=decision_rule,
+        suggested_verdict=suggested_verdict,
+        suggested_verdict_label=RESEARCH_REVIEW_VERDICTS[suggested_verdict],
+        next_steps=next_steps,
+    )
 
 
 def _topic_relevance_status(news_count: int, matched_count: int) -> str:
@@ -1571,6 +1705,7 @@ def _write_research_verification_artifact(
     candidate: CandidateCheck,
     checks: list[ResearchVerificationCheck],
     evidence_board: dict[str, list[str]],
+    decision_board: ResearchDecisionBoard,
     conclusion: str,
     next_actions: list[str],
 ) -> Path:
@@ -1586,6 +1721,7 @@ def _write_research_verification_artifact(
                 "candidate": asdict(candidate),
                 "checks": [asdict(check) for check in checks],
                 "evidence_board": evidence_board,
+                "decision_board": asdict(decision_board),
                 "conclusion": conclusion,
                 "next_actions": next_actions,
                 "disclaimer": "下钻核验只检查证据完整度和待核验项，不构成买卖建议。",
@@ -1620,6 +1756,7 @@ def _research_review_payload(
         "verification": _research_verification_payload(verification),
         "evidence_counts": evidence_counts,
         "evidence_board": verification.evidence_board,
+        "decision_board": asdict(verification.decision_board),
         "next_actions": verification.next_actions,
         "disclaimer": "研究复核只记录证据状态和下一步研究流程，不是买卖建议。",
     }
@@ -1635,6 +1772,7 @@ def _research_verification_payload(
         "candidate": asdict(result.candidate),
         "checks": [asdict(check) for check in result.checks],
         "evidence_board": result.evidence_board,
+        "decision_board": asdict(result.decision_board),
         "conclusion": result.conclusion,
         "next_actions": result.next_actions,
         "artifact_path": str(result.artifact_path),

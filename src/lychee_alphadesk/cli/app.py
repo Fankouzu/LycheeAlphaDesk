@@ -1144,11 +1144,27 @@ def _print_research_verification(result: ResearchVerificationResult) -> None:
     _print_evidence_board_column("支持证据", result.evidence_board["support"])
     _print_evidence_board_column("风险/反向待查", result.evidence_board["risk"])
     _print_evidence_board_column("待补证据", result.evidence_board["missing"])
+    _print_research_decision_board(result)
     console.print(result.conclusion, soft_wrap=True)
     console.print("下一步")
     for action in result.next_actions:
         console.print(f"- {action}", soft_wrap=True)
     console.print("边界: 下钻核验不是买卖建议。", soft_wrap=True)
+
+
+def _print_research_decision_board(result: ResearchVerificationResult) -> None:
+    board = result.decision_board
+    console.print("研究决策板")
+    console.print(f"状态: {board.workflow_label}", soft_wrap=True)
+    console.print(f"要回答的问题: {board.primary_question}", soft_wrap=True)
+    console.print(f"判断规则: {board.decision_rule}", soft_wrap=True)
+    console.print(
+        f"建议记录: {board.suggested_verdict}（{board.suggested_verdict_label}）",
+        soft_wrap=True,
+    )
+    console.print("工作台下一步")
+    for step in board.next_steps:
+        console.print(f"- {step}", soft_wrap=True)
 
 
 def _print_research_review(result: ResearchReviewResult) -> None:

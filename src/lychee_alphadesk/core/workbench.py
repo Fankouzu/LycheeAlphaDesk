@@ -146,11 +146,26 @@ class ResearchReviewResult:
 class NewsTopicRelevance:
     terms: list[str]
     matched_rows: list[dict[str, object]]
+    support_rows: list[dict[str, object]]
+    reverse_rows: list[dict[str, object]]
+    neutral_rows: list[dict[str, object]]
     unmatched_rows: list[dict[str, object]]
 
     @property
     def matched_count(self) -> int:
         return len(self.matched_rows)
+
+    @property
+    def support_count(self) -> int:
+        return len(self.support_rows)
+
+    @property
+    def reverse_count(self) -> int:
+        return len(self.reverse_rows)
+
+    @property
+    def neutral_count(self) -> int:
+        return len(self.neutral_rows)
 
 
 RESEARCH_REVIEW_VERDICTS = {
@@ -518,6 +533,13 @@ def build_research_verification_checks(
             detail=_topic_relevance_detail(news_count, topic_relevance),
         )
     )
+    checks.append(
+        ResearchVerificationCheck(
+            name="证据方向核验",
+            status=_evidence_direction_status(news_count, topic_relevance),
+            detail=_evidence_direction_detail(news_count, topic_relevance),
+        )
+    )
     filings_required = candidate.market.upper() == "US" and asset_type == "stock"
     if filings_required:
         checks.append(
@@ -570,12 +592,16 @@ def build_research_evidence_board(
     if price:
         support.append(_price_line(price).removeprefix("行情: "))
     topic_relevance = _news_topic_relevance(candidate, packet)
-    relevant_rows = topic_relevance.matched_rows
-    weak_rows = topic_relevance.unmatched_rows
-    for row in relevant_rows[:3]:
+    for row in topic_relevance.support_rows[:3]:
         headline = _string_value(row.get("headline")) or "未命名新闻证据"
         support.append(f"新闻: {headline}")
-    for row in weak_rows[:3]:
+    for row in topic_relevance.reverse_rows[:3]:
+        headline = _string_value(row.get("headline")) or "未命名新闻证据"
+        risk.append(f"反向证据: {headline}")
+    for row in topic_relevance.neutral_rows[:3]:
+        headline = _string_value(row.get("headline")) or "未命名新闻证据"
+        risk.append(f"新闻待判定: {headline} 命中主题但方向未明。")
+    for row in topic_relevance.unmatched_rows[:3]:
         headline = _string_value(row.get("headline")) or "未命名新闻证据"
         risk.append(f"新闻待查: {headline} 未命中研究主题关键词。")
     for row in filings[:2]:
@@ -632,6 +658,37 @@ def _topic_relevance_detail(
     )
 
 
+def _evidence_direction_status(
+    news_count: int,
+    topic_relevance: NewsTopicRelevance,
+) -> str:
+    if news_count == 0 or topic_relevance.matched_count == 0:
+        return "fail" if news_count == 0 else "warn"
+    if topic_relevance.reverse_count or topic_relevance.neutral_count:
+        return "warn"
+    return "pass"
+
+
+def _evidence_direction_detail(
+    news_count: int,
+    topic_relevance: NewsTopicRelevance,
+) -> str:
+    if news_count == 0:
+        return "缺少新闻或 discovery 证据，无法判断证据方向。"
+    if topic_relevance.matched_count == 0:
+        return "没有主题相关新闻，无法判断支持或反向方向。"
+    parts = [
+        f"支持 {topic_relevance.support_count} 条",
+        f"反向 {topic_relevance.reverse_count} 条",
+        f"方向待判定 {topic_relevance.neutral_count} 条",
+    ]
+    if topic_relevance.reverse_count:
+        return "发现反向证据，必须进入风险或反向待查: " + "；".join(parts) + "。"
+    if topic_relevance.neutral_count:
+        return "部分相关新闻方向未明，需要人工核验: " + "；".join(parts) + "。"
+    return "相关新闻方向初步支持研究问题: " + "；".join(parts) + "。"
+
+
 def _news_topic_relevance(
     candidate: CandidateCheck,
     packet: ResearchPacket | None,
@@ -644,16 +701,29 @@ def _news_topic_relevance(
     ]
     terms = _topic_terms(candidate, packet)
     matched_rows: list[dict[str, object]] = []
+    support_rows: list[dict[str, object]] = []
+    reverse_rows: list[dict[str, object]] = []
+    neutral_rows: list[dict[str, object]] = []
     unmatched_rows: list[dict[str, object]] = []
     for row in rows:
         text = _news_text(row)
         if _text_matches_any_topic_term(text, terms):
             matched_rows.append(row)
+            direction = _news_evidence_direction(text)
+            if direction == "reverse":
+                reverse_rows.append(row)
+            elif direction == "support":
+                support_rows.append(row)
+            else:
+                neutral_rows.append(row)
         else:
             unmatched_rows.append(row)
     return NewsTopicRelevance(
         terms=terms,
         matched_rows=matched_rows,
+        support_rows=support_rows,
+        reverse_rows=reverse_rows,
+        neutral_rows=neutral_rows,
         unmatched_rows=unmatched_rows,
     )
 
@@ -756,6 +826,108 @@ def _news_text(row: dict[str, object]) -> str:
         ]
         if item
     ).lower()
+
+
+def _news_evidence_direction(text: str) -> str:
+    positive = _count_signal_terms(text, _POSITIVE_EVIDENCE_TERMS)
+    negative = _count_signal_terms(text, _NEGATIVE_EVIDENCE_TERMS)
+    if negative > positive:
+        return "reverse"
+    if positive > 0:
+        return "support"
+    return "neutral"
+
+
+_POSITIVE_EVIDENCE_TERMS = {
+    "rise",
+    "rises",
+    "rising",
+    "rose",
+    "growth",
+    "grow",
+    "grows",
+    "improve",
+    "improved",
+    "improves",
+    "strong",
+    "stronger",
+    "beat",
+    "beats",
+    "expand",
+    "expands",
+    "surge",
+    "surges",
+    "increase",
+    "increases",
+    "higher",
+    "robust",
+    "record",
+    "上升",
+    "上涨",
+    "增长",
+    "改善",
+    "强劲",
+    "超预期",
+    "扩张",
+    "增加",
+    "创新高",
+    "复苏",
+}
+
+
+_NEGATIVE_EVIDENCE_TERMS = {
+    "fall",
+    "falls",
+    "falling",
+    "fell",
+    "decline",
+    "declines",
+    "declining",
+    "weak",
+    "weaker",
+    "cut",
+    "cuts",
+    "reduce",
+    "reduces",
+    "slowdown",
+    "slows",
+    "pressure",
+    "pressures",
+    "miss",
+    "misses",
+    "risk",
+    "risks",
+    "lower",
+    "loss",
+    "losses",
+    "drop",
+    "drops",
+    "down",
+    "contract",
+    "contracts",
+    "下降",
+    "下滑",
+    "放缓",
+    "疲弱",
+    "削减",
+    "压力",
+    "不及预期",
+    "风险",
+    "减少",
+    "亏损",
+    "降低",
+}
+
+
+def _count_signal_terms(text: str, terms: set[str]) -> int:
+    count = 0
+    for term in terms:
+        if re.fullmatch(r"[a-z0-9][a-z0-9.+-]*", term):
+            if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text):
+                count += 1
+        elif term and term in text:
+            count += 1
+    return count
 
 
 def _text_matches_any_topic_term(text: str, terms: list[str]) -> bool:

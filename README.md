@@ -295,7 +295,7 @@ lychee research verify
 lychee research verify --symbol QQQ
 ```
 
-`research verify` reads the current research packet, checks whether price, volume, news, filings/financial clues, and proxy instruments are present enough for deeper research, and writes `.alphadesk/research/research-verification-*.json`. It also organizes material into a three-column evidence board: support evidence, risks/reverse checks, and missing evidence. News and discovery evidence now pass through a topic-relevance check: headlines and summaries that do not match the research-task keywords are placed into risks/reverse checks instead of being treated as support evidence. Its consistency conclusion defaults to pending human review; the system does not convert evidence completeness into a buy/sell signal.
+`research verify` reads the current research packet, checks whether price, volume, news, filings/financial clues, and proxy instruments are present enough for deeper research, and writes `.alphadesk/research/research-verification-*.json`. It also organizes material into a three-column evidence board: support evidence, risks/reverse checks, and missing evidence. News and discovery evidence pass through topic-relevance and evidence-direction checks: headlines and summaries that do not match the research-task keywords move to risks/reverse checks; topic-matched rows with negative direction words such as falls, cuts, weak, slowdown, or pressure are marked as reverse evidence; topic-matched but direction-unclear rows are marked as pending news rather than support evidence. Its consistency conclusion defaults to pending human review; the system does not convert evidence completeness into a buy/sell signal.
 
 Generate an LLM second-stage research memo:
 

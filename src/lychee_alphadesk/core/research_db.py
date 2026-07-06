@@ -55,6 +55,21 @@ class ResearchReviewRecord:
 
 
 @dataclass(frozen=True)
+class ResearchEvidenceReviewRecord:
+    review_id: str
+    created_at: str
+    display_name: str
+    symbol: str | None
+    market: str
+    evidence_text: str
+    verdict: str
+    verdict_label: str
+    note: str
+    review_path: str
+    payload: dict[str, object]
+
+
+@dataclass(frozen=True)
 class ResearchMemoRecord:
     memo_id: str
     created_at: str
@@ -167,6 +182,29 @@ def init_research_db(output_dir: Path) -> Path:
             """
             CREATE INDEX IF NOT EXISTS idx_research_reviews_created
             ON research_reviews(created_at DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_evidence_reviews (
+                review_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                symbol TEXT,
+                market TEXT NOT NULL,
+                evidence_text TEXT NOT NULL,
+                verdict TEXT NOT NULL,
+                verdict_label TEXT NOT NULL,
+                note TEXT NOT NULL,
+                review_path TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_research_evidence_reviews_lookup
+            ON research_evidence_reviews(symbol, display_name, created_at DESC)
             """
         )
         connection.execute(
@@ -599,6 +637,116 @@ def list_research_reviews(
             review_path=row[11],
             verification_path=row[12],
             payload=json.loads(row[13]),
+        )
+        for row in rows
+    ]
+
+
+def write_research_evidence_review_record(
+    *,
+    output_dir: Path,
+    review_id: str,
+    created_at: str,
+    display_name: str,
+    symbol: str | None,
+    market: str,
+    evidence_text: str,
+    verdict: str,
+    verdict_label: str,
+    note: str,
+    review_path: Path,
+    payload: dict[str, object],
+) -> Path:
+    init_research_db(output_dir)
+    with sqlite3.connect(research_db_path(output_dir)) as connection:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO research_evidence_reviews (
+                review_id,
+                created_at,
+                display_name,
+                symbol,
+                market,
+                evidence_text,
+                verdict,
+                verdict_label,
+                note,
+                review_path,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                review_id,
+                created_at,
+                display_name,
+                symbol,
+                market,
+                evidence_text,
+                verdict,
+                verdict_label,
+                note,
+                str(review_path),
+                json.dumps(payload, ensure_ascii=False),
+            ),
+        )
+    return research_db_path(output_dir)
+
+
+def list_research_evidence_reviews(
+    output_dir: Path,
+    *,
+    symbol: str | None = None,
+    name: str | None = None,
+    limit: int = 100,
+) -> list[ResearchEvidenceReviewRecord]:
+    db_path = init_research_db(output_dir)
+    where_parts: list[str] = []
+    parameters: list[object] = []
+    if symbol:
+        where_parts.append("UPPER(COALESCE(symbol, '')) = ?")
+        parameters.append(symbol.strip().upper())
+    if name:
+        where_parts.append("LOWER(display_name) LIKE ?")
+        parameters.append(f"%{name.strip().lower()}%")
+    where_clause = "WHERE " + " AND ".join(where_parts) if where_parts else ""
+    parameters.append(limit)
+
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT
+                review_id,
+                created_at,
+                display_name,
+                symbol,
+                market,
+                evidence_text,
+                verdict,
+                verdict_label,
+                note,
+                review_path,
+                payload_json
+            FROM research_evidence_reviews
+            {where_clause}
+            ORDER BY created_at DESC, review_id DESC
+            LIMIT ?
+            """,
+            parameters,
+        ).fetchall()
+
+    return [
+        ResearchEvidenceReviewRecord(
+            review_id=row[0],
+            created_at=row[1],
+            display_name=row[2],
+            symbol=row[3],
+            market=row[4],
+            evidence_text=row[5],
+            verdict=row[6],
+            verdict_label=row[7],
+            note=row[8],
+            review_path=row[9],
+            payload=json.loads(row[10]),
         )
         for row in rows
     ]

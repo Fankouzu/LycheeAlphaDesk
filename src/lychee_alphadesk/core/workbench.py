@@ -18,7 +18,12 @@ from lychee_alphadesk.core.research import (
     deepen_research_queue,
     fill_research_data_gaps,
 )
-from lychee_alphadesk.core.research_db import write_research_review_record
+from lychee_alphadesk.core.research_db import (
+    ResearchEvidenceReviewRecord,
+    list_research_evidence_reviews,
+    write_research_evidence_review_record,
+    write_research_review_record,
+)
 
 PullMarket = Callable[..., PullResult]
 PullNews = Callable[..., PullResult]
@@ -177,6 +182,18 @@ class ResearchReviewResult:
 
 
 @dataclass(frozen=True)
+class ResearchEvidenceReviewResult:
+    created_at: str
+    verdict: str
+    verdict_label: str
+    evidence_text: str
+    note: str
+    candidate: CandidateCheck
+    artifact_path: Path
+    db_path: Path
+
+
+@dataclass(frozen=True)
 class NewsTopicRelevance:
     terms: list[str]
     matched_rows: list[dict[str, object]]
@@ -220,6 +237,12 @@ RESEARCH_REVIEW_VERDICTS = {
     "needs_more_evidence": "需要补证据",
     "pause_watch": "暂停观察",
     "blocked": "存在阻塞",
+}
+
+RESEARCH_EVIDENCE_REVIEW_VERDICTS = {
+    "support": "支持证据",
+    "reverse": "风险/反向待查",
+    "irrelevant": "无关/排除",
 }
 
 
@@ -314,13 +337,24 @@ def verify_research_task(
         if selected_index < len(workbench.deepen_result.packets)
         else None
     )
-    checks = build_research_verification_checks(candidate, packet)
-    evidence_board = build_research_evidence_board(candidate, packet, checks)
+    evidence_reviews = _candidate_evidence_reviews(output_dir, candidate)
+    checks = build_research_verification_checks(
+        candidate,
+        packet,
+        evidence_reviews=evidence_reviews,
+    )
+    evidence_board = build_research_evidence_board(
+        candidate,
+        packet,
+        checks,
+        evidence_reviews=evidence_reviews,
+    )
     decision_board = build_research_decision_board(
         candidate,
         packet,
         checks,
         evidence_board,
+        evidence_reviews=evidence_reviews,
     )
     evidence_change = build_research_evidence_change(
         output_dir=output_dir,
@@ -358,6 +392,82 @@ def verify_research_task(
         next_actions=next_actions,
         artifact_path=artifact_path,
         workbench_result=workbench,
+    )
+
+
+def record_research_evidence_review(
+    *,
+    output_dir: Path,
+    evidence_text: str,
+    verdict: str,
+    note: str = "",
+    symbol: str | None = None,
+    name: str | None = None,
+    status: str | None = "new",
+    limit: int = 5,
+    now: datetime | None = None,
+) -> ResearchEvidenceReviewResult:
+    if verdict not in RESEARCH_EVIDENCE_REVIEW_VERDICTS:
+        allowed = ", ".join(RESEARCH_EVIDENCE_REVIEW_VERDICTS)
+        raise ValueError(f"未知证据复核方向: {verdict}。可选值: {allowed}")
+    cleaned_text = evidence_text.strip()
+    if not cleaned_text:
+        raise ValueError("请提供要复核的证据文本。")
+
+    created_at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
+    workbench = run_workbench_check(
+        output_dir=output_dir,
+        status=status,
+        limit=limit,
+        force=False,
+        now=now,
+    )
+    selected_index = select_research_candidate_index(
+        workbench,
+        symbol=symbol,
+        name=name,
+    )
+    if selected_index is None:
+        raise ValueError("没有找到匹配的研究任务。")
+    candidate = workbench.candidates[selected_index]
+    cleaned_note = note.strip() or "未填写证据复核备注。"
+    verdict_label = RESEARCH_EVIDENCE_REVIEW_VERDICTS[verdict]
+    payload = _research_evidence_review_payload(
+        created_at=created_at,
+        verdict=verdict,
+        verdict_label=verdict_label,
+        evidence_text=cleaned_text,
+        note=cleaned_note,
+        candidate=candidate,
+    )
+    artifact_path = _write_research_evidence_review_artifact(
+        output_dir=output_dir,
+        created_at=created_at,
+        payload=payload,
+    )
+    db_path = write_research_evidence_review_record(
+        output_dir=output_dir,
+        review_id=str(payload["review_id"]),
+        created_at=created_at,
+        display_name=candidate.display_name,
+        symbol=candidate.symbol,
+        market=candidate.market,
+        evidence_text=cleaned_text,
+        verdict=verdict,
+        verdict_label=verdict_label,
+        note=cleaned_note,
+        review_path=artifact_path,
+        payload=payload,
+    )
+    return ResearchEvidenceReviewResult(
+        created_at=created_at,
+        verdict=verdict,
+        verdict_label=verdict_label,
+        evidence_text=cleaned_text,
+        note=cleaned_note,
+        candidate=candidate,
+        artifact_path=artifact_path,
+        db_path=db_path,
     )
 
 
@@ -534,6 +644,8 @@ def run_research_task(
 def build_research_verification_checks(
     candidate: CandidateCheck,
     packet: ResearchPacket | None,
+    *,
+    evidence_reviews: list[ResearchEvidenceReviewRecord] | None = None,
 ) -> list[ResearchVerificationCheck]:
     packet_payload = packet.packet if packet is not None else {}
     local_data = _dict_value(packet_payload.get("local_data"))
@@ -578,7 +690,11 @@ def build_research_verification_checks(
             )
         )
     news_count = len(evidence) + len(related_news)
-    topic_relevance = _news_topic_relevance(candidate, packet)
+    topic_relevance = _news_topic_relevance(
+        candidate,
+        packet,
+        evidence_reviews=evidence_reviews,
+    )
     checks.append(
         ResearchVerificationCheck(
             name="新闻核验",
@@ -643,6 +759,8 @@ def build_research_evidence_board(
     candidate: CandidateCheck,
     packet: ResearchPacket | None,
     checks: list[ResearchVerificationCheck],
+    *,
+    evidence_reviews: list[ResearchEvidenceReviewRecord] | None = None,
 ) -> dict[str, list[str]]:
     packet_payload = packet.packet if packet is not None else {}
     local_data = _dict_value(packet_payload.get("local_data"))
@@ -653,7 +771,11 @@ def build_research_evidence_board(
     missing: list[str] = []
     if price:
         support.append(_price_line(price).removeprefix("行情: "))
-    topic_relevance = _news_topic_relevance(candidate, packet)
+    topic_relevance = _news_topic_relevance(
+        candidate,
+        packet,
+        evidence_reviews=evidence_reviews,
+    )
     for row in topic_relevance.support_rows[:3]:
         headline = _string_value(row.get("headline")) or "未命名新闻证据"
         support.append(f"新闻: {headline}")
@@ -699,9 +821,15 @@ def build_research_decision_board(
     packet: ResearchPacket | None,
     checks: list[ResearchVerificationCheck],
     evidence_board: dict[str, list[str]],
+    *,
+    evidence_reviews: list[ResearchEvidenceReviewRecord] | None = None,
 ) -> ResearchDecisionBoard:
     failed = [check for check in checks if check.status == "fail"]
-    topic_relevance = _news_topic_relevance(candidate, packet)
+    topic_relevance = _news_topic_relevance(
+        candidate,
+        packet,
+        evidence_reviews=evidence_reviews,
+    )
     question = candidate.beginner_question.strip() or (
         f"{candidate.display_name} 这条研究线索是否有足够证据继续下钻？"
     )
@@ -1058,6 +1186,8 @@ def _evidence_direction_detail(
 def _news_topic_relevance(
     candidate: CandidateCheck,
     packet: ResearchPacket | None,
+    *,
+    evidence_reviews: list[ResearchEvidenceReviewRecord] | None = None,
 ) -> NewsTopicRelevance:
     packet_payload = packet.packet if packet is not None else {}
     local_data = _dict_value(packet_payload.get("local_data"))
@@ -1073,6 +1203,18 @@ def _news_topic_relevance(
     unmatched_rows: list[dict[str, object]] = []
     for row in rows:
         text = _news_text(row)
+        reviewed_verdict = _reviewed_evidence_verdict(text, evidence_reviews or [])
+        if reviewed_verdict == "support":
+            matched_rows.append(row)
+            support_rows.append(row)
+            continue
+        if reviewed_verdict == "reverse":
+            matched_rows.append(row)
+            reverse_rows.append(row)
+            continue
+        if reviewed_verdict == "irrelevant":
+            unmatched_rows.append(row)
+            continue
         if _text_matches_any_topic_term(text, terms):
             matched_rows.append(row)
             direction = _news_evidence_direction(text)
@@ -1092,6 +1234,31 @@ def _news_topic_relevance(
         neutral_rows=neutral_rows,
         unmatched_rows=unmatched_rows,
     )
+
+
+def _candidate_evidence_reviews(
+    output_dir: Path,
+    candidate: CandidateCheck,
+) -> list[ResearchEvidenceReviewRecord]:
+    return list_research_evidence_reviews(
+        output_dir,
+        symbol=candidate.symbol,
+        name=None if candidate.symbol else candidate.display_name,
+        limit=100,
+    )
+
+
+def _reviewed_evidence_verdict(
+    text: str,
+    evidence_reviews: list[ResearchEvidenceReviewRecord],
+) -> str | None:
+    for review in evidence_reviews:
+        reviewed_text = review.evidence_text.strip().lower()
+        if not reviewed_text:
+            continue
+        if reviewed_text in text or text in reviewed_text:
+            return review.verdict
+    return None
 
 
 def _topic_terms(
@@ -1982,6 +2149,30 @@ def _research_review_payload(
     }
 
 
+def _research_evidence_review_payload(
+    *,
+    created_at: str,
+    verdict: str,
+    verdict_label: str,
+    evidence_text: str,
+    note: str,
+    candidate: CandidateCheck,
+) -> dict[str, object]:
+    candidate_key = candidate.symbol or candidate.display_name
+    return {
+        "review_id": (
+            f"research-evidence-review:{created_at}:{candidate.market}:{candidate_key}"
+        ),
+        "created_at": created_at,
+        "verdict": verdict,
+        "verdict_label": verdict_label,
+        "evidence_text": evidence_text,
+        "note": note,
+        "candidate": asdict(candidate),
+        "disclaimer": "单条证据复核只记录证据方向，不是买卖建议。",
+    }
+
+
 def _research_verification_payload(
     result: ResearchVerificationResult,
 ) -> dict[str, object]:
@@ -1998,6 +2189,25 @@ def _research_verification_payload(
         "next_actions": result.next_actions,
         "artifact_path": str(result.artifact_path),
     }
+
+
+def _write_research_evidence_review_artifact(
+    *,
+    output_dir: Path,
+    created_at: str,
+    payload: dict[str, object],
+) -> Path:
+    research_dir = output_dir / "research"
+    research_dir.mkdir(parents=True, exist_ok=True)
+    output_path = (
+        research_dir / f"research-evidence-review-{_safe_timestamp(created_at)}.json"
+    )
+    payload["review_path"] = str(output_path)
+    output_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return output_path
 
 
 def _write_research_review_artifact(

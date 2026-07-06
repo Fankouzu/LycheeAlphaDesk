@@ -305,6 +305,14 @@ lychee research verify --symbol QQQ
 
 `research verify` reads the current research packet, checks whether price, volume, news, filings/financial clues, and proxy instruments are present enough for deeper research, and writes `.alphadesk/research/research-verification-*.json`. It also organizes material into a three-column evidence board: support evidence, risks/reverse checks, and missing evidence. News and discovery evidence pass through topic-relevance and evidence-direction checks: headlines and summaries that do not match the research-task keywords move to risks/reverse checks; topic-matched rows with negative direction words such as falls, cuts, weak, slowdown, or pressure are marked as reverse evidence; topic-matched but direction-unclear rows are marked as pending news rather than support evidence. When the same task has a previous verification artifact, the command compares support/risk/missing counts and prints a `证据变化` summary with `证据变化明细`, listing added/removed evidence rows so reruns show exactly what strengthened, weakened, or stayed unchanged. The command now adds a research decision board that turns the evidence state into a workflow verdict such as `continue_research`, `needs_more_evidence`, or `blocked`, plus concrete next research steps. Its consistency conclusion defaults to pending human review; the system does not convert evidence completeness into a buy/sell signal.
 
+Record the direction of one pending evidence row:
+
+```bash
+lychee research evidence-review --symbol QQQ --text "news headline fragment" --verdict support --note "Why this supports the research question"
+```
+
+`research evidence-review` writes a row-level evidence review to SQLite and `.alphadesk/research/research-evidence-review-*.json`. The next `research verify` uses that review to reclassify matching news evidence as `support`, `reverse`, or `irrelevant`, so a task can move out of the "新闻待判定" state through an auditable workflow. This command only records evidence direction; it does not create buy/sell/hold, allocation, target-price, or expected-return advice.
+
 Generate an LLM second-stage research memo:
 
 ```bash

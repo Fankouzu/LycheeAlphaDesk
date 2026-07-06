@@ -987,6 +987,127 @@ def test_research_verify_flags_reverse_news_as_risk(
     assert "反向证据: STX hard drive demand falls" in risk_text
 
 
+def test_research_evidence_review_reclassifies_pending_news(
+    tmp_path: Path,
+) -> None:
+    _write_cli_research_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "STX hard drive demand update for AI storage",
+                        "summary": "Cloud buyers discuss Seagate capacity plans.",
+                        "symbols": ["STX"],
+                        "source_url": "https://example.com/stx-demand-update",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-05",
+                        "close": 120.0,
+                        "volume": 4560000,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "filings.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "date": "2026-07-04",
+                        "company": "Seagate",
+                        "form": "8-K",
+                        "summary": "STX 在 2026-07-04 提交了 8-K。",
+                        "source_url": "https://example.com/8k",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    before = runner.invoke(
+        app,
+        ["research", "verify", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+    assert before.exit_code == 0
+    assert "新闻待判定: STX hard drive demand update" in before.stdout
+
+    review = runner.invoke(
+        app,
+        [
+            "research",
+            "evidence-review",
+            "--symbol",
+            "STX",
+            "--text",
+            "STX hard drive demand update",
+            "--verdict",
+            "support",
+            "--note",
+            "人工确认这条新闻与 AI 存储需求主题相关。",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert review.exit_code == 0
+    assert "证据复核记录已写入" in review.stdout
+    assert "复核方向: 支持证据" in review.stdout
+
+    after = runner.invoke(
+        app,
+        ["research", "verify", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+
+    assert after.exit_code == 0
+    artifacts = sorted((tmp_path / "research").glob("research-verification-*.json"))
+    payload = json.loads(artifacts[-1].read_text(encoding="utf-8"))
+    support_text = "\n".join(payload["evidence_board"]["support"])
+    risk_text = "\n".join(payload["evidence_board"]["risk"])
+    direction_check = next(
+        check for check in payload["checks"] if check["name"] == "证据方向核验"
+    )
+    assert "新闻: STX hard drive demand update for AI storage" in support_text
+    assert "新闻待判定: STX hard drive demand update" not in risk_text
+    assert direction_check["status"] == "pass"
+    with sqlite3.connect(tmp_path / "research.sqlite3") as connection:
+        row = connection.execute(
+            """
+            SELECT symbol, evidence_text, verdict, note
+            FROM research_evidence_reviews
+            """
+        ).fetchone()
+    assert row == (
+        "STX",
+        "STX hard drive demand update",
+        "support",
+        "人工确认这条新闻与 AI 存储需求主题相关。",
+    )
+
+
 def test_research_review_command_records_non_advisory_verdict(
     tmp_path: Path,
 ) -> None:

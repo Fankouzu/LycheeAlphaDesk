@@ -1472,7 +1472,46 @@ def _print_research_review(result: ResearchReviewResult) -> None:
         "待补证据",
         result.verification.evidence_board["missing"],
     )
+    _print_research_review_next_steps(result)
     console.print("边界: 研究复核不是买卖建议。", soft_wrap=True)
+
+
+def _print_research_review_next_steps(result: ResearchReviewResult) -> None:
+    candidate = result.verification.candidate
+    selector = _research_selector(candidate.symbol, candidate.display_name)
+    console.print("工作台下一步")
+    if result.verdict == "continue_research":
+        console.print(
+            f"- 生成研究备忘录: lychee research memo {selector}",
+            soft_wrap=True,
+        )
+        console.print(
+            f"- 重新下钻核验: lychee research verify {selector}",
+            soft_wrap=True,
+        )
+    elif result.verdict == "needs_more_evidence":
+        console.print(
+            f"- 刷新并补强证据: lychee research run {selector} --force",
+            soft_wrap=True,
+        )
+        console.print(
+            f"- 重新下钻核验: lychee research verify {selector}",
+            soft_wrap=True,
+        )
+    elif result.verdict == "pause_watch":
+        console.print(
+            f"- 保持观察并重新核验: lychee research verify {selector}",
+            soft_wrap=True,
+        )
+    else:
+        console.print(
+            f"- 查看阻塞任务详情: lychee research detail {selector}",
+            soft_wrap=True,
+        )
+    console.print(
+        f"- 查看研究复核历史: lychee research reviews {selector}",
+        soft_wrap=True,
+    )
 
 
 def _print_research_evidence_review(result: ResearchEvidenceReviewResult) -> None:

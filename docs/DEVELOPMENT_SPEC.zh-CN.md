@@ -161,7 +161,7 @@ lad
 - `lad research evidence-reviews` 是单条证据复核历史查看入口，必须从 SQLite `research_evidence_reviews` 表读取记录，展示已复核的证据片段、方向标签、备注和 review artifact。该命令用于审计证据分类过程，不得将历史证据复核解释成买卖清单。
 - `lad research memo` 是单条研究任务的 LLM 二阶段研究备忘录入口，必须先运行同一套下钻核验，再把证据板、核验项和下一步动作交给已配置 LLM，生成 `research-memo-*.json`。备忘录只能包含摘要、证据读数、支持点、反方审查、待补证据和下一步研究动作；不得包含买入、卖出、持有、仓位、目标价、收益预期或交易指令。LLM 未配置、请求失败、返回非 JSON、缺少必要字段或包含投资建议语言时必须失败。
 - TUI 研究详情必须暴露同等的“生成研究备忘录”动作，显示 LLM 调用中的 loading 状态，并复用 `lad research memo` 的失败边界和非投资建议边界。
-- `lad research review` 是单条研究任务的复核记录入口，必须先运行同一套下钻核验，然后写入 `research-review-*.json` 和 SQLite `research_reviews` 表。复核判断只能表达研究流程状态：继续研究、需要补证据、暂停观察或存在阻塞；不得表达买入、卖出、持有、仓位、目标价或收益预期。
+- `lad research review` 是单条研究任务的复核记录入口，必须先运行同一套下钻核验，然后写入 `research-review-*.json` 和 SQLite `research_reviews` 表。复核判断记录完成后，CLI 必须根据 verdict 打印对应的工作台下一步命令，例如 `continue_research` 后运行 `lad research memo` 和重新核验，或 `needs_more_evidence` 后运行 `lad research run --force` 和重新核验。复核判断只能表达研究流程状态：继续研究、需要补证据、暂停观察或存在阻塞；不得表达买入、卖出、持有、仓位、目标价或收益预期。
 - `lad research reviews` 是研究复核历史查看入口，必须从 SQLite `research_reviews` 表读取记录，展示复核判断、备注、证据数量、review artifact 和对应的下钻核验 artifact。该命令用于复盘研究流程，不得将历史复核解释成买卖清单。
 - `lad research memos` 是研究备忘录历史查看入口，必须从 SQLite `research_memos` 表读取记录，展示摘要、置信度、支持/反方/待补/下一步计数、memo artifact 和对应的下钻核验 artifact。该命令用于复盘研究过程，不得将备忘录历史解释成买卖清单。
 - `lad audit list` 列出已生成的报告和决策记录。

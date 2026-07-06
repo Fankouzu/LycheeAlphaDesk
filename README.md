@@ -356,7 +356,7 @@ Record a research review:
 lychee research review --symbol QQQ --verdict continue_research --note "Continue checking whether evidence points in the same direction"
 ```
 
-`research review` runs the same drilldown verification, then writes the review verdict, note, evidence-board counts, verification artifact path, and full payload to `.alphadesk/research/research-review-*.json` and the `research_reviews` table in `.alphadesk/research.sqlite3`. `--verdict` may only express research workflow state: `continue_research`, `needs_more_evidence`, `pause_watch`, or `blocked`; it is not a buy, sell, hold, target-price, or allocation recommendation.
+`research review` runs the same drilldown verification, then writes the review verdict, note, evidence-board counts, verification artifact path, and full payload to `.alphadesk/research/research-review-*.json` and the `research_reviews` table in `.alphadesk/research.sqlite3`. After recording the verdict, the CLI prints verdict-specific next commands, such as generating a research memo after `continue_research` or refreshing the research chain after `needs_more_evidence`. `--verdict` may only express research workflow state: `continue_research`, `needs_more_evidence`, `pause_watch`, or `blocked`; it is not a buy, sell, hold, target-price, or allocation recommendation.
 
 View research review history:
 

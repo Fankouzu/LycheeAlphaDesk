@@ -1415,6 +1415,10 @@ def test_research_review_command_records_non_advisory_verdict(
     assert "研究复核记录已写入" in result.stdout
     assert "复核判断: 继续研究" in result.stdout
     assert "证据板" in result.stdout
+    assert "工作台下一步" in result.stdout
+    assert "生成研究备忘录: lychee research memo --symbol STX" in result.stdout
+    assert "重新下钻核验: lychee research verify --symbol STX" in result.stdout
+    assert "查看研究复核历史: lychee research reviews --symbol STX" in result.stdout
     assert "不是买卖建议" in result.stdout
     artifacts = list((tmp_path / "research").glob("research-review-*.json"))
     assert artifacts

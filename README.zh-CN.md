@@ -355,7 +355,7 @@ lychee research memos
 lychee research review --symbol QQQ --verdict continue_research --note "继续核对证据是否同向"
 ```
 
-`research review` 会先运行同一套下钻核验，再把复核判断、备注、证据板数量、verification artifact 路径和完整 payload 写入 `.alphadesk/research/research-review-*.json` 以及 `.alphadesk/research.sqlite3` 的 `research_reviews` 表。`--verdict` 只能表达研究流程状态：`continue_research`、`needs_more_evidence`、`pause_watch` 或 `blocked`；它不是买入、卖出、持有或仓位建议。
+`research review` 会先运行同一套下钻核验，再把复核判断、备注、证据板数量、verification artifact 路径和完整 payload 写入 `.alphadesk/research/research-review-*.json` 以及 `.alphadesk/research.sqlite3` 的 `research_reviews` 表。记录完成后，CLI 会根据复核判断继续打印下一步命令，例如 `continue_research` 后生成研究备忘录，或 `needs_more_evidence` 后刷新研究执行链。`--verdict` 只能表达研究流程状态：`continue_research`、`needs_more_evidence`、`pause_watch` 或 `blocked`；它不是买入、卖出、持有或仓位建议。
 
 查看研究复核历史：
 

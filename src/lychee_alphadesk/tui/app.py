@@ -849,6 +849,15 @@ def _research_verification_text(result: ResearchVerificationResult) -> str:
             *_evidence_board_lines("风险/反向待查", result.evidence_board["risk"]),
             *_evidence_board_lines("待补证据", result.evidence_board["missing"]),
             "",
+            "证据变化",
+            f"状态: {result.evidence_change.status_label}",
+            f"摘要: {result.evidence_change.summary}",
+            *(
+                [f"上一份核验: {result.evidence_change.previous_artifact_path}"]
+                if result.evidence_change.previous_artifact_path
+                else []
+            ),
+            "",
             "研究决策板",
             f"状态: {result.decision_board.workflow_label}",
             f"要回答的问题: {result.decision_board.primary_question}",

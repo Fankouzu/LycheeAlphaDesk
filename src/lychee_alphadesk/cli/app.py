@@ -1144,6 +1144,7 @@ def _print_research_verification(result: ResearchVerificationResult) -> None:
     _print_evidence_board_column("支持证据", result.evidence_board["support"])
     _print_evidence_board_column("风险/反向待查", result.evidence_board["risk"])
     _print_evidence_board_column("待补证据", result.evidence_board["missing"])
+    _print_research_evidence_change(result)
     _print_research_decision_board(result)
     console.print(result.conclusion, soft_wrap=True)
     console.print("下一步")
@@ -1165,6 +1166,15 @@ def _print_research_decision_board(result: ResearchVerificationResult) -> None:
     console.print("工作台下一步")
     for step in board.next_steps:
         console.print(f"- {step}", soft_wrap=True)
+
+
+def _print_research_evidence_change(result: ResearchVerificationResult) -> None:
+    change = result.evidence_change
+    console.print("证据变化")
+    console.print(f"状态: {change.status_label}", soft_wrap=True)
+    console.print(f"摘要: {change.summary}", soft_wrap=True)
+    if change.previous_artifact_path:
+        console.print(f"上一份核验: {change.previous_artifact_path}", soft_wrap=True)
 
 
 def _print_research_review(result: ResearchReviewResult) -> None:

@@ -699,6 +699,111 @@ def test_research_verify_command_writes_drilldown_checklist(
     assert "证据可以进入人工一致性复核" in payload["decision_board"]["decision_rule"]
 
 
+def test_research_verify_reports_evidence_change_from_previous_snapshot(
+    tmp_path: Path,
+) -> None:
+    _write_cli_research_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "AI storage demand rises",
+                        "summary": "Cloud infrastructure demand may affect hard drives.",
+                        "symbols": ["STX"],
+                        "source_url": "https://example.com/storage",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-05",
+                        "close": 120.0,
+                        "volume": 4560000,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "filings.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "date": "2026-07-04",
+                        "company": "Seagate",
+                        "form": "8-K",
+                        "summary": "STX 在 2026-07-04 提交了 8-K。",
+                        "source_url": "https://example.com/8k",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    research_dir = tmp_path / "research"
+    research_dir.mkdir(parents=True)
+    (research_dir / "research-verification-20260704-010000Z.json").write_text(
+        json.dumps(
+            {
+                "created_at": "2026-07-04T01:00:00+00:00",
+                "candidate": {
+                    "display_name": "Seagate",
+                    "market": "US",
+                    "symbol": "STX",
+                    "proxy_symbols": [],
+                },
+                "evidence_board": {
+                    "support": [],
+                    "risk": [],
+                    "missing": ["旧核验缺少行情。"],
+                },
+                "decision_board": {
+                    "suggested_verdict": "needs_more_evidence",
+                    "suggested_verdict_label": "需要补证据",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["research", "verify", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "证据变化" in result.stdout
+    assert "支持证据增加" in result.stdout
+    artifacts = sorted((tmp_path / "research").glob("research-verification-*.json"))
+    payload = json.loads(artifacts[-1].read_text(encoding="utf-8"))
+    assert payload["evidence_change"]["status"] == "improved"
+    assert payload["evidence_change"]["support_delta"] > 0
+    assert payload["evidence_change"]["missing_delta"] == -1
+    assert payload["evidence_change"]["previous_artifact_path"].endswith(
+        "research-verification-20260704-010000Z.json"
+    )
+
+
 def test_research_verify_flags_off_topic_news_as_risk(
     tmp_path: Path,
 ) -> None:

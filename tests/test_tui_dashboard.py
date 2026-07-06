@@ -23,6 +23,7 @@ from lychee_alphadesk.core.research_memo import ResearchMemo, ResearchMemoResult
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
     ResearchDecisionBoard,
+    ResearchEvidenceChange,
     ResearchReviewResult,
     ResearchVerificationCheck,
     ResearchVerificationResult,
@@ -60,6 +61,65 @@ def _fake_needs_more_evidence_decision_board() -> ResearchDecisionBoard:
         suggested_verdict_label="需要补证据",
         next_steps=["把新闻待判定逐条归类为支持、反向或无关。"],
     )
+
+
+def test_research_verification_text_shows_evidence_change(tmp_path: Path) -> None:
+    result = ResearchVerificationResult(
+        created_at="2026-07-05T10:00:00+00:00",
+        status="pending_review",
+        status_label="待人工核验",
+        candidate=CandidateCheck(
+            display_name="纳斯达克100ETF观察",
+            market="US",
+            symbol="QQQ",
+            proxy_symbols=[],
+            evidence_count=2,
+            gap_count=0,
+            data_gaps=[],
+            status="ready",
+            explanation="证据已补齐。",
+            beginner_question="科技反弹是否独立于大盘？",
+            why_it_matters="需要区分主题强弱和大盘 beta。",
+            observation_entry="QQQ",
+            what_to_check="行情、成交量、相关新闻是否同向。",
+            next_step="进入下钻核验。",
+            priority="high",
+            evidence_status="ready",
+            ranking_reason="证据已补齐。",
+            evidence_quality="support",
+        ),
+        packet=None,
+        checks=[],
+        evidence_board={
+            "support": ["行情: QQQ 530.26 USD"],
+            "risk": [],
+            "missing": [],
+        },
+        decision_board=_fake_ready_decision_board(),
+        evidence_change=ResearchEvidenceChange(
+            status="improved",
+            status_label="证据增强",
+            summary="支持证据增加 1；风险/反向待查无变化；待补证据减少 1。",
+            support_delta=1,
+            risk_delta=0,
+            missing_delta=-1,
+            previous_artifact_path=str(
+                tmp_path / "research" / "research-verification-old.json"
+            ),
+            previous_created_at="2026-07-04T10:00:00+00:00",
+        ),
+        conclusion="一致性结论: 待人工核验。",
+        next_actions=["记录支持证据、反向证据和仍需补充的数据。"],
+        artifact_path=tmp_path / "research" / "research-verification-test.json",
+        workbench_result=object(),
+    )
+
+    text = tui_app._research_verification_text(result)
+
+    assert "证据变化" in text
+    assert "状态: 证据增强" in text
+    assert "支持证据增加 1" in text
+    assert "上一份核验:" in text
 
 
 def test_research_review_followup_actions_continue_research_offer_memo() -> None:

@@ -1,7 +1,7 @@
 import json
 import re
-from collections.abc import Callable
-from dataclasses import asdict, dataclass, replace
+from collections.abc import Callable, Mapping
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -128,6 +128,18 @@ class ResearchDecisionBoard:
 
 
 @dataclass(frozen=True)
+class ResearchEvidenceChange:
+    status: str
+    status_label: str
+    summary: str
+    support_delta: int
+    risk_delta: int
+    missing_delta: int
+    previous_artifact_path: str | None = None
+    previous_created_at: str | None = None
+
+
+@dataclass(frozen=True)
 class ResearchVerificationResult:
     created_at: str
     status: str
@@ -141,6 +153,9 @@ class ResearchVerificationResult:
     next_actions: list[str]
     artifact_path: Path
     workbench_result: WorkbenchCheckResult
+    evidence_change: ResearchEvidenceChange = field(
+        default_factory=lambda: _first_research_evidence_change()
+    )
 
 
 @dataclass(frozen=True)
@@ -301,6 +316,11 @@ def verify_research_task(
         checks,
         evidence_board,
     )
+    evidence_change = build_research_evidence_change(
+        output_dir=output_dir,
+        candidate=candidate,
+        evidence_board=evidence_board,
+    )
     verify_status = _verification_status(checks)
     status_label = _verification_status_label(verify_status)
     conclusion = _verification_conclusion(verify_status)
@@ -314,6 +334,7 @@ def verify_research_task(
         checks=checks,
         evidence_board=evidence_board,
         decision_board=decision_board,
+        evidence_change=evidence_change,
         conclusion=conclusion,
         next_actions=next_actions,
     )
@@ -326,6 +347,7 @@ def verify_research_task(
         checks=checks,
         evidence_board=evidence_board,
         decision_board=decision_board,
+        evidence_change=evidence_change,
         conclusion=conclusion,
         next_actions=next_actions,
         artifact_path=artifact_path,
@@ -778,6 +800,143 @@ def _research_decision_board(
         suggested_verdict_label=RESEARCH_REVIEW_VERDICTS[suggested_verdict],
         next_steps=next_steps,
     )
+
+
+def build_research_evidence_change(
+    *,
+    output_dir: Path,
+    candidate: CandidateCheck,
+    evidence_board: dict[str, list[str]],
+) -> ResearchEvidenceChange:
+    previous = _latest_matching_verification_artifact(output_dir, candidate)
+    if previous is None:
+        return _first_research_evidence_change()
+
+    previous_payload = _read_json_dict(previous)
+    previous_board = _dict_value(previous_payload.get("evidence_board"))
+    previous_counts = _evidence_board_counts(previous_board)
+    current_counts = _evidence_board_counts(evidence_board)
+    support_delta = current_counts["support"] - previous_counts["support"]
+    risk_delta = current_counts["risk"] - previous_counts["risk"]
+    missing_delta = current_counts["missing"] - previous_counts["missing"]
+    status, status_label = _evidence_change_status(
+        support_delta,
+        risk_delta,
+        missing_delta,
+    )
+    return ResearchEvidenceChange(
+        status=status,
+        status_label=status_label,
+        summary=_evidence_change_summary(
+            support_delta,
+            risk_delta,
+            missing_delta,
+        ),
+        support_delta=support_delta,
+        risk_delta=risk_delta,
+        missing_delta=missing_delta,
+        previous_artifact_path=str(previous),
+        previous_created_at=_string_value(previous_payload.get("created_at")) or None,
+    )
+
+
+def _first_research_evidence_change() -> ResearchEvidenceChange:
+    return ResearchEvidenceChange(
+        status="first_check",
+        status_label="首次核验",
+        summary="没有找到同一研究任务的上一份下钻核验，先把本次结果作为基线。",
+        support_delta=0,
+        risk_delta=0,
+        missing_delta=0,
+    )
+
+
+def _latest_matching_verification_artifact(
+    output_dir: Path,
+    candidate: CandidateCheck,
+) -> Path | None:
+    research_dir = output_dir / "research"
+    if not research_dir.exists():
+        return None
+    for path in sorted(research_dir.glob("research-verification-*.json"), reverse=True):
+        payload = _read_json_dict(path)
+        payload_candidate = _dict_value(payload.get("candidate"))
+        if _verification_candidate_matches(payload_candidate, candidate):
+            return path
+    return None
+
+
+def _verification_candidate_matches(
+    payload_candidate: dict[str, object],
+    candidate: CandidateCheck,
+) -> bool:
+    if (_string_value(payload_candidate.get("market")) or "").upper() != (
+        candidate.market or ""
+    ).upper():
+        return False
+    payload_symbols = [
+        _string_value(payload_candidate.get("symbol")),
+        *_text_list(payload_candidate.get("proxy_symbols")),
+    ]
+    current_symbols = [candidate.symbol or "", *candidate.proxy_symbols]
+    payload_symbol_set = {symbol.upper() for symbol in payload_symbols if symbol}
+    current_symbol_set = {symbol.upper() for symbol in current_symbols if symbol}
+    if payload_symbol_set and current_symbol_set:
+        return bool(payload_symbol_set & current_symbol_set)
+    payload_name = (_string_value(payload_candidate.get("display_name")) or "").lower()
+    return bool(payload_name and payload_name == candidate.display_name.lower())
+
+
+def _read_json_dict(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return _dict_value(payload)
+
+
+def _evidence_board_counts(board: Mapping[str, object]) -> dict[str, int]:
+    return {
+        "support": len(_text_list(board.get("support"))),
+        "risk": len(_text_list(board.get("risk"))),
+        "missing": len(_text_list(board.get("missing"))),
+    }
+
+
+def _evidence_change_status(
+    support_delta: int,
+    risk_delta: int,
+    missing_delta: int,
+) -> tuple[str, str]:
+    if support_delta == 0 and risk_delta == 0 and missing_delta == 0:
+        return "unchanged", "证据未变化"
+    score = support_delta - risk_delta - missing_delta
+    if score > 0:
+        return "improved", "证据增强"
+    if score < 0:
+        return "weaker", "证据压力增加"
+    return "mixed", "证据变化混合"
+
+
+def _evidence_change_summary(
+    support_delta: int,
+    risk_delta: int,
+    missing_delta: int,
+) -> str:
+    parts = [
+        _delta_phrase("支持证据", support_delta),
+        _delta_phrase("风险/反向待查", risk_delta),
+        _delta_phrase("待补证据", missing_delta),
+    ]
+    return "；".join(parts) + "。"
+
+
+def _delta_phrase(label: str, delta: int) -> str:
+    if delta > 0:
+        return f"{label}增加 {delta}"
+    if delta < 0:
+        return f"{label}减少 {abs(delta)}"
+    return f"{label}无变化"
 
 
 def _topic_relevance_status(news_count: int, matched_count: int) -> str:
@@ -1706,6 +1865,7 @@ def _write_research_verification_artifact(
     checks: list[ResearchVerificationCheck],
     evidence_board: dict[str, list[str]],
     decision_board: ResearchDecisionBoard,
+    evidence_change: ResearchEvidenceChange,
     conclusion: str,
     next_actions: list[str],
 ) -> Path:
@@ -1722,6 +1882,7 @@ def _write_research_verification_artifact(
                 "checks": [asdict(check) for check in checks],
                 "evidence_board": evidence_board,
                 "decision_board": asdict(decision_board),
+                "evidence_change": asdict(evidence_change),
                 "conclusion": conclusion,
                 "next_actions": next_actions,
                 "disclaimer": "下钻核验只检查证据完整度和待核验项，不构成买卖建议。",
@@ -1773,6 +1934,7 @@ def _research_verification_payload(
         "checks": [asdict(check) for check in result.checks],
         "evidence_board": result.evidence_board,
         "decision_board": asdict(result.decision_board),
+        "evidence_change": asdict(result.evidence_change),
         "conclusion": result.conclusion,
         "next_actions": result.next_actions,
         "artifact_path": str(result.artifact_path),

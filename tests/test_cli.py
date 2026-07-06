@@ -1111,6 +1111,82 @@ def test_research_evidence_review_reclassifies_pending_news(
     )
 
 
+def test_research_verify_prints_pending_evidence_review_commands(
+    tmp_path: Path,
+) -> None:
+    _write_cli_research_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "STX hard drive demand update for AI storage",
+                        "summary": "Cloud buyers discuss Seagate capacity plans.",
+                        "symbols": ["STX"],
+                        "source_url": "https://example.com/stx-demand-update",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-05",
+                        "close": 120.0,
+                        "volume": 4560000,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "filings.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "date": "2026-07-04",
+                        "company": "Seagate",
+                        "form": "8-K",
+                        "summary": "STX 在 2026-07-04 提交了 8-K。",
+                        "source_url": "https://example.com/8k",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["research", "verify", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "待判定证据处理" in result.stdout
+    assert "lychee research pending-evidence --symbol STX" in result.stdout
+    assert "lychee research evidence-review --symbol STX" in result.stdout
+    assert '"STX hard drive demand update for AI storage"' in result.stdout
+    assert '--verdict "<support|reverse|irrelevant>" --note "..."' in result.stdout
+    assert "分类后重新运行: lychee research verify --symbol STX" in result.stdout
+    assert "待判定证据处理不是买卖建议" in result.stdout
+
+
 def test_research_evidence_reviews_command_lists_audit_history(
     tmp_path: Path,
 ) -> None:
@@ -1212,6 +1288,40 @@ def test_research_pending_evidence_command_lists_unreviewed_queue(
     assert "stale QQQ headline" not in result.stdout
     assert "lychee research evidence-review --symbol QQQ" in result.stdout
     assert "待判定证据队列不是买卖建议" in result.stdout
+
+
+def test_research_pending_evidence_command_filters_by_symbol(
+    tmp_path: Path,
+) -> None:
+    _write_cli_verification_artifact(
+        tmp_path,
+        created_at="2026-07-06T10:00:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        risk_items=[
+            "新闻待判定: QQQ tech rebound headline 命中主题但方向未明。",
+        ],
+    )
+    _write_cli_verification_artifact(
+        tmp_path,
+        created_at="2026-07-06T10:01:00+00:00",
+        display_name="Seagate",
+        symbol="STX",
+        market="US",
+        risk_items=[
+            "新闻待判定: STX hard drive demand update 命中主题但方向未明。",
+        ],
+    )
+
+    result = runner.invoke(
+        app,
+        ["research", "pending-evidence", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "STX hard drive demand update" in result.stdout
+    assert "QQQ tech rebound headline" not in result.stdout
 
 
 def test_research_review_command_records_non_advisory_verdict(

@@ -303,15 +303,17 @@ lychee research verify
 lychee research verify --symbol QQQ
 ```
 
-`research verify` 会读取当前研究包，核验行情、成交量、新闻、公告/财报和代理标的是否具备继续研究所需的基础材料，并写入 `.alphadesk/research/research-verification-*.json`。输出会整理成“支持证据 / 风险或反向待查 / 待补证据”三栏证据板。新闻和 discovery 证据还会做主题相关性和证据方向核验：没有命中研究任务关键词的新闻会进入“风险或反向待查”；命中主题但带有下降、放缓、疲弱等反向信号的新闻会标为“反向证据”；方向不明的相关新闻会标为“新闻待判定”，不会直接当成支持证据。它的“一致性结论”默认是待人工核验；系统不会把证据完整度直接解释为买入或卖出信号。
+`research verify` 会读取当前研究包，核验行情、成交量、新闻、公告/财报和代理标的是否具备继续研究所需的基础材料，并写入 `.alphadesk/research/research-verification-*.json`。输出会整理成“支持证据 / 风险或反向待查 / 待补证据”三栏证据板。新闻和 discovery 证据还会做主题相关性和证据方向核验：没有命中研究任务关键词的新闻会进入“风险或反向待查”；命中主题但带有下降、放缓、疲弱等反向信号的新闻会标为“反向证据”；方向不明的相关新闻会标为“新闻待判定”，不会直接当成支持证据。只要存在新闻待判定，核验页会打印“待判定证据处理”，包含已按当前任务过滤的 `research pending-evidence` 队列命令、具体 `research evidence-review` 复核命令模板，以及分类后的重新核验命令。它的“一致性结论”默认是待人工核验；系统不会把证据完整度直接解释为买入或卖出信号。
 
 查看仍需判断方向的单条新闻证据：
 
 ```bash
 lychee research pending-evidence
+lychee research pending-evidence --symbol QQQ
+lychee research pending-evidence --name "Invesco QQQ Trust"
 ```
 
-`research pending-evidence` 会读取每个研究任务最新的下钻核验记录，只收集还没有被复核过的 `新闻待判定` 行，并展示研究任务、要回答的问题、证据文本、来源 artifact 和 `research evidence-review` 命令模板。它是研究流程待办队列，不是买卖候选列表。TUI 主界面也提供 `待判定证据队列`；用户可以选择一条待判定证据，进入详情页后直接标记为支持、风险/反向待查或无关/排除。标记完成后，TUI 不会停在确认文字，而会继续提供 `重新下钻核验`，让用户立刻查看更新后的证据板。
+`research pending-evidence` 会读取每个研究任务最新的下钻核验记录，只收集还没有被复核过的 `新闻待判定` 行，并展示研究任务、要回答的问题、证据文本、来源 artifact 和 `research evidence-review` 命令模板。`--symbol` 和 `--name` 可把队列过滤到单个研究任务。它是研究流程待办队列，不是买卖候选列表。TUI 主界面也提供 `待判定证据队列`；用户可以选择一条待判定证据，进入详情页后直接标记为支持、风险/反向待查或无关/排除。标记完成后，TUI 不会停在确认文字，而会继续提供 `重新下钻核验`，让用户立刻查看更新后的证据板。
 
 记录一条证据方向复核：
 

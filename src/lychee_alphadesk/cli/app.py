@@ -56,6 +56,7 @@ from lychee_alphadesk.core.research_memo import (
     generate_research_memo,
 )
 from lychee_alphadesk.core.workbench import (
+    PendingEvidenceReviewItem,
     ResearchEvidenceReviewResult,
     ResearchReviewResult,
     ResearchRunResult,
@@ -921,6 +922,14 @@ def research_evidence_reviews(
 
 @research_app.command("pending-evidence")
 def research_pending_evidence(
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="只查看某个证券代码的待判定证据。"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="只查看某个研究任务名称的待判定证据。"),
+    ] = None,
     limit: Annotated[
         int,
         typer.Option("--limit", help="最多显示多少条待判定证据。"),
@@ -932,6 +941,7 @@ def research_pending_evidence(
 ) -> None:
     """查看仍需人工判定方向的新闻证据队列。"""
     items = list_pending_evidence_reviews(output_dir=output_dir, limit=limit)
+    items = _filter_pending_evidence_items(items, symbol=symbol, name=name)
     if not items:
         console.print("暂无待判定证据。请先运行 `lychee research verify`。")
         return
@@ -1309,11 +1319,94 @@ def _print_research_verification(result: ResearchVerificationResult) -> None:
     _print_evidence_board_column("待补证据", result.evidence_board["missing"])
     _print_research_evidence_change(result)
     _print_research_decision_board(result)
+    _print_pending_evidence_review_commands(result)
     console.print(result.conclusion, soft_wrap=True)
     console.print("下一步")
     for action in result.next_actions:
         console.print(f"- {action}", soft_wrap=True)
     console.print("边界: 下钻核验不是买卖建议。", soft_wrap=True)
+
+
+def _print_pending_evidence_review_commands(
+    result: ResearchVerificationResult,
+    *,
+    limit: int = 5,
+) -> None:
+    pending_items = _pending_evidence_review_texts(result)[:limit]
+    if not pending_items:
+        return
+    selector = _research_selector(result.candidate.symbol, result.candidate.display_name)
+    console.print("待判定证据处理")
+    console.print(
+        f"- 查看队列: lychee research pending-evidence {selector}",
+        soft_wrap=True,
+    )
+    for evidence_text in pending_items:
+        console.print(
+            "- 复核命令: "
+            f"lychee research evidence-review {selector} "
+            f"--text {_quote_cli_value(evidence_text)} "
+            '--verdict "<support|reverse|irrelevant>" --note "..."',
+            soft_wrap=True,
+        )
+    console.print(
+        f"- 分类后重新运行: lychee research verify {selector}",
+        soft_wrap=True,
+    )
+    console.print("边界: 待判定证据处理不是买卖建议。", soft_wrap=True)
+
+
+def _filter_pending_evidence_items(
+    items: list[PendingEvidenceReviewItem],
+    *,
+    symbol: str | None,
+    name: str | None,
+) -> list[PendingEvidenceReviewItem]:
+    if symbol:
+        target = symbol.strip().upper()
+        items = [
+            item
+            for item in items
+            if item.symbol is not None and item.symbol.upper() == target
+        ]
+    if name:
+        target_name = name.strip().lower()
+        items = [
+            item
+            for item in items
+            if item.display_name.lower() == target_name
+            or target_name in item.display_name.lower()
+        ]
+    return items
+
+
+def _pending_evidence_review_texts(
+    result: ResearchVerificationResult,
+) -> list[str]:
+    items: list[str] = []
+    prefix = "新闻待判定: "
+    suffix = " 命中主题但方向未明。"
+    for row in result.evidence_board["risk"]:
+        if not row.startswith(prefix):
+            continue
+        evidence_text = row.removeprefix(prefix)
+        if evidence_text.endswith(suffix):
+            evidence_text = evidence_text.removesuffix(suffix)
+        evidence_text = evidence_text.strip()
+        if evidence_text and evidence_text not in items:
+            items.append(evidence_text)
+    return items
+
+
+def _research_selector(symbol: str | None, display_name: str) -> str:
+    if symbol:
+        return f"--symbol {symbol}"
+    return f"--name {_quote_cli_value(display_name)}"
+
+
+def _quote_cli_value(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _print_research_decision_board(result: ResearchVerificationResult) -> None:

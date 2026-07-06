@@ -957,6 +957,84 @@ def test_research_memo_command_writes_llm_research_memo(
         "硬盘行业仍可能受到周期和库存波动影响。"
     ]
     assert payload["verification_path"].endswith(".json")
+    with sqlite3.connect(tmp_path / "research.sqlite3") as connection:
+        row = connection.execute(
+            """
+            SELECT
+                display_name,
+                symbol,
+                confidence,
+                summary,
+                support_count,
+                skeptic_count,
+                missing_count,
+                next_step_count,
+                memo_path,
+                verification_path
+            FROM research_memos
+            """
+        ).fetchone()
+    assert row == (
+        "Seagate",
+        "STX",
+        "medium",
+        "STX 的研究线索来自 AI 存储需求与本地行情证据的交叉。",
+        1,
+        1,
+        1,
+        1,
+        str(artifacts[0]),
+        payload["verification_path"],
+    )
+
+
+def test_research_memos_command_lists_memo_history(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))  # type: ignore[attr-defined]
+    set_openai_compatible_llm(
+        "https://llm.example.com/v1",
+        "sk-demo-secret",
+        "demo-model",
+    )
+    _write_cli_research_seed(tmp_path)
+
+    def fake_request_chat_json(config: object, **kwargs: object) -> dict[str, object]:
+        return {
+            "summary": "STX 需要继续核验 AI 存储需求是否反映到订单和利润。",
+            "evidence_reading": "已有研究入口，但证据仍需继续补强。",
+            "support_points": ["已有 STX 研究任务。"],
+            "skeptic_review": ["单一新闻不能证明基本面变化。"],
+            "missing_evidence": ["缺少最新财报证据。"],
+            "next_research_steps": ["补充财报和同行对比。"],
+            "confidence": "low",
+        }
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        "lychee_alphadesk.core.research_memo.request_chat_json",
+        fake_request_chat_json,
+    )
+    memo_result = runner.invoke(
+        app,
+        ["research", "memo", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+    assert memo_result.exit_code == 0
+
+    result = runner.invoke(
+        app,
+        ["research", "memos", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "Lychee AlphaDesk 研究备忘录历史" in result.stdout
+    assert "Seagate" in result.stdout
+    assert "STX" in result.stdout
+    assert "low" in result.stdout
+    assert "STX 需要继续核验" in result.stdout
+    assert "支持 1 | 反方 1 | 待补 1 | 下一步 1" in result.stdout
+    assert "research-memo-" in result.stdout
+    assert "研究备忘录历史不是买卖建议" in result.stdout
 
 
 def test_research_memo_command_rejects_investment_advice_language(

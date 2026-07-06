@@ -5,6 +5,7 @@ from pathlib import Path
 
 from lychee_alphadesk.core.config import AlphaDeskConfig, load_config
 from lychee_alphadesk.core.llm import JsonPoster, request_chat_json
+from lychee_alphadesk.core.research_db import write_research_memo_record
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
     ResearchVerificationResult,
@@ -30,6 +31,7 @@ class ResearchMemoResult:
     candidate: CandidateCheck
     verification: ResearchVerificationResult
     artifact_path: Path
+    db_path: Path
 
 
 def generate_research_memo(
@@ -59,11 +61,32 @@ def generate_research_memo(
         post_json=post_json,
     )
     memo = _parse_research_memo(payload)
-    artifact_path = _write_research_memo_artifact(
-        output_dir=output_dir,
+    artifact_payload = _research_memo_payload(
         created_at=created_at,
         memo=memo,
         verification=verification,
+    )
+    artifact_path = _write_research_memo_artifact(
+        output_dir=output_dir,
+        created_at=created_at,
+        payload=artifact_payload,
+    )
+    db_path = write_research_memo_record(
+        output_dir=output_dir,
+        memo_id=f"research-memo:{created_at}",
+        created_at=created_at,
+        display_name=verification.candidate.display_name,
+        symbol=verification.candidate.symbol,
+        market=verification.candidate.market,
+        confidence=memo.confidence,
+        summary=memo.summary,
+        support_count=len(memo.support_points),
+        skeptic_count=len(memo.skeptic_review),
+        missing_count=len(memo.missing_evidence),
+        next_step_count=len(memo.next_research_steps),
+        memo_path=artifact_path,
+        verification_path=verification.artifact_path,
+        payload=artifact_payload,
     )
     return ResearchMemoResult(
         created_at=created_at,
@@ -71,6 +94,7 @@ def generate_research_memo(
         candidate=verification.candidate,
         verification=verification,
         artifact_path=artifact_path,
+        db_path=db_path,
     )
 
 
@@ -199,13 +223,25 @@ def _write_research_memo_artifact(
     *,
     output_dir: Path,
     created_at: str,
-    memo: ResearchMemo,
-    verification: ResearchVerificationResult,
+    payload: dict[str, object],
 ) -> Path:
     research_dir = output_dir / "research"
     research_dir.mkdir(parents=True, exist_ok=True)
     output_path = research_dir / f"research-memo-{_safe_timestamp(created_at)}.json"
-    payload = {
+    output_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return output_path
+
+
+def _research_memo_payload(
+    *,
+    created_at: str,
+    memo: ResearchMemo,
+    verification: ResearchVerificationResult,
+) -> dict[str, object]:
+    return {
         "mode": "llm-research-memo",
         "created_at": created_at,
         "candidate": asdict(verification.candidate),
@@ -221,11 +257,6 @@ def _write_research_memo_artifact(
         "memo": asdict(memo),
         "disclaimer": "研究备忘录用于组织下一步研究，不是买卖建议。",
     }
-    output_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return output_path
 
 
 def _safe_timestamp(value: str) -> str:

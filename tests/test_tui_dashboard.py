@@ -15,6 +15,7 @@ from lychee_alphadesk.core.discovery import (
 from lychee_alphadesk.core.live_data import PullResult
 from lychee_alphadesk.core.research import ResearchDeepenResult, ResearchPacket
 from lychee_alphadesk.core.research_db import (
+    ResearchMemoRecord,
     ResearchReviewRecord,
     list_research_queue,
 )
@@ -231,6 +232,61 @@ def test_dashboard_research_review_history_action_lists_records(
             assert "证据: 支持 4 | 风险 1 | 待补 0" in text
             assert "research-review-test.json" in text
             assert "不是买卖建议" in text
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_research_memo_history_action_lists_records(
+    monkeypatch, tmp_path: Path
+) -> None:
+    def fake_list_research_memos(**kwargs: object) -> list[ResearchMemoRecord]:
+        assert kwargs["output_dir"] == tmp_path
+        return [
+            ResearchMemoRecord(
+                memo_id="research-memo:2026-07-05T10:02:00+00:00",
+                created_at="2026-07-05T10:02:00+00:00",
+                display_name="Seagate",
+                symbol="STX",
+                market="US",
+                confidence="medium",
+                summary="AI 存储需求线索需要继续核验订单和利润证据。",
+                support_count=1,
+                skeptic_count=1,
+                missing_count=1,
+                next_step_count=1,
+                memo_path=str(tmp_path / "research" / "research-memo-test.json"),
+                verification_path=str(
+                    tmp_path / "research" / "research-verification-test.json"
+                ),
+                payload={},
+            )
+        ]
+
+    monkeypatch.setattr(
+        tui_app,
+        "list_research_memos",
+        fake_list_research_memos,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            menu = app.query_one("#action-menu", OptionList)
+            history_index = _option_index(menu, "研究备忘录历史")
+            await pilot.press(*(["down"] * history_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            status = app.query_one("#action-status", Static)
+            text = str(status.content)
+            assert "研究备忘录历史" in text
+            assert "Seagate" in text
+            assert "STX" in text
+            assert "AI 存储需求线索" in text
+            assert "支持 1 | 反方 1 | 待补 1 | 下一步 1" in text
+            assert "research-memo-test.json" in text
+            assert "研究备忘录历史不是买卖建议" in text
 
     asyncio.run(run_case())
 
@@ -699,6 +755,7 @@ def test_dashboard_research_task_action_generates_llm_memo(
             candidate=verification.candidate,
             verification=verification,
             artifact_path=tmp_path / "research" / "research-memo-test.json",
+            db_path=tmp_path / "research.sqlite3",
         )
 
     monkeypatch.setattr(

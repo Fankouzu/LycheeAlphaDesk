@@ -305,6 +305,14 @@ lychee research memo --symbol QQQ
 
 In the TUI, run `lychee`, open `研究工作台`, select a research task, and choose `生成研究备忘录`. The TUI entry shows the same LLM loading state and uses the same failure boundaries.
 
+List research memo history:
+
+```bash
+lychee research memos
+```
+
+`research memos` reads memo history from the SQLite research database and shows the summary, confidence, support-point count, skeptic-review count, missing-evidence count, next-step count, memo artifact path, and linked drilldown verification artifact. The TUI home screen also exposes `研究备忘录历史`.
+
 Record a research review:
 
 ```bash
@@ -355,7 +363,7 @@ lychee data freshness
 
 This command only reads `cache_entries` from `.alphadesk/research.sqlite3`. It shows layer, status, provider, cache key, market, session state, expiration time, and row count without triggering any provider request.
 
-The live TUI dashboard reads the local cache and shows counts, providers, and latest cached prices. The `lychee` home screen should prioritize `今日市场发现`, then show `研究工作台` as the second action and `研究复核历史` as the third action for running the workbench readiness loop, displaying executable tasks, reviewing prior workflow verdicts, and tracking blocked tasks. Inside `研究工作台`, users move with ↑/↓ and press Enter on a task to open a `研究结果` snapshot with entrypoint, evidence status, signal reading, evidence matrix, collected evidence, price data, related news, filings/financial clues, data gaps, and next action. The detail page also exposes selectable actions to refresh task-level prices, news, applicable US filings/financial clues, and directly run drilldown verification with the evidence board; the verification result page can then record a workflow verdict: continue research, needs more evidence, pause watch, or blocked. Manual symbol drilldown, data health, setup guidance, and snapshots come after those discovery-first actions. The Textual built-in command palette is disabled in the home screen; use the visible action menu instead. It does not place trades and does not produce investment advice.
+The live TUI dashboard reads the local cache and shows counts, providers, and latest cached prices. The `lychee` home screen should prioritize `今日市场发现`, then show `研究工作台`, followed by `研究复核历史` and `研究备忘录历史` for running the workbench readiness loop, displaying executable tasks, reviewing prior workflow verdicts, reviewing LLM research memos, and tracking blocked tasks. Inside `研究工作台`, users move with ↑/↓ and press Enter on a task to open a `研究结果` snapshot with entrypoint, evidence status, signal reading, evidence matrix, collected evidence, price data, related news, filings/financial clues, data gaps, and next action. The detail page also exposes selectable actions to refresh task-level prices, news, applicable US filings/financial clues, directly run drilldown verification with the evidence board, and generate a research memo; the verification result page can then record a workflow verdict: continue research, needs more evidence, pause watch, or blocked. Manual symbol drilldown, data health, setup guidance, and snapshots come after those discovery-first actions. The Textual built-in command palette is disabled in the home screen; use the visible action menu instead. It does not place trades and does not produce investment advice.
 
 Recommended first integrations:
 

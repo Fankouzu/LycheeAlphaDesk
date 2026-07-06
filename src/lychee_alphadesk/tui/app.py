@@ -29,7 +29,9 @@ from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR
 from lychee_alphadesk.core.research import ResearchPacket
 from lychee_alphadesk.core.research_db import (
+    ResearchMemoRecord,
     ResearchReviewRecord,
+    list_research_memos,
     list_research_reviews,
     write_discovery_research_run,
 )
@@ -58,6 +60,7 @@ ActionId = Literal[
     "today_discovery",
     "research_workbench",
     "research_reviews",
+    "research_memos",
     "pull_market",
     "pull_news",
     "pull_filings",
@@ -96,6 +99,7 @@ class AlphaDeskApp(App[None]):
             Option("今日市场发现", id="today_discovery"),
             Option("研究工作台", id="research_workbench"),
             Option("研究复核历史", id="research_reviews"),
+            Option("研究备忘录历史", id="research_memos"),
             Option("手动查看行情", id="pull_market"),
             Option("手动查看新闻", id="pull_news"),
             Option("手动查看美股公告", id="pull_filings"),
@@ -152,6 +156,8 @@ class AlphaDeskApp(App[None]):
             await self._show_research_workbench()
         elif action_id == "research_reviews":
             await self._show_research_review_history()
+        elif action_id == "research_memos":
+            await self._show_research_memo_history()
         elif action_id == "pull_market":
             await self._show_symbol_prompt(
                 "pull_market",
@@ -265,6 +271,17 @@ class AlphaDeskApp(App[None]):
         )
         await self._replace_action_panel(
             Static(_research_review_history_text(records), id="action-status")
+        )
+        self.set_focus(self.query_one("#action-menu", OptionList))
+
+    async def _show_research_memo_history(self) -> None:
+        records = await asyncio.to_thread(
+            list_research_memos,
+            output_dir=self.output_dir,
+            limit=10,
+        )
+        await self._replace_action_panel(
+            Static(_research_memo_history_text(records), id="action-status")
         )
         self.set_focus(self.query_one("#action-menu", OptionList))
 
@@ -725,6 +742,38 @@ def _research_review_history_text(records: list[ResearchReviewRecord]) -> str:
             ]
         )
     lines.append("边界: 研究复核历史不是买卖建议。")
+    return "\n".join(lines)
+
+
+def _research_memo_history_text(records: list[ResearchMemoRecord]) -> str:
+    if not records:
+        return "\n".join(
+            [
+                "研究备忘录历史",
+                "暂无研究备忘录。先在研究结果中生成研究备忘录。",
+                "边界: 研究备忘录历史不是买卖建议。",
+            ]
+        )
+    lines = ["研究备忘录历史"]
+    for record in records:
+        lines.extend(
+            [
+                (
+                    f"- {record.display_name} ({record.symbol or '-'}) "
+                    f"[{record.market}] 置信度: {record.confidence}"
+                ),
+                f"  时间: {record.created_at}",
+                f"  摘要: {record.summary}",
+                (
+                    f"  证据: 支持 {record.support_count} | "
+                    f"反方 {record.skeptic_count} | "
+                    f"待补 {record.missing_count} | 下一步 {record.next_step_count}"
+                ),
+                f"  记录: {record.memo_path}",
+                f"  下钻核验: {record.verification_path}",
+            ]
+        )
+    lines.append("边界: 研究备忘录历史不是买卖建议。")
     return "\n".join(lines)
 
 

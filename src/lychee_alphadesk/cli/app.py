@@ -45,6 +45,7 @@ from lychee_alphadesk.core.policy import load_policy, validate_policy
 from lychee_alphadesk.core.reports import generate_demo_report
 from lychee_alphadesk.core.research import deepen_research_queue, fill_research_data_gaps
 from lychee_alphadesk.core.research_db import (
+    list_research_memos,
     list_research_queue,
     list_research_reviews,
     write_discovery_research_run,
@@ -838,6 +839,77 @@ def research_memo(
     _print_research_memo(result)
 
 
+@research_app.command("memos")
+def research_memos(
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="按证券代码过滤备忘录历史，例如 STX、QQQ。"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="按任务名称过滤备忘录历史。"),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多显示多少条备忘录。"),
+    ] = 20,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """查看 LLM 研究备忘录历史。"""
+    records = list_research_memos(
+        output_dir,
+        symbol=symbol,
+        name=name,
+        limit=limit,
+    )
+    if not records:
+        console.print("暂无研究备忘录历史。请先运行 `lychee research memo`。")
+        return
+    table = Table(title="Lychee AlphaDesk 研究备忘录历史")
+    table.add_column("时间")
+    table.add_column("名称", overflow="fold")
+    table.add_column("代码")
+    table.add_column("市场")
+    table.add_column("置信度")
+    table.add_column("证据")
+    table.add_column("摘要", overflow="fold")
+    for record in records:
+        table.add_row(
+            record.created_at,
+            record.display_name,
+            record.symbol or "-",
+            record.market,
+            record.confidence,
+            (
+                f"支持 {record.support_count} | "
+                f"反方 {record.skeptic_count} | "
+                f"待补 {record.missing_count} | "
+                f"下一步 {record.next_step_count}"
+            ),
+            record.summary,
+        )
+    console.print(table)
+    console.print("备忘录明细")
+    for record in records:
+        console.print(
+            f"- {record.display_name} ({record.symbol or '-'}) [{record.market}] "
+            f"置信度: {record.confidence}",
+            soft_wrap=True,
+        )
+        console.print(f"  摘要: {record.summary}", soft_wrap=True)
+        console.print(
+            f"  证据: 支持 {record.support_count} | 反方 {record.skeptic_count} | "
+            f"待补 {record.missing_count} | 下一步 {record.next_step_count}",
+            soft_wrap=True,
+        )
+        console.print(f"  记录: {record.memo_path}", soft_wrap=True)
+        console.print(f"  下钻核验: {record.verification_path}", soft_wrap=True)
+    console.print("边界: 研究备忘录历史不是买卖建议。", soft_wrap=True)
+
+
 @data_pull_app.command("market")
 def data_pull_market(
     symbols: Annotated[
@@ -1110,6 +1182,7 @@ def _print_research_review(result: ResearchReviewResult) -> None:
 def _print_research_memo(result: ResearchMemoResult) -> None:
     memo = result.memo
     console.print(f"研究备忘录已写入: {result.artifact_path}", soft_wrap=True)
+    console.print(f"研究库已更新: {result.db_path}", soft_wrap=True)
     console.print(f"研究任务: {result.candidate.display_name} [{result.candidate.market}]")
     console.print(f"置信度: {memo.confidence}")
     console.print("摘要")

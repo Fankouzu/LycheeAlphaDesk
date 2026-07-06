@@ -161,6 +161,88 @@ def test_deepen_research_queue_prefers_ready_packets_within_candidate_pool(
     assert result.packets[0].packet["data_gaps"] == []
 
 
+def test_deepen_research_queue_prefers_latest_related_news(tmp_path: Path) -> None:
+    _write_discovery_seed(tmp_path, symbol="STX")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    rows = [
+        {
+            "timestamp": f"2026-07-0{index}T09:00:00+00:00",
+            "headline": f"Old STX storage note {index}",
+            "summary": "Older storage note.",
+            "symbols": ["STX"],
+            "source_url": f"https://example.com/old-{index}",
+        }
+        for index in range(1, 6)
+    ]
+    rows.append(
+        {
+            "timestamp": "2026-07-06T09:00:00+00:00",
+            "headline": "Newest AI storage demand improves",
+            "summary": "Fresh data-center storage demand increased.",
+            "symbols": ["STX"],
+            "source_url": "https://example.com/newest",
+        }
+    )
+    (data_dir / "news-events.json").write_text(
+        json.dumps({"provider": "newsapi", "rows": rows}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    _write_market_cache(tmp_path, ["STX"])
+    _write_filings_cache(tmp_path, ["STX"])
+
+    result = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    related_news = result.packets[0].packet["local_data"]["related_news"]
+    assert related_news[0]["headline"] == "Newest AI storage demand improves"
+    assert len(related_news) == 5
+
+
+def test_deepen_research_queue_prioritizes_topic_related_news(
+    tmp_path: Path,
+) -> None:
+    _write_discovery_seed(tmp_path, symbol="STX")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    rows = [
+        {
+            "timestamp": f"2026-07-0{index}T09:00:00+00:00",
+            "headline": f"Generic STX market note {index}",
+            "summary": "Generic symbol-only note.",
+            "symbols": ["STX"],
+            "source_url": f"https://example.com/generic-{index}",
+        }
+        for index in range(1, 6)
+    ]
+    rows.append(
+        {
+            "timestamp": "2026-07-01T09:00:00+00:00",
+            "headline": "AI storage demand improves for Seagate",
+            "summary": "Data-center storage demand increased.",
+            "symbols": ["STX"],
+            "source_url": "https://example.com/topic",
+        }
+    )
+    (data_dir / "news-events.json").write_text(
+        json.dumps({"provider": "newsapi", "rows": rows}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    _write_market_cache(tmp_path, ["STX"])
+    _write_filings_cache(tmp_path, ["STX"])
+
+    result = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    related_news = result.packets[0].packet["local_data"]["related_news"]
+    assert related_news[0]["headline"] == "AI storage demand improves for Seagate"
+    assert len(related_news) == 5
+
+
 def test_fill_research_data_gaps_pulls_proxy_mapping_prices_without_mutating_candidate(
     tmp_path: Path,
 ) -> None:

@@ -1179,6 +1179,8 @@ def research_detail_actions(
         ("refresh_market", "刷新行情"),
         ("refresh_news", "刷新新闻"),
     ]
+    if _needs_topic_news_refresh(candidate) and topic_news_query(candidate, packet):
+        actions.append(("refresh_topic_news", "刷新主题新闻"))
     if research_filing_symbols(candidate, packet):
         actions.append(("refresh_filings", "刷新美股公告/财报"))
     actions.append(("verify_research", "下钻核验"))
@@ -1195,6 +1197,7 @@ def research_action_commands(
     commands: list[str] = []
     if symbols:
         symbol_text = ",".join(symbols)
+        topic_query = topic_news_query(candidate, packet)
         commands.append(
             f"刷新行情: lychee data pull market --symbols {symbol_text} "
             "--provider auto --force"
@@ -1203,6 +1206,11 @@ def research_action_commands(
             f"刷新新闻: lychee data pull news --symbols {symbol_text} "
             "--provider auto --force"
         )
+        if _needs_topic_news_refresh(candidate) and topic_query:
+            commands.append(
+                f'刷新主题新闻: lychee data pull news --symbols {symbol_text} '
+                f'--query "{_escape_command_arg(topic_query)}" --provider auto --force'
+            )
     else:
         commands.append("刷新行情/新闻: 需要先完成可观察入口映射。")
     filing_symbols = research_filing_symbols(candidate, packet)
@@ -1225,6 +1233,100 @@ def research_action_symbols(candidate: CandidateCheck) -> list[str]:
     return candidate.proxy_symbols
 
 
+def topic_news_query(candidate: CandidateCheck, packet: ResearchPacket | None) -> str:
+    packet_payload = packet.packet if packet is not None else {}
+    packet_candidate = _dict_value(packet_payload.get("candidate"))
+    raw_values = [
+        (_string_value(packet_candidate.get("related_theme")), True),
+        (_string_value(packet_candidate.get("why_watch")), False),
+        (candidate.display_name, True),
+        (candidate.symbol or "", True),
+    ]
+    terms: list[str] = []
+    for value, keep_phrase in raw_values:
+        if keep_phrase and _is_concise_query_phrase(value):
+            terms.append(value)
+        terms.extend(_query_alias_terms(value))
+        terms.extend(_query_extracted_terms(value))
+    if (candidate.symbol or "").upper() == "QQQ":
+        terms.extend(["QQQ", "Nasdaq", "Nasdaq 100", "technology"])
+    cleaned = _dedupe_query_terms(terms)
+    return " OR ".join(cleaned[:8])
+
+
+def _query_alias_terms(value: str) -> list[str]:
+    if not value:
+        return []
+    terms: list[str] = []
+    lowered = value.lower()
+    for keyword, aliases in _TOPIC_QUERY_ALIASES.items():
+        if keyword.lower() in lowered:
+            terms.extend(aliases)
+    return terms
+
+
+def _query_extracted_terms(value: str) -> list[str]:
+    return [term for term in _extract_topic_terms(value) if _is_query_term_allowed(term)]
+
+
+def _is_concise_query_phrase(value: str) -> bool:
+    cleaned = value.strip()
+    return bool(cleaned) and len(cleaned) <= 24 and "观察" not in cleaned
+
+
+def _is_query_term_allowed(term: str) -> bool:
+    cleaned = term.strip()
+    if not cleaned:
+        return False
+    if len(cleaned) > 18:
+        return False
+    if any(word in cleaned for word in ("用来", "用于", "观察", "是否")):
+        return False
+    return True
+
+
+def _dedupe_query_terms(terms: list[str]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        cleaned = term.strip()
+        key = cleaned.lower()
+        if not cleaned or key in seen:
+            continue
+        seen.add(key)
+        unique.append(cleaned)
+    return unique
+
+
+_TOPIC_QUERY_ALIASES = {
+    "AI": ["AI", "artificial intelligence"],
+    "人工智能": ["AI", "artificial intelligence"],
+    "存储": ["storage", "hard drive"],
+    "硬盘": ["hard drive", "storage"],
+    "需求": ["demand"],
+    "数据中心": ["data center", "cloud infrastructure"],
+    "科技": ["technology"],
+    "纳斯达克": ["Nasdaq", "QQQ"],
+    "美股": ["US stocks"],
+    "港股": ["Hong Kong stocks"],
+    "恒生": ["Hang Seng"],
+    "A股": ["China A shares"],
+    "半导体": ["semiconductor", "chip"],
+    "利率": ["interest rates", "yields"],
+    "大盘": ["broad market"],
+    "消费": ["consumer spending"],
+    "政策": ["policy"],
+}
+
+
+def _needs_topic_news_refresh(candidate: CandidateCheck) -> bool:
+    return candidate.evidence_quality in {"missing", "needs_review", "mixed"}
+
+
+def _escape_command_arg(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def research_filing_symbols(
     candidate: CandidateCheck,
     packet: ResearchPacket | None,
@@ -1240,6 +1342,7 @@ def research_action_name(action: str) -> str:
     return {
         "refresh_market": "刷新行情",
         "refresh_news": "刷新新闻",
+        "refresh_topic_news": "刷新主题新闻",
         "refresh_filings": "刷新美股公告/财报",
         "verify_research": "下钻核验",
         "generate_memo": "生成研究备忘录",
@@ -1297,6 +1400,21 @@ def _run_research_refresh_actions(
                 ),
             )
         )
+        topic_query = topic_news_query(candidate, packet)
+        if _needs_topic_news_refresh(candidate) and topic_query:
+            actions.append(
+                _pull_research_action(
+                    action_type="refresh_topic_news",
+                    symbols=symbols,
+                    call=lambda: pull_news(
+                        symbols=symbols,
+                        query=topic_query,
+                        output_dir=output_dir,
+                        provider_id="auto",
+                        force=force,
+                    ),
+                )
+            )
     filing_symbols = research_filing_symbols(candidate, packet)
     if filing_symbols:
         actions.append(

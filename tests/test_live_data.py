@@ -715,6 +715,107 @@ def test_pull_news_events_without_symbols_writes_market_news_cache(tmp_path: Pat
     assert entries[0].cache_key == "news:newsapi:MARKET:2026-07-01:2026-07-03"
 
 
+def test_pull_news_events_uses_topic_query_for_newsapi(tmp_path: Path) -> None:
+    config = default_config()
+    config.providers["newsapi"].value = "demo-newsapi-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+
+    seen_urls: list[str] = []
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        seen_urls.append(url)
+        assert "newsapi.org/v2/everything" in url
+        assert "AI+storage+demand" in url
+        return {
+            "articles": [
+                {
+                    "publishedAt": "2026-07-06T10:00:00Z",
+                    "title": "AI storage demand improves",
+                    "description": "Cloud buyers increased storage orders.",
+                    "url": "https://example.com/topic-news",
+                }
+            ]
+        }
+
+    result = pull_news_events(
+        symbols=["STX"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="newsapi",
+        start_date="2026-07-01",
+        end_date="2026-07-03",
+        fetch_json=fetch_json,
+        query="AI storage demand",
+    )
+
+    assert result.count == 1
+    assert seen_urls
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["rows"][0]["headline"] == "AI storage demand improves"
+    assert cache["rows"][0]["symbols"] == ["STX"]
+    entries = list_cache_entries(tmp_path, layer="news")
+    assert len(entries) == 1
+    assert entries[0].cache_key == (
+        "news:newsapi:STX:2026-07-01:2026-07-03:AI storage demand"
+    )
+
+
+def test_pull_news_events_preserves_existing_news_rows(tmp_path: Path) -> None:
+    config = default_config()
+    config.providers["newsapi"].value = "demo-newsapi-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    cache_path = data_dir / "news-events.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "Original discovery evidence",
+                        "summary": "Keep this row stable.",
+                        "symbols": ["MARKET"],
+                        "source_url": "https://example.com/original",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        return {
+            "articles": [
+                {
+                    "publishedAt": "2026-07-06T10:00:00Z",
+                    "title": "AI storage demand improves",
+                    "description": "Cloud buyers increased storage orders.",
+                    "url": "https://example.com/topic-news",
+                }
+            ]
+        }
+
+    result = pull_news_events(
+        symbols=["STX"],
+        query="AI storage demand",
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="newsapi",
+        fetch_json=fetch_json,
+        force=True,
+    )
+
+    assert result.count == 1
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert [row["headline"] for row in cache["rows"]] == [
+        "Original discovery evidence",
+        "AI storage demand improves",
+    ]
+
+
 def test_pull_news_events_skips_fresh_cache(tmp_path: Path) -> None:
     config = default_config()
     config.providers["finnhub"].value = "demo-finnhub-key"

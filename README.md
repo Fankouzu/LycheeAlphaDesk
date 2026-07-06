@@ -251,7 +251,7 @@ Turn queued candidates into second-stage research packets:
 lychee research deepen
 ```
 
-`research deepen` reads the SQLite research queue and local live cache, then writes `.alphadesk/research/research-packets-*.json`. Each packet includes candidate identity, evidence IDs, expanded news evidence, cached prices/news/filings, data gaps, and next verification actions. It builds packets from a small candidate pool and prioritizes ready packets without data gaps so the default workbench is not filled by blocked items. It does not produce buy/sell calls; it turns each candidate into a workbench task card with research question, entrypoint, priority, ranking reason, evidence status, key checks, and next-action queue. Evidence status includes support, reverse, direction-pending, and off-topic evidence counts; candidates with only reverse, direction-pending, or off-topic evidence are downgraded to "review evidence first."
+`research deepen` reads the SQLite research queue and local live cache, then writes `.alphadesk/research/research-packets-*.json`. Each packet includes candidate identity, evidence IDs, expanded news evidence, cached prices/news/filings, data gaps, and next verification actions. It builds packets from a small candidate pool and prioritizes ready packets without data gaps so the default workbench is not filled by blocked items. Related news favors research-theme matches before recency so fresh but off-topic symbol news does not hide theme evidence. It does not produce buy/sell calls; it turns each candidate into a workbench task card with research question, entrypoint, priority, ranking reason, evidence status, key checks, and next-action queue. Evidence status includes support, reverse, direction-pending, and off-topic evidence counts; candidates with only reverse, direction-pending, or off-topic evidence are downgraded to "review evidence first."
 
 Automatically fill data that can be pulled from research gaps:
 
@@ -277,7 +277,7 @@ lychee research detail --symbol QQQ
 lychee research detail --name "Alibaba"
 ```
 
-`research detail` runs the same workbench readiness loop, then prints a single task-level `研究任务面板`: entrypoint, ranking reason, the research question to resolve, startup steps, research status, signal reading, evidence matrix, price data, related news, filings/financial clues, data gaps, and executable refresh commands. It is not a conclusion page; it tells the user which drilldown command to run first, which three evidence-board columns to inspect, and how to record a workflow verdict with `research review`. `研究状态` only tells whether the line is blocked, proxy-review-only, still building evidence, or ready for deeper research; it does not produce buy/sell, allocation, or target-price advice. Without `--symbol` or `--name`, it prints the first queued task so agents can run a non-interactive check.
+`research detail` runs the same workbench readiness loop, then prints a single task-level `研究任务面板`: entrypoint, ranking reason, the research question to resolve, startup steps, research status, signal reading, evidence matrix, price data, related news, filings/financial clues, data gaps, and executable refresh commands. It is not a conclusion page; it tells the user which drilldown command to run first, which three evidence-board columns to inspect, and how to record a workflow verdict with `research review`. `研究状态` only tells whether the line is blocked, needs evidence review, proxy-review-only, still building evidence, or ready for deeper research; it does not produce buy/sell, allocation, or target-price advice. Without `--symbol` or `--name`, it prints the first queued task so agents can run a non-interactive check.
 
 Execute the refresh chain for one research task:
 
@@ -286,7 +286,15 @@ lychee research run
 lychee research run --symbol QQQ --force
 ```
 
-`research run` selects one research task, refreshes task-level prices, news, and applicable US filings/financial clues, then reruns the workbench check and prints the updated `研究任务面板`. Each run writes `.alphadesk/research/research-run-*.json` so humans and agents can audit which actions ran, how many rows returned, and which actions failed or used cache; the artifact also stores structured `assessment` with stage, consistency-review state, evidence reading, and next decision.
+`research run` selects one research task, refreshes task-level prices, news, and applicable US filings/financial clues, then reruns the workbench check and prints the updated `研究任务面板`. If the task currently has only reverse, direction-pending, or off-topic news, the run also builds a topic `--query` from the research theme and pulls one extra round of topic news so the system can try to strengthen evidence instead of only reporting weak evidence. Each run writes `.alphadesk/research/research-run-*.json` so humans and agents can audit which actions ran, how many rows returned, and which actions failed or used cache; the artifact also stores structured `assessment` with stage, consistency-review state, evidence reading, and next decision.
+
+You can also pull topic news manually:
+
+```bash
+lychee data pull news --symbols STX --query "AI storage demand" --provider auto --force
+```
+
+The news cache preserves existing rows and appends deduplicated new rows so `news_001`-style evidence IDs do not silently point to a different article after refresh.
 
 Generate a drilldown verification checklist for one research task:
 

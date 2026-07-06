@@ -53,6 +53,7 @@ from lychee_alphadesk.core.workbench import (
     research_detail_actions,
     research_filing_symbols,
     run_workbench_check,
+    topic_news_query,
     verify_research_task,
 )
 
@@ -331,7 +332,7 @@ class AlphaDeskApp(App[None]):
             else None
         )
         symbols = research_action_symbols(candidate)
-        if action in {"refresh_market", "refresh_news"} and not symbols:
+        if action in {"refresh_market", "refresh_news", "refresh_topic_news"} and not symbols:
             await self._replace_action_panel(
                 Static(
                     "这个任务还没有可刷新的证券代码或代理标的，请先完成入口映射。",
@@ -365,6 +366,25 @@ class AlphaDeskApp(App[None]):
                 result = await asyncio.to_thread(
                     pull_news_events,
                     symbols=symbols,
+                    output_dir=self.output_dir,
+                    provider_id="auto",
+                    force=True,
+                )
+            elif action == "refresh_topic_news":
+                query = topic_news_query(candidate, packet)
+                if not query:
+                    await self._replace_action_panel(
+                        Static(
+                            "这个任务当前没有可用的主题关键词，请先刷新研究工作台。",
+                            id="action-status",
+                        )
+                    )
+                    self.set_focus(self.query_one("#action-menu", OptionList))
+                    return
+                result = await asyncio.to_thread(
+                    pull_news_events,
+                    symbols=symbols,
+                    query=query,
                     output_dir=self.output_dir,
                     provider_id="auto",
                     force=True,

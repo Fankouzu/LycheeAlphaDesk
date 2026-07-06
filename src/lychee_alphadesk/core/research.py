@@ -1,4 +1,5 @@
 import json
+import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -250,7 +251,12 @@ def _build_research_packet(
     ]
     price = _latest_price(symbol, prices) if symbol else None
     symbol_mapping = _symbol_mapping_rows(item, prices) if not symbol else []
-    related_news = _related_news(symbol, item.display_name, news_events)
+    related_news = _related_news(
+        symbol,
+        item.display_name,
+        news_events,
+        topic_terms=_research_topic_terms(item),
+    )
     related_filings = _related_filings(symbol, item.display_name, filings)
     data_gaps = _data_gaps(
         item=item,
@@ -575,18 +581,79 @@ def _related_news(
     symbol: str | None,
     display_name: str,
     news_events: list[NewsEvent],
+    *,
+    topic_terms: list[str] | None = None,
 ) -> list[dict[str, object]]:
     terms = _match_terms(symbol, display_name)
+    normalized_topic_terms = [term.lower() for term in topic_terms or [] if term.strip()]
     rows: list[dict[str, object]] = []
     for event in news_events:
         text = f"{event.headline} {event.summary}".lower()
         event_symbols = {event_symbol.upper() for event_symbol in event.symbols}
         matches_symbol = bool(symbol and symbol in event_symbols)
         if matches_symbol or any(term in text for term in terms):
-            rows.append(asdict(event))
-        if len(rows) >= 5:
-            break
-    return rows
+            row = asdict(event)
+            row["_topic_score"] = _news_topic_score(text, normalized_topic_terms)
+            rows.append(row)
+    selected = sorted(rows, key=_news_relevance_sort_key, reverse=True)[:5]
+    for row in selected:
+        row.pop("_topic_score", None)
+    return selected
+
+
+def _news_relevance_sort_key(row: dict[str, object]) -> tuple[int, str]:
+    score = row.get("_topic_score")
+    return (int(score) if isinstance(score, int) else 0, _news_timestamp_sort_key(row))
+
+
+def _news_timestamp_sort_key(row: dict[str, object]) -> str:
+    return _string_value(row.get("timestamp"))
+
+
+def _news_topic_score(text: str, topic_terms: list[str]) -> int:
+    return sum(1 for term in topic_terms if term in text)
+
+
+def _research_topic_terms(item: ResearchQueueItem) -> list[str]:
+    terms: list[str] = []
+    for value in [
+        item.related_theme,
+        item.why_watch,
+        item.display_name,
+        item.symbol or "",
+    ]:
+        terms.extend(_topic_terms_from_text(value))
+    return _unique_preserving_order([term.lower() for term in terms if term.strip()])
+
+
+def _topic_terms_from_text(value: str) -> list[str]:
+    text = value.lower()
+    terms: list[str] = []
+    for token in re.findall(r"[a-z0-9][a-z0-9.+-]*", text):
+        if len(token) >= 3 or token == "ai":
+            terms.append(token)
+    for keyword, aliases in _TOPIC_ALIASES.items():
+        if keyword.lower() in text:
+            terms.extend(aliases)
+    return terms
+
+
+_TOPIC_ALIASES = {
+    "AI": ["ai", "artificial intelligence"],
+    "人工智能": ["ai", "artificial intelligence"],
+    "存储": ["storage", "hard drive"],
+    "硬盘": ["storage", "hard drive"],
+    "需求": ["demand"],
+    "数据中心": ["data center", "cloud"],
+    "科技": ["technology", "tech"],
+    "纳斯达克": ["nasdaq", "qqq"],
+    "美股": ["us stocks"],
+    "港股": ["hong kong stocks"],
+    "恒生": ["hang seng"],
+    "半导体": ["semiconductor", "chip"],
+    "利率": ["interest rates", "yields"],
+    "大盘": ["broad market"],
+}
 
 
 def _related_filings(

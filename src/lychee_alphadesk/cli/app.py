@@ -949,6 +949,10 @@ def data_pull_news(
         str,
         typer.Option("--symbols", help="用英文逗号分隔证券代码；留空则拉取市场级新闻。"),
     ] = "",
+    query: Annotated[
+        str,
+        typer.Option("--query", help="主题关键词查询；用于按研究主题补强新闻证据。"),
+    ] = "",
     provider: Annotated[
         str,
         typer.Option("--provider", help="新闻数据源: auto, marketaux, finnhub, newsapi。"),
@@ -974,6 +978,7 @@ def data_pull_news(
     try:
         result = pull_news_events(
             symbols=parse_symbols(symbols),
+            query=query or None,
             output_dir=output_dir,
             provider_id=provider,
             start_date=start_date,
@@ -1233,6 +1238,7 @@ def _display_research_action_type(action_type: str) -> str:
     return {
         "refresh_market": "刷新行情",
         "refresh_news": "刷新新闻",
+        "refresh_topic_news": "刷新主题新闻",
         "refresh_filings": "刷新美股公告/财报",
         "none": "无自动动作",
     }.get(action_type, action_type)

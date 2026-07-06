@@ -50,9 +50,11 @@ def news_cache_key(
     symbols: list[str],
     start_date: str,
     end_date: str,
+    query: str | None = None,
 ) -> str:
     normalized_symbols = _normalized_news_scope(symbols)
-    return f"news:{provider}:{normalized_symbols}:{start_date}:{end_date}"
+    suffix = f":{query.strip()}" if query and query.strip() else ""
+    return f"news:{provider}:{normalized_symbols}:{start_date}:{end_date}{suffix}"
 
 
 def evaluate_market_cache(
@@ -94,11 +96,12 @@ def evaluate_news_cache(
     symbols: list[str],
     start_date: str,
     end_date: str,
+    query: str | None = None,
     now: datetime | None = None,
     force: bool = False,
 ) -> CacheDecision:
     current = _ensure_aware(now or datetime.now(UTC))
-    cache_key = news_cache_key(provider, symbols, start_date, end_date)
+    cache_key = news_cache_key(provider, symbols, start_date, end_date, query)
     entry = get_cache_entry(output_dir, "news", cache_key)
     if force:
         return CacheDecision(True, "用户强制刷新新闻缓存。", entry)
@@ -148,6 +151,7 @@ def record_news_cache(
     symbols: list[str],
     start_date: str,
     end_date: str,
+    query: str | None = None,
     artifact_path: Path,
     row_count: int,
     now: datetime | None = None,
@@ -166,6 +170,7 @@ def record_news_cache(
             symbols,
             start_date,
             end_date,
+            query,
         ),
         provider=provider,
         artifact_path=artifact_path,

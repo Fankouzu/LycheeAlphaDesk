@@ -14,6 +14,7 @@ from lychee_alphadesk.core.research_db import write_discovery_research_run
 from lychee_alphadesk.core.workbench import (
     beginner_research_brief,
     render_research_task_detail,
+    run_research_task,
     run_workbench_check,
 )
 
@@ -117,6 +118,76 @@ def test_workbench_check_downgrades_reverse_only_evidence(
 
     payload = json.loads(result.artifact_path.read_text(encoding="utf-8"))
     assert payload["candidates"][0]["evidence_quality"] == "needs_review"
+
+
+def test_research_run_refreshes_topic_news_for_weak_evidence(
+    tmp_path: Path,
+) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(
+        tmp_path,
+        include_stock_price=True,
+        include_filings=True,
+        news_headline="Generic market article",
+        news_summary="Broad market commentary without the storage theme.",
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_news_pull(**kwargs: object) -> PullResult:
+        calls.append(dict(kwargs))
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        data_dir = output_dir / "data"
+        data_dir.mkdir(exist_ok=True)
+        query = str(kwargs.get("query") or "")
+        if query:
+            headline = "AI storage demand growth improves for Seagate"
+            summary = "Cloud data-center demand increased for hard drives."
+        else:
+            headline = "Generic STX market news"
+            summary = "Symbol-only news without storage demand direction."
+        output_path = data_dir / "news-events.json"
+        output_path.write_text(
+            json.dumps(
+                {
+                    "provider": "newsapi",
+                    "rows": [
+                        {
+                            "timestamp": "2026-07-05T09:00:00+00:00",
+                            "headline": headline,
+                            "summary": summary,
+                            "symbols": ["STX"],
+                            "source_url": "https://example.com/topic-news",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("news", "newsapi", 1, output_path, [])
+
+    result = run_research_task(
+        output_dir=tmp_path,
+        symbol="STX",
+        force=True,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+        pull_market=_fake_market_pull,
+        pull_news=fake_news_pull,
+        pull_filings=_fake_filings_pull,
+    )
+
+    news_calls = [call for call in calls if call["provider_id"] == "auto"]
+    assert len(news_calls) == 2
+    assert news_calls[0]["symbols"] == ["STX"]
+    assert news_calls[0].get("query") in {"", None}
+    assert news_calls[1]["symbols"] == ["STX"]
+    assert "AI 存储需求" in str(news_calls[1]["query"])
+    assert result.actions[1].action_type == "refresh_news"
+    assert result.actions[2].action_type == "refresh_topic_news"
+    assert result.assessment.stage == "ready_for_drilldown"
+    assert "阶段: 可下钻研究" in result.detail
+    assert "AI storage demand growth improves" in result.detail
 
 
 def test_beginner_brief_formats_direct_etf_entry_readably() -> None:
@@ -328,3 +399,9 @@ def _failed_filings_pull(**kwargs: object) -> PullResult:
         output_dir / "data" / "filings.json",
         ["SEC blocked"],
     )
+
+
+def _fake_filings_pull(**kwargs: object) -> PullResult:
+    output_dir = kwargs["output_dir"]
+    assert isinstance(output_dir, Path)
+    return PullResult("filings", "sec_edgar", 1, output_dir / "data" / "filings.json", [])

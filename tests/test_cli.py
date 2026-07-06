@@ -474,12 +474,12 @@ def test_research_run_command_executes_refresh_chain_and_writes_artifact(
         ),
         encoding="utf-8",
     )
-    calls: list[tuple[str, list[str], bool]] = []
+    calls: list[tuple[str, list[str], bool, str]] = []
 
     def fake_pull_market_prices(**kwargs: object) -> PullResult:
         symbols = list(kwargs["symbols"])
         force = bool(kwargs["force"])
-        calls.append(("market", symbols, force))
+        calls.append(("market", symbols, force, ""))
         output_path = tmp_path / "data" / "market-prices.json"
         output_path.write_text(
             json.dumps(
@@ -504,7 +504,7 @@ def test_research_run_command_executes_refresh_chain_and_writes_artifact(
     def fake_pull_news_events(**kwargs: object) -> PullResult:
         symbols = list(kwargs["symbols"])
         force = bool(kwargs["force"])
-        calls.append(("news", symbols, force))
+        calls.append(("news", symbols, force, str(kwargs.get("query") or "")))
         output_path = tmp_path / "data" / "news-events.json"
         output_path.write_text(
             json.dumps(
@@ -531,7 +531,7 @@ def test_research_run_command_executes_refresh_chain_and_writes_artifact(
 
     def fake_pull_sec_filings(**kwargs: object) -> PullResult:
         symbols = list(kwargs["symbols"])
-        calls.append(("filings", symbols, False))
+        calls.append(("filings", symbols, False, ""))
         output_path = tmp_path / "data" / "filings.json"
         output_path.write_text(
             json.dumps(
@@ -580,11 +580,11 @@ def test_research_run_command_executes_refresh_chain_and_writes_artifact(
     )
 
     assert result.exit_code == 0
-    assert calls == [
-        ("market", ["STX"], True),
-        ("news", ["STX"], True),
-        ("filings", ["STX"], False),
-    ]
+    assert calls[0] == ("market", ["STX"], True, "")
+    assert calls[1] == ("news", ["STX"], True, "")
+    assert calls[2][0:3] == ("news", ["STX"], True)
+    assert "AI 存储需求" in calls[2][3]
+    assert calls[3] == ("filings", ["STX"], False, "")
     assert "研究执行记录已写入" in result.stdout
     assert "刷新行情" in result.stdout
     assert "刷新新闻" in result.stdout
@@ -1767,6 +1767,7 @@ def test_data_freshness_command_handles_empty_cache(tmp_path: Path) -> None:
 def test_data_pull_news_command_writes_live_cache(monkeypatch, tmp_path: Path) -> None:
     def fake_pull_news_events(**kwargs: object) -> PullResult:
         assert kwargs["symbols"] == ["AAPL"]
+        assert kwargs["query"] is None
         assert kwargs["provider_id"] == "finnhub"
         assert kwargs["start_date"] == "2026-07-01"
         assert kwargs["end_date"] == "2026-07-03"
@@ -1795,6 +1796,45 @@ def test_data_pull_news_command_writes_live_cache(monkeypatch, tmp_path: Path) -
             "2026-07-01",
             "--to",
             "2026-07-03",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "已拉取新闻事件: 1" in result.stdout
+
+
+def test_data_pull_news_command_passes_topic_query(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    def fake_pull_news_events(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == ["STX"]
+        assert kwargs["query"] == "AI storage demand"
+        assert kwargs["provider_id"] == "newsapi"
+        return PullResult(
+            domain="news",
+            provider="newsapi",
+            count=1,
+            output_path=tmp_path / "data" / "news-events.json",
+            warnings=[],
+        )
+
+    monkeypatch.setattr(cli_app, "pull_news_events", fake_pull_news_events)
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "pull",
+            "news",
+            "--symbols",
+            "STX",
+            "--query",
+            "AI storage demand",
+            "--provider",
+            "newsapi",
             "--output-dir",
             str(tmp_path),
         ],

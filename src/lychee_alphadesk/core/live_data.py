@@ -165,6 +165,7 @@ def pull_market_prices(
 def pull_news_events(
     *,
     symbols: list[str],
+    query: str | None = None,
     config: AlphaDeskConfig | None = None,
     config_path: Path | None = None,
     output_dir: Path,
@@ -183,6 +184,7 @@ def pull_news_events(
         symbols=symbols,
         start_date=start,
         end_date=end,
+        query=query,
         now=now,
         force=force,
     )
@@ -204,10 +206,14 @@ def pull_news_events(
     last_error: RuntimeError | None = None
 
     for candidate in _news_provider_candidates(active_config, provider_id, symbols):
+        if query and candidate == "finnhub":
+            warnings.append("Finnhub 不支持主题关键词新闻查询，正在尝试下一个新闻数据源")
+            continue
         try:
             rows = _pull_news_for_provider(
                 provider_id=candidate,
                 symbols=symbols,
+                query=query,
                 start=start,
                 end=end,
                 config=active_config,
@@ -229,11 +235,13 @@ def pull_news_events(
             "尚未配置新闻数据源。请配置 Marketaux、Finnhub 或 NewsAPI。"
         )
 
+    new_rows = [asdict(row) for row in rows]
+    cache_rows = _merge_news_cache_rows(output_dir, new_rows)
     output_path = _write_cache(
         output_dir=output_dir,
         filename="news-events.json",
         provider=selected_provider,
-        rows=[asdict(row) for row in rows],
+        rows=cache_rows,
         warnings=warnings,
         now=now,
     )
@@ -244,6 +252,7 @@ def pull_news_events(
         symbols=symbols,
         start_date=start,
         end_date=end,
+        query=query,
         artifact_path=output_path,
         row_count=len(rows),
         now=now,
@@ -661,20 +670,23 @@ def _pull_news_for_provider(
     *,
     provider_id: str,
     symbols: list[str],
+    query: str | None,
     start: str,
     end: str,
     config: AlphaDeskConfig,
     fetch_json: JsonFetcher,
 ) -> list[NewsEvent]:
     if provider_id == "finnhub":
+        if query and query.strip():
+            raise ValueError("Finnhub 当前不支持主题关键词新闻查询。")
         api_key = _configured_value(config.providers["finnhub"].value, "Finnhub")
         return _pull_finnhub_news(symbols, start, end, api_key, fetch_json)
     if provider_id == "marketaux":
         api_key = _configured_value(config.providers["marketaux"].value, "Marketaux")
-        return _pull_marketaux_news(symbols, api_key, fetch_json)
+        return _pull_marketaux_news(symbols, query, api_key, fetch_json)
     if provider_id == "newsapi":
         api_key = _configured_value(config.providers["newsapi"].value, "NewsAPI")
-        return _pull_newsapi_events(symbols, start, end, api_key, fetch_json)
+        return _pull_newsapi_events(symbols, query, start, end, api_key, fetch_json)
     raise ValueError(f"不支持的新闻数据源: {provider_id}")
 
 
@@ -717,6 +729,7 @@ def _pull_finnhub_news(
 
 def _pull_marketaux_news(
     symbols: list[str],
+    query: str | None,
     api_key: str,
     fetch_json: JsonFetcher,
 ) -> list[NewsEvent]:
@@ -725,6 +738,8 @@ def _pull_marketaux_news(
         "language": "en",
         "limit": "20",
     }
+    if query and query.strip():
+        params["search"] = query.strip()
     if symbols:
         params["symbols"] = ",".join(symbols)
     else:
@@ -755,15 +770,18 @@ def _pull_marketaux_news(
 
 def _pull_newsapi_events(
     symbols: list[str],
+    query: str | None,
     start: str,
     end: str,
     api_key: str,
     fetch_json: JsonFetcher,
 ) -> list[NewsEvent]:
-    query = " OR ".join(symbols) if symbols else MARKET_NEWS_QUERY
+    effective_query = query.strip() if query and query.strip() else ""
+    if not effective_query:
+        effective_query = " OR ".join(symbols) if symbols else MARKET_NEWS_QUERY
     url = "https://newsapi.org/v2/everything?" + urllib.parse.urlencode(
         {
-            "q": query,
+            "q": effective_query,
             "from": start,
             "to": end,
             "sortBy": "publishedAt",
@@ -941,6 +959,31 @@ def _merge_market_cache_rows(
         if (symbol := _cache_row_symbol(row)) and symbol not in new_symbols
     ]
     return preserved + new_rows
+
+
+def _merge_news_cache_rows(
+    output_dir: Path,
+    new_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    existing = _read_cache(output_dir, "news-events.json").rows
+    merged: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for row in [*existing, *new_rows]:
+        key = _news_cache_row_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(row)
+    return merged
+
+
+def _news_cache_row_key(row: dict[str, object]) -> str:
+    source_url = str(row.get("source_url") or "").strip()
+    if source_url:
+        return f"url:{source_url}"
+    headline = str(row.get("headline") or "").strip().lower()
+    timestamp = str(row.get("timestamp") or "").strip()
+    return f"headline:{headline}:{timestamp}"
 
 
 def _market_cache_covers_symbols(

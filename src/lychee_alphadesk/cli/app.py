@@ -1486,7 +1486,27 @@ def _print_research_evidence_review(result: ResearchEvidenceReviewResult) -> Non
     console.print(f"证据文本: {result.evidence_text}", soft_wrap=True)
     console.print(f"复核方向: {result.verdict_label}", soft_wrap=True)
     console.print(f"备注: {result.note}", soft_wrap=True)
+    _print_research_evidence_review_next_steps(result)
     console.print("边界: 单条证据复核不是买卖建议。", soft_wrap=True)
+
+
+def _print_research_evidence_review_next_steps(
+    result: ResearchEvidenceReviewResult,
+) -> None:
+    selector = _research_selector(result.candidate.symbol, result.candidate.display_name)
+    console.print("工作台下一步")
+    console.print(
+        f"- 重新下钻核验: lychee research verify {selector}",
+        soft_wrap=True,
+    )
+    console.print(
+        f"- 继续处理待判定证据: lychee research pending-evidence {selector}",
+        soft_wrap=True,
+    )
+    console.print(
+        f"- 查看证据复核历史: lychee research evidence-reviews {selector}",
+        soft_wrap=True,
+    )
 
 
 def _print_research_memo(result: ResearchMemoResult) -> None:

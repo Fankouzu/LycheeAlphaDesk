@@ -321,7 +321,7 @@ Record the direction of one pending evidence row:
 lychee research evidence-review --symbol QQQ --text "news headline fragment" --verdict support --note "Why this supports the research question"
 ```
 
-`research evidence-review` writes a row-level evidence review to SQLite and `.alphadesk/research/research-evidence-review-*.json`. The next `research verify` uses that review to reclassify matching news evidence as `support`, `reverse`, or `irrelevant`, so a task can move out of the "新闻待判定" state through an auditable workflow. The TUI verification result page exposes the same row-level actions as selectable menu items for pending news evidence. This command only records evidence direction; it does not create buy/sell/hold, allocation, target-price, or expected-return advice.
+`research evidence-review` writes a row-level evidence review to SQLite and `.alphadesk/research/research-evidence-review-*.json`. The next `research verify` uses that review to reclassify matching news evidence as `support`, `reverse`, or `irrelevant`, so a task can move out of the "新闻待判定" state through an auditable workflow. After recording the review, the CLI prints the next workbench commands: rerun drilldown verification, continue the pending-evidence queue, and inspect the evidence-review history. The TUI verification result page exposes the same row-level actions as selectable menu items for pending news evidence. This command only records evidence direction; it does not create buy/sell/hold, allocation, target-price, or expected-return advice.
 
 View row-level evidence review history:
 

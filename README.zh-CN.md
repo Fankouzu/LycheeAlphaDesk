@@ -321,7 +321,7 @@ lychee research pending-evidence --name "Invesco QQQ Trust"
 lychee research evidence-review --symbol QQQ --text "QQQ tech rebound headline" --verdict support --note "与研究问题同向"
 ```
 
-`research evidence-review` 会把单条新闻标题或证据文本片段记录为 `support`、`reverse` 或 `irrelevant`，写入 SQLite 和 `.alphadesk/research/research-evidence-review-*.json`。后续 `research verify` 会读取这些记录，把匹配证据重新归类到支持、风险/反向待查或无关/排除路径。这个命令只记录证据方向，不会生成买入、卖出、持有、仓位、目标价或收益预期。
+`research evidence-review` 会把单条新闻标题或证据文本片段记录为 `support`、`reverse` 或 `irrelevant`，写入 SQLite 和 `.alphadesk/research/research-evidence-review-*.json`。后续 `research verify` 会读取这些记录，把匹配证据重新归类到支持、风险/反向待查或无关/排除路径。记录完成后，CLI 会继续打印工作台下一步命令：重新下钻核验、继续处理待判定证据队列、查看证据复核历史。这个命令只记录证据方向，不会生成买入、卖出、持有、仓位、目标价或收益预期。
 
 查看单条证据复核历史：
 

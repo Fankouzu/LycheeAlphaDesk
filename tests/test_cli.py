@@ -1079,6 +1079,16 @@ def test_research_evidence_review_reclassifies_pending_news(
     assert review.exit_code == 0
     assert "证据复核记录已写入" in review.stdout
     assert "复核方向: 支持证据" in review.stdout
+    assert "工作台下一步" in review.stdout
+    assert "重新下钻核验: lychee research verify --symbol STX" in review.stdout
+    assert (
+        "继续处理待判定证据: lychee research pending-evidence --symbol STX"
+        in review.stdout
+    )
+    assert (
+        "查看证据复核历史: lychee research evidence-reviews --symbol STX"
+        in review.stdout
+    )
 
     after = runner.invoke(
         app,

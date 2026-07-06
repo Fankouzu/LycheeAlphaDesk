@@ -18,6 +18,7 @@ from lychee_alphadesk.core.research_db import (
     ResearchReviewRecord,
     list_research_queue,
 )
+from lychee_alphadesk.core.research_memo import ResearchMemo, ResearchMemoResult
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
     ResearchReviewResult,
@@ -589,6 +590,164 @@ def test_dashboard_research_task_action_runs_drilldown_verification(
             assert "支持证据" in text
             assert "风险/反向待查" in text
             assert "待补证据" in text
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_research_task_action_generates_llm_memo(
+    monkeypatch, tmp_path: Path
+) -> None:
+    calls: list[dict[str, object]] = []
+    observed_status: list[str] = []
+    app_holder: list[AlphaDeskApp] = []
+
+    class FakeWorkbenchResult:
+        status = "ready"
+        ready_count = 1
+        blocked_count = 0
+        candidates = [
+            CandidateCheck(
+                display_name="纳斯达克100ETF观察",
+                market="US",
+                symbol="QQQ",
+                proxy_symbols=[],
+                evidence_count=1,
+                gap_count=0,
+                data_gaps=[],
+                status="ready",
+                explanation="",
+                beginner_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+                why_it_matters="",
+                observation_entry="QQQ",
+                what_to_check="对比 QQQ 与 SPY。",
+                next_step="检查成交量是否配合反弹",
+                priority="P2 待增强证据",
+                evidence_status="证据 1 条；缺口 0 个",
+            )
+        ]
+        deepen_result = ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[
+                ResearchPacket(
+                    packet_id="research:test:1",
+                    candidate_id=1,
+                    created_at="2026-07-05T10:00:00+00:00",
+                    display_name="纳斯达克100ETF观察",
+                    symbol="QQQ",
+                    market="US",
+                    packet={
+                        "candidate": {"asset_type": "ETF"},
+                        "evidence": [],
+                        "local_data": {
+                            "price": {},
+                            "related_news": [],
+                            "filings": [],
+                            "symbol_mapping": [],
+                        },
+                        "data_gaps": [],
+                    },
+                )
+            ],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        )
+        beginner_brief = "AlphaDesk 研究工作台"
+
+    def fake_verification() -> ResearchVerificationResult:
+        candidate = FakeWorkbenchResult.candidates[0]
+        packet = FakeWorkbenchResult.deepen_result.packets[0]
+        return ResearchVerificationResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            status="pending_review",
+            status_label="待人工核验",
+            candidate=candidate,
+            packet=packet,
+            checks=[
+                ResearchVerificationCheck(
+                    name="行情核验",
+                    status="pass",
+                    detail="已有 QQQ 行情。",
+                )
+            ],
+            evidence_board={
+                "support": ["行情: QQQ 530.26 USD"],
+                "risk": ["一致性核验: 待人工核验行情、成交量、新闻是否同向。"],
+                "missing": [],
+            },
+            conclusion="一致性结论: 待人工核验。",
+            next_actions=["记录支持证据、反向证据和仍需补充的数据。"],
+            artifact_path=tmp_path / "research" / "research-verification-test.json",
+            workbench_result=FakeWorkbenchResult(),
+        )
+
+    def fake_generate_research_memo(**kwargs: object) -> ResearchMemoResult:
+        app = app_holder[0]
+        observed_status.append(str(app.query_one("#action-status", Static).content))
+        calls.append(kwargs)
+        verification = fake_verification()
+        return ResearchMemoResult(
+            created_at="2026-07-05T10:02:00+00:00",
+            memo=ResearchMemo(
+                summary="QQQ 线索需要先区分科技独立主线和大盘反弹。",
+                evidence_reading="已有行情证据，但仍需补充相对强弱和成交量证据。",
+                support_points=["QQQ 已有可观察行情入口。"],
+                skeptic_review=["单一 ETF 不能证明科技主线独立成立。"],
+                missing_evidence=["缺少 QQQ 与 SPY 的相对强弱对比。"],
+                next_research_steps=["补充 QQQ/SPY 对比和成交量扩散证据。"],
+                confidence="medium",
+            ),
+            candidate=verification.candidate,
+            verification=verification,
+            artifact_path=tmp_path / "research" / "research-memo-test.json",
+        )
+
+    monkeypatch.setattr(
+        tui_app,
+        "run_workbench_check",
+        lambda **kwargs: FakeWorkbenchResult(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app,
+        "generate_research_memo",
+        fake_generate_research_memo,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        app_holder.append(app)
+        async with app.run_test() as pilot:
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            action_menu = app.query_one("#research-detail-action-menu", OptionList)
+            memo_action = str(action_menu.get_option_at_index(3).prompt)
+            assert "研究备忘录" in memo_action
+
+            await pilot.press("down", "down", "down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert calls == [
+                {
+                    "output_dir": tmp_path,
+                    "symbol": "QQQ",
+                    "name": None,
+                }
+            ]
+            assert any("正在调用 LLM 生成研究备忘录" in item for item in observed_status)
+            detail = app.query_one("#action-status", Static)
+            text = str(detail.content)
+            assert "研究备忘录" in text
+            assert "QQQ 线索需要先区分" in text
+            assert "反方审查" in text
+            assert "下一步研究动作" in text
+            assert "研究备忘录不是买卖建议" in text
 
     asyncio.run(run_case())
 

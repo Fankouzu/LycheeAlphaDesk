@@ -303,6 +303,8 @@ lychee research memo --symbol QQQ
 
 `research memo` runs the same drilldown verification, sends the evidence board, checks, and next actions to the configured OpenAI-compatible LLM, and writes `.alphadesk/research/research-memo-*.json`. The memo includes a summary, evidence reading, support points, skeptic review, missing evidence, and next research steps. If the LLM is not configured, the request fails, the response is not valid JSON, required fields are missing, or the model returns buy/sell/hold, target-price, allocation, or position-sizing language, the command fails and does not write a research memo.
 
+In the TUI, run `lychee`, open `研究工作台`, select a research task, and choose `生成研究备忘录`. The TUI entry shows the same LLM loading state and uses the same failure boundaries.
+
 Record a research review:
 
 ```bash

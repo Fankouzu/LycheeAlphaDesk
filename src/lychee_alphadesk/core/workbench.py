@@ -757,6 +757,7 @@ def research_detail_actions(
     if research_filing_symbols(candidate, packet):
         actions.append(("refresh_filings", "刷新美股公告/财报"))
     actions.append(("verify_research", "下钻核验"))
+    actions.append(("generate_memo", "生成研究备忘录"))
     actions.append(("back_tasks", "返回研究任务列表"))
     return actions
 
@@ -787,6 +788,9 @@ def research_action_commands(
         )
     if symbols:
         commands.append(f"下钻核验: lychee research verify --symbol {symbols[0]}")
+        commands.append(f"研究备忘录: lychee research memo --symbol {symbols[0]}")
+    else:
+        commands.append(f'研究备忘录: lychee research memo --name "{candidate.display_name}"')
     return commands
 
 
@@ -813,6 +817,7 @@ def research_action_name(action: str) -> str:
         "refresh_news": "刷新新闻",
         "refresh_filings": "刷新美股公告/财报",
         "verify_research": "下钻核验",
+        "generate_memo": "生成研究备忘录",
     }.get(action, action)
 
 

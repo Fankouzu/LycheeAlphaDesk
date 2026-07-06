@@ -33,6 +33,10 @@ from lychee_alphadesk.core.research_db import (
     list_research_reviews,
     write_discovery_research_run,
 )
+from lychee_alphadesk.core.research_memo import (
+    ResearchMemoResult,
+    generate_research_memo,
+)
 from lychee_alphadesk.core.workbench import (
     RESEARCH_REVIEW_VERDICTS,
     CandidateCheck,
@@ -322,6 +326,9 @@ class AlphaDeskApp(App[None]):
         if action == "verify_research":
             await self._run_research_verification(candidate)
             return
+        if action == "generate_memo":
+            await self._run_research_memo(candidate)
+            return
         await self._replace_action_panel(
             Static(
                 f"正在执行: {research_action_name(action)}，请稍候...",
@@ -434,6 +441,40 @@ class AlphaDeskApp(App[None]):
                     Option(label, id=f"research_review:{verdict}")
                     for verdict, label in _research_review_menu_options()
                 ],
+                Option("返回研究任务列表", id="research_detail:back_tasks"),
+                id="research-detail-action-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#research-detail-action-menu", OptionList))
+
+    async def _run_research_memo(self, candidate: CandidateCheck) -> None:
+        await self._replace_action_panel(
+            Static(
+                "正在调用 LLM 生成研究备忘录，请稍候...",
+                id="action-status",
+            )
+        )
+        symbols = research_action_symbols(candidate)
+        symbol = symbols[0] if symbols else None
+        name = None if symbol else candidate.display_name
+        try:
+            result = await asyncio.to_thread(
+                generate_research_memo,
+                output_dir=self.output_dir,
+                symbol=symbol,
+                name=name,
+            )
+        except (RuntimeError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._refresh_research_state()
+        await self._replace_action_panel(
+            Static(_research_memo_text(result), id="action-status"),
+            OptionList(
                 Option("返回研究任务列表", id="research_detail:back_tasks"),
                 id="research-detail-action-menu",
                 markup=False,
@@ -747,6 +788,37 @@ def _research_review_recorded_text(result: ResearchReviewResult) -> str:
     )
 
 
+def _research_memo_text(result: ResearchMemoResult) -> str:
+    memo = result.memo
+    return "\n".join(
+        [
+            "研究备忘录",
+            f"记录: {result.artifact_path}",
+            f"任务: {result.candidate.display_name} [{result.candidate.market}]",
+            f"置信度: {memo.confidence}",
+            "",
+            "摘要",
+            memo.summary,
+            "",
+            "证据读数",
+            memo.evidence_reading,
+            "",
+            "支持证据",
+            *_text_list_lines(memo.support_points),
+            "",
+            "反方审查",
+            *_text_list_lines(memo.skeptic_review),
+            "",
+            "待补证据",
+            *_text_list_lines(memo.missing_evidence),
+            "",
+            "下一步研究动作",
+            *_text_list_lines(memo.next_research_steps),
+            "边界: 研究备忘录不是买卖建议。",
+        ]
+    )
+
+
 def _research_review_menu_options() -> list[tuple[str, str]]:
     return [
         (verdict, f"记录: {label}")
@@ -761,6 +833,12 @@ def _evidence_board_lines(title: str, rows: list[str]) -> list[str]:
     else:
         lines.extend(f"- {row}" for row in rows)
     return lines
+
+
+def _text_list_lines(rows: list[str]) -> list[str]:
+    if not rows:
+        return ["- 无"]
+    return [f"- {row}" for row in rows]
 
 
 def _display_verification_status(status: str) -> str:

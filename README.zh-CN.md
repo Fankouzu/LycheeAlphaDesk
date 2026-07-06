@@ -303,6 +303,8 @@ lychee research memo --symbol QQQ
 
 `research memo` 会先运行同一套下钻核验，然后把证据板、核验项和下一步动作交给已配置的 OpenAI-compatible LLM，生成 `.alphadesk/research/research-memo-*.json`。备忘录包含摘要、证据读数、支持证据、反方审查、待补证据和下一步研究动作。LLM 未配置、请求失败、返回非 JSON、缺少必要字段，或输出买入/卖出/持有/目标价/仓位语言时，命令必须失败，不会写入研究备忘录。
 
+在 TUI 中运行 `lychee` 后，进入“研究工作台”，选择一条研究任务，也可以直接选择“生成研究备忘录”。该入口同样会显示 LLM 调用状态，并复用相同的失败边界。
+
 记录一次研究复核：
 
 ```bash

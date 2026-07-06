@@ -103,6 +103,7 @@ class AlphaDeskApp(App[None]):
         self.research_packets: list[ResearchPacket] = []
         self.selected_research_index: int | None = None
         self.current_research_verification: ResearchVerificationResult | None = None
+        self.pending_evidence_items: list[PendingEvidenceReviewItem] = []
         self.pending_evidence_review_items: list[str] = []
 
     def compose(self) -> ComposeResult:
@@ -168,6 +169,12 @@ class AlphaDeskApp(App[None]):
             return
         if isinstance(action_id, str) and action_id.startswith("research_evidence_review:"):
             await self._run_research_evidence_review_action(action_id)
+            return
+        if isinstance(action_id, str) and action_id.startswith("pending_evidence_item:"):
+            await self._show_pending_evidence_detail(action_id)
+            return
+        if isinstance(action_id, str) and action_id.startswith("pending_evidence_review:"):
+            await self._run_pending_evidence_review_action(action_id)
             return
         if action_id == "today_discovery":
             await self._show_today_discovery()
@@ -303,10 +310,106 @@ class AlphaDeskApp(App[None]):
             output_dir=self.output_dir,
             limit=20,
         )
-        await self._replace_action_panel(
-            Static(_pending_evidence_queue_text(items), id="action-status")
+        self.pending_evidence_items = items
+        await self._render_pending_evidence_queue(
+            status_prefix=None,
         )
-        self.set_focus(self.query_one("#action-menu", OptionList))
+
+    async def _render_pending_evidence_queue(self, status_prefix: str | None) -> None:
+        status_text = _pending_evidence_queue_text(
+            self.pending_evidence_items,
+            prefix=status_prefix,
+        )
+        if not self.pending_evidence_items:
+            await self._replace_action_panel(Static(status_text, id="action-status"))
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static(status_text, id="action-status"),
+            OptionList(
+                *[
+                    Option(
+                        _pending_evidence_item_label(item),
+                        id=f"pending_evidence_item:{index}",
+                    )
+                    for index, item in enumerate(self.pending_evidence_items)
+                ],
+                id="pending-evidence-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#pending-evidence-menu", OptionList))
+
+    async def _show_pending_evidence_detail(self, action_id: str) -> None:
+        raw_index = action_id.removeprefix("pending_evidence_item:")
+        try:
+            index = int(raw_index)
+            item = self.pending_evidence_items[index]
+        except (ValueError, IndexError):
+            await self._replace_action_panel(
+                Static("待判定证据不存在，请刷新队列。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static(_pending_evidence_detail_text(item), id="action-status"),
+            OptionList(
+                *[
+                    Option(label, id=f"pending_evidence_review:{verdict}:{index}")
+                    for verdict, label in _pending_evidence_review_menu_options()
+                ],
+                Option("返回待判定证据队列", id="pending_evidence"),
+                id="pending-evidence-action-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#pending-evidence-action-menu", OptionList))
+
+    async def _run_pending_evidence_review_action(self, action_id: str) -> None:
+        payload = action_id.removeprefix("pending_evidence_review:")
+        try:
+            verdict, raw_index = payload.split(":", 1)
+            item = self.pending_evidence_items[int(raw_index)]
+        except (ValueError, IndexError):
+            await self._replace_action_panel(
+                Static("待判定证据复核动作不存在，请刷新队列。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        verdict_label = RESEARCH_EVIDENCE_REVIEW_VERDICTS.get(verdict)
+        if verdict_label is None:
+            await self._replace_action_panel(
+                Static("未知证据复核方向。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static(f"正在记录证据复核: {verdict_label}，请稍候...", id="action-status")
+        )
+        try:
+            review_result = await asyncio.to_thread(
+                record_research_evidence_review,
+                output_dir=self.output_dir,
+                symbol=item.symbol,
+                name=None if item.symbol else item.display_name,
+                evidence_text=item.evidence_text,
+                verdict=verdict,
+                note=f"TUI 待判定证据队列: {verdict_label}",
+            )
+            self.pending_evidence_items = await asyncio.to_thread(
+                list_pending_evidence_reviews,
+                output_dir=self.output_dir,
+                limit=20,
+            )
+        except (RuntimeError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._render_pending_evidence_queue(
+            status_prefix=_pending_evidence_review_recorded_summary(review_result),
+        )
 
     async def _show_research_evidence_review_history(self) -> None:
         records = await asyncio.to_thread(
@@ -926,16 +1029,24 @@ def _research_review_history_text(records: list[ResearchReviewRecord]) -> str:
     return "\n".join(lines)
 
 
-def _pending_evidence_queue_text(items: list[PendingEvidenceReviewItem]) -> str:
+def _pending_evidence_queue_text(
+    items: list[PendingEvidenceReviewItem],
+    *,
+    prefix: str | None = None,
+) -> str:
+    lines: list[str] = []
+    if prefix:
+        lines.extend([prefix, ""])
     if not items:
-        return "\n".join(
-            [
+        lines.extend(
+            (
                 "待判定证据队列",
                 "暂无待判定证据。先在研究工作台里运行下钻核验。",
                 "边界: 待判定证据队列不是买卖建议。",
-            ]
+            )
         )
-    lines = ["待判定证据队列"]
+        return "\n".join(lines)
+    lines.append("待判定证据队列")
     for item in items:
         lines.extend(
             [
@@ -951,6 +1062,51 @@ def _pending_evidence_queue_text(items: list[PendingEvidenceReviewItem]) -> str:
         )
     lines.append("边界: 待判定证据队列不是买卖建议。")
     return "\n".join(lines)
+
+
+def _pending_evidence_item_label(item: PendingEvidenceReviewItem) -> str:
+    return (
+        f"{item.display_name} ({item.symbol or '-'}) [{item.market}] | "
+        f"{item.evidence_text}"
+    )
+
+
+def _pending_evidence_detail_text(item: PendingEvidenceReviewItem) -> str:
+    return "\n".join(
+        [
+            "待判定证据详情",
+            f"研究任务: {item.display_name} ({item.symbol or '-'}) [{item.market}]",
+            f"要回答的问题: {item.primary_question}",
+            f"待判定证据: {item.evidence_text}",
+            f"原始证据行: {item.raw_evidence}",
+            f"下钻核验: {item.artifact_path}",
+            "请选择这条证据对研究问题的方向。",
+            "边界: 待判定证据详情不是买卖建议。",
+        ]
+    )
+
+
+def _pending_evidence_review_menu_options() -> list[tuple[str, str]]:
+    return [
+        ("support", "标为支持证据"),
+        ("reverse", "标为风险/反向待查"),
+        ("irrelevant", "标为无关/排除"),
+    ]
+
+
+def _pending_evidence_review_recorded_summary(
+    result: ResearchEvidenceReviewResult,
+) -> str:
+    return "\n".join(
+        [
+            "证据复核已记录",
+            f"复核任务: {result.candidate.display_name} [{result.candidate.market}]",
+            f"证据文本: {result.evidence_text}",
+            f"复核方向: {result.verdict_label}",
+            f"记录: {result.artifact_path}",
+            "边界: 单条证据复核不是买卖建议。",
+        ]
+    )
 
 
 def _research_evidence_review_history_text(

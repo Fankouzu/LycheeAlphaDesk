@@ -505,6 +505,127 @@ def test_dashboard_pending_evidence_action_lists_review_queue(
     asyncio.run(run_case())
 
 
+def test_dashboard_pending_evidence_queue_can_record_direction(
+    monkeypatch, tmp_path: Path
+) -> None:
+    evidence_review_calls: list[dict[str, object]] = []
+
+    def pending_item() -> PendingEvidenceReviewItem:
+        return PendingEvidenceReviewItem(
+            created_at="2026-07-06T10:00:00+00:00",
+            display_name="Invesco QQQ Trust",
+            symbol="QQQ",
+            market="US",
+            primary_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+            evidence_text="QQQ tech rebound headline",
+            raw_evidence="新闻待判定: QQQ tech rebound headline 命中主题但方向未明。",
+            artifact_path=str(tmp_path / "research" / "research-verification-test.json"),
+            review_command=(
+                'lychee research evidence-review --symbol QQQ --text '
+                '"QQQ tech rebound headline" '
+                '--verdict "<support|reverse|irrelevant>" --note "..."'
+            ),
+        )
+
+    def fake_list_pending_evidence_reviews(
+        **kwargs: object,
+    ) -> list[PendingEvidenceReviewItem]:
+        assert kwargs["output_dir"] == tmp_path
+        return [] if evidence_review_calls else [pending_item()]
+
+    def fake_record_research_evidence_review(
+        **kwargs: object,
+    ) -> ResearchEvidenceReviewResult:
+        evidence_review_calls.append(kwargs)
+        candidate = CandidateCheck(
+            display_name="Invesco QQQ Trust",
+            market="US",
+            symbol="QQQ",
+            proxy_symbols=[],
+            evidence_count=1,
+            gap_count=0,
+            data_gaps=[],
+            status="ready",
+            explanation="",
+            beginner_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+            why_it_matters="",
+            observation_entry="QQQ",
+            what_to_check="对比 QQQ 与 SPY。",
+            next_step="复核证据方向",
+            priority="P2",
+            evidence_status="待判定 1",
+            evidence_quality="needs_review",
+        )
+        return ResearchEvidenceReviewResult(
+            created_at="2026-07-06T10:01:00+00:00",
+            verdict=str(kwargs["verdict"]),
+            verdict_label="支持证据",
+            evidence_text=str(kwargs["evidence_text"]),
+            note=str(kwargs["note"]),
+            candidate=candidate,
+            artifact_path=tmp_path / "research" / "research-evidence-review-test.json",
+            db_path=tmp_path / "research.sqlite3",
+        )
+
+    monkeypatch.setattr(
+        tui_app,
+        "list_pending_evidence_reviews",
+        fake_list_pending_evidence_reviews,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app,
+        "record_research_evidence_review",
+        fake_record_research_evidence_review,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            menu = app.query_one("#action-menu", OptionList)
+            queue_index = _option_index(menu, "待判定证据队列")
+            await pilot.press(*(["down"] * queue_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            queue_menu = app.query_one("#pending-evidence-menu", OptionList)
+            assert "QQQ tech rebound headline" in str(
+                queue_menu.get_option_at_index(0).prompt
+            )
+            await pilot.press("enter")
+            await pilot.pause()
+
+            detail_text = str(app.query_one("#action-status", Static).content)
+            assert "待判定证据详情" in detail_text
+            assert "QQQ tech rebound headline" in detail_text
+
+            action_menu = app.query_one("#pending-evidence-action-menu", OptionList)
+            support_index = _option_index(
+                action_menu,
+                "标为支持证据",
+            )
+            await pilot.press(*(["down"] * support_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert evidence_review_calls == [
+                {
+                    "output_dir": tmp_path,
+                    "symbol": "QQQ",
+                    "name": None,
+                    "evidence_text": "QQQ tech rebound headline",
+                    "verdict": "support",
+                    "note": "TUI 待判定证据队列: 支持证据",
+                }
+            ]
+            refreshed_text = str(app.query_one("#action-status", Static).content)
+            assert "证据复核已记录" in refreshed_text
+            assert "暂无待判定证据" in refreshed_text
+
+    asyncio.run(run_case())
+
+
 def test_dashboard_research_task_selection_opens_research_result_workbench(
     monkeypatch, tmp_path: Path
 ) -> None:

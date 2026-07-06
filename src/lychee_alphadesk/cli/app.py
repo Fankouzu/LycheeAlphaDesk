@@ -46,6 +46,7 @@ from lychee_alphadesk.core.reports import generate_demo_report
 from lychee_alphadesk.core.research import deepen_research_queue, fill_research_data_gaps
 from lychee_alphadesk.core.research_db import (
     list_research_queue,
+    list_research_reviews,
     write_discovery_research_run,
 )
 from lychee_alphadesk.core.workbench import (
@@ -723,6 +724,75 @@ def research_review(
         console.print(str(error), soft_wrap=True)
         raise typer.Exit(code=1) from error
     _print_research_review(result)
+
+
+@research_app.command("reviews")
+def research_reviews(
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="按证券代码过滤复核历史，例如 STX、QQQ。"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="按任务名称过滤复核历史。"),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多显示多少条复核记录。"),
+    ] = 20,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """查看研究复核历史。"""
+    records = list_research_reviews(
+        output_dir,
+        symbol=symbol,
+        name=name,
+        limit=limit,
+    )
+    if not records:
+        console.print("暂无研究复核历史。请先运行 `lychee research review`。")
+        return
+    table = Table(title="Lychee AlphaDesk 研究复核历史")
+    table.add_column("时间")
+    table.add_column("名称", overflow="fold")
+    table.add_column("代码")
+    table.add_column("市场")
+    table.add_column("复核判断")
+    table.add_column("证据")
+    table.add_column("备注", overflow="fold")
+    for record in records:
+        table.add_row(
+            record.created_at,
+            record.display_name,
+            record.symbol or "-",
+            record.market,
+            record.verdict_label,
+            (
+                f"支持 {record.support_count} | "
+                f"风险 {record.risk_count} | "
+                f"待补 {record.missing_count}"
+            ),
+            record.note,
+        )
+    console.print(table)
+    console.print("复核记录明细")
+    for record in records:
+        console.print(
+            f"- {record.display_name} ({record.symbol or '-'}) [{record.market}] "
+            f"{record.verdict_label}: {record.note}",
+            soft_wrap=True,
+        )
+        console.print(
+            f"  证据: 支持 {record.support_count} | 风险 {record.risk_count} | "
+            f"待补 {record.missing_count}",
+            soft_wrap=True,
+        )
+        console.print(f"  记录: {record.review_path}", soft_wrap=True)
+        console.print(f"  下钻核验: {record.verification_path}", soft_wrap=True)
+    console.print("边界: 研究复核历史不是买卖建议。", soft_wrap=True)
 
 
 @data_pull_app.command("market")

@@ -740,6 +740,97 @@ def test_research_review_command_records_non_advisory_verdict(
     )
 
 
+def test_research_reviews_command_lists_review_history(tmp_path: Path) -> None:
+    _write_cli_research_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "AI storage demand rises",
+                        "summary": "Cloud infrastructure demand may affect hard drives.",
+                        "symbols": ["STX"],
+                        "source_url": "https://example.com/storage",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-05",
+                        "close": 120.0,
+                        "volume": 4560000,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "filings.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "date": "2026-07-04",
+                        "company": "Seagate",
+                        "form": "8-K",
+                        "summary": "STX 在 2026-07-04 提交了 8-K。",
+                        "source_url": "https://example.com/8k",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    review_result = runner.invoke(
+        app,
+        [
+            "research",
+            "review",
+            "--symbol",
+            "STX",
+            "--verdict",
+            "pause_watch",
+            "--note",
+            "暂时观察，等待更多订单和财报证据。",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert review_result.exit_code == 0
+
+    result = runner.invoke(
+        app,
+        ["research", "reviews", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "Lychee AlphaDesk 研究复核历史" in result.stdout
+    assert "Seagate" in result.stdout
+    assert "STX" in result.stdout
+    assert "暂停观察" in result.stdout
+    assert "暂时观察，等待更多订单和财报证据。" in result.stdout
+    assert "支持 4 | 风险 1 | 待补 0" in result.stdout
+    assert "research-review-" in result.stdout
+    assert "不是买卖建议" in result.stdout
+
+
 def test_research_deepen_command_shows_proxy_mapping_symbols(tmp_path: Path) -> None:
     _write_cli_symbolless_mapping_seed(tmp_path)
     data_dir = tmp_path / "data"

@@ -303,6 +303,15 @@ lychee research review --symbol QQQ --verdict continue_research --note "Continue
 
 `research review` runs the same drilldown verification, then writes the review verdict, note, evidence-board counts, verification artifact path, and full payload to `.alphadesk/research/research-review-*.json` and the `research_reviews` table in `.alphadesk/research.sqlite3`. `--verdict` may only express research workflow state: `continue_research`, `needs_more_evidence`, `pause_watch`, or `blocked`; it is not a buy, sell, hold, target-price, or allocation recommendation.
 
+View research review history:
+
+```bash
+lychee research reviews
+lychee research reviews --symbol QQQ
+```
+
+`research reviews` reads recent review records from SQLite and shows the verdict, note, support/risk/missing evidence counts, review artifact, and linked drilldown verification artifact. It is for reviewing the research process, not for listing buy/sell decisions.
+
 Current market-level and symbol-level cache commands:
 
 ```bash

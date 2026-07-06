@@ -432,3 +432,69 @@ def write_research_review_record(
             ),
         )
     return research_db_path(output_dir)
+
+
+def list_research_reviews(
+    output_dir: Path,
+    *,
+    symbol: str | None = None,
+    name: str | None = None,
+    limit: int = 20,
+) -> list[ResearchReviewRecord]:
+    db_path = init_research_db(output_dir)
+    where_parts: list[str] = []
+    parameters: list[object] = []
+    if symbol:
+        where_parts.append("UPPER(COALESCE(symbol, '')) = ?")
+        parameters.append(symbol.strip().upper())
+    if name:
+        where_parts.append("LOWER(display_name) LIKE ?")
+        parameters.append(f"%{name.strip().lower()}%")
+    where_clause = "WHERE " + " AND ".join(where_parts) if where_parts else ""
+    parameters.append(limit)
+
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT
+                review_id,
+                created_at,
+                display_name,
+                symbol,
+                market,
+                verdict,
+                verdict_label,
+                note,
+                support_count,
+                risk_count,
+                missing_count,
+                review_path,
+                verification_path,
+                payload_json
+            FROM research_reviews
+            {where_clause}
+            ORDER BY created_at DESC, review_id DESC
+            LIMIT ?
+            """,
+            parameters,
+        ).fetchall()
+
+    return [
+        ResearchReviewRecord(
+            review_id=row[0],
+            created_at=row[1],
+            display_name=row[2],
+            symbol=row[3],
+            market=row[4],
+            verdict=row[5],
+            verdict_label=row[6],
+            note=row[7],
+            support_count=row[8],
+            risk_count=row[9],
+            missing_count=row[10],
+            review_path=row[11],
+            verification_path=row[12],
+            payload=json.loads(row[13]),
+        )
+        for row in rows
+    ]

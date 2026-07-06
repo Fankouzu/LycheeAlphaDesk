@@ -14,7 +14,10 @@ from lychee_alphadesk.core.discovery import (
 )
 from lychee_alphadesk.core.live_data import PullResult
 from lychee_alphadesk.core.research import ResearchDeepenResult, ResearchPacket
-from lychee_alphadesk.core.research_db import list_research_queue
+from lychee_alphadesk.core.research_db import (
+    ResearchReviewRecord,
+    list_research_queue,
+)
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
     ResearchReviewResult,
@@ -22,6 +25,14 @@ from lychee_alphadesk.core.workbench import (
     ResearchVerificationResult,
 )
 from lychee_alphadesk.tui.app import AlphaDeskApp
+
+
+def _option_index(menu: OptionList, label: str) -> int:
+    labels = [
+        str(menu.get_option_at_index(index).prompt)
+        for index in range(menu.option_count)
+    ]
+    return labels.index(label)
 
 
 def test_dashboard_shows_cached_live_data_summary(tmp_path: Path) -> None:
@@ -164,6 +175,61 @@ def test_dashboard_research_workbench_action_runs_check(
             assert "纳斯达克100ETF观察" in task_label
             assert "QQQ" in task_label
             assert not app.query(Input)
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_research_review_history_action_lists_records(
+    monkeypatch, tmp_path: Path
+) -> None:
+    def fake_list_research_reviews(**kwargs: object) -> list[ResearchReviewRecord]:
+        assert kwargs["output_dir"] == tmp_path
+        return [
+            ResearchReviewRecord(
+                review_id="research-review:2026-07-05T10:00:00+00:00",
+                created_at="2026-07-05T10:00:00+00:00",
+                display_name="Seagate",
+                symbol="STX",
+                market="US",
+                verdict="pause_watch",
+                verdict_label="暂停观察",
+                note="等待更多订单和财报证据。",
+                support_count=4,
+                risk_count=1,
+                missing_count=0,
+                review_path=str(tmp_path / "research" / "research-review-test.json"),
+                verification_path=str(
+                    tmp_path / "research" / "research-verification-test.json"
+                ),
+                payload={},
+            )
+        ]
+
+    monkeypatch.setattr(
+        tui_app,
+        "list_research_reviews",
+        fake_list_research_reviews,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            menu = app.query_one("#action-menu", OptionList)
+            history_index = _option_index(menu, "研究复核历史")
+            await pilot.press(*(["down"] * history_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            status = app.query_one("#action-status", Static)
+            text = str(status.content)
+            assert "研究复核历史" in text
+            assert "Seagate (STX) [US]" in text
+            assert "暂停观察" in text
+            assert "等待更多订单和财报证据。" in text
+            assert "证据: 支持 4 | 风险 1 | 待补 0" in text
+            assert "research-review-test.json" in text
+            assert "不是买卖建议" in text
 
     asyncio.run(run_case())
 
@@ -904,7 +970,9 @@ def test_dashboard_market_menu_action_pulls_prices(
     async def run_case() -> None:
         app = AlphaDeskApp(output_dir=tmp_path)
         async with app.run_test() as pilot:
-            await pilot.press("down", "down")
+            menu = app.query_one("#action-menu", OptionList)
+            market_index = _option_index(menu, "手动查看行情")
+            await pilot.press(*(["down"] * market_index))
             await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()
@@ -925,7 +993,9 @@ def test_dashboard_symbol_prompt_handles_empty_submit(tmp_path: Path) -> None:
     async def run_case() -> None:
         app = AlphaDeskApp(output_dir=tmp_path)
         async with app.run_test() as pilot:
-            await pilot.press("down", "down")
+            menu = app.query_one("#action-menu", OptionList)
+            market_index = _option_index(menu, "手动查看行情")
+            await pilot.press(*(["down"] * market_index))
             await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()

@@ -28,7 +28,11 @@ from lychee_alphadesk.core.live_data import (
 from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR
 from lychee_alphadesk.core.research import ResearchPacket
-from lychee_alphadesk.core.research_db import write_discovery_research_run
+from lychee_alphadesk.core.research_db import (
+    ResearchReviewRecord,
+    list_research_reviews,
+    write_discovery_research_run,
+)
 from lychee_alphadesk.core.workbench import (
     RESEARCH_REVIEW_VERDICTS,
     CandidateCheck,
@@ -49,6 +53,7 @@ from lychee_alphadesk.core.workbench import (
 ActionId = Literal[
     "today_discovery",
     "research_workbench",
+    "research_reviews",
     "pull_market",
     "pull_news",
     "pull_filings",
@@ -86,6 +91,7 @@ class AlphaDeskApp(App[None]):
         yield OptionList(
             Option("今日市场发现", id="today_discovery"),
             Option("研究工作台", id="research_workbench"),
+            Option("研究复核历史", id="research_reviews"),
             Option("手动查看行情", id="pull_market"),
             Option("手动查看新闻", id="pull_news"),
             Option("手动查看美股公告", id="pull_filings"),
@@ -140,6 +146,8 @@ class AlphaDeskApp(App[None]):
             await self._show_today_discovery()
         elif action_id == "research_workbench":
             await self._show_research_workbench()
+        elif action_id == "research_reviews":
+            await self._show_research_review_history()
         elif action_id == "pull_market":
             await self._show_symbol_prompt(
                 "pull_market",
@@ -244,6 +252,17 @@ class AlphaDeskApp(App[None]):
             ),
         )
         self.set_focus(self.query_one("#research-task-menu", OptionList))
+
+    async def _show_research_review_history(self) -> None:
+        records = await asyncio.to_thread(
+            list_research_reviews,
+            output_dir=self.output_dir,
+            limit=10,
+        )
+        await self._replace_action_panel(
+            Static(_research_review_history_text(records), id="action-status")
+        )
+        self.set_focus(self.query_one("#action-menu", OptionList))
 
     async def _show_research_task_detail(self, task_id: str) -> None:
         raw_index = task_id.removeprefix("research_task:")
@@ -635,6 +654,37 @@ def _research_task_label(candidate: CandidateCheck) -> str:
         f"优先级: {candidate.priority} | "
         f"{candidate.evidence_status}"
     )
+
+
+def _research_review_history_text(records: list[ResearchReviewRecord]) -> str:
+    if not records:
+        return "\n".join(
+            [
+                "研究复核历史",
+                "暂无研究复核记录。先在研究结果中运行下钻核验，再记录复核判断。",
+                "边界: 研究复核历史不是买卖建议。",
+            ]
+        )
+    lines = ["研究复核历史"]
+    for record in records:
+        lines.extend(
+            [
+                (
+                    f"- {record.display_name} ({record.symbol or '-'}) "
+                    f"[{record.market}] {record.verdict_label}"
+                ),
+                f"  时间: {record.created_at}",
+                f"  备注: {record.note}",
+                (
+                    f"  证据: 支持 {record.support_count} | "
+                    f"风险 {record.risk_count} | 待补 {record.missing_count}"
+                ),
+                f"  记录: {record.review_path}",
+                f"  下钻核验: {record.verification_path}",
+            ]
+        )
+    lines.append("边界: 研究复核历史不是买卖建议。")
+    return "\n".join(lines)
 
 
 def _display_workbench_status(status: str) -> str:

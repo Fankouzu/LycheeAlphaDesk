@@ -1,7 +1,7 @@
 import json
 import re
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -51,6 +51,7 @@ class CandidateCheck:
     priority: str
     evidence_status: str
     ranking_reason: str = ""
+    evidence_quality: str = ""
 
 
 @dataclass(frozen=True)
@@ -166,6 +167,19 @@ class NewsTopicRelevance:
     @property
     def neutral_count(self) -> int:
         return len(self.neutral_rows)
+
+
+@dataclass(frozen=True)
+class CandidateEvidenceQuality:
+    status: str
+    support_count: int
+    reverse_count: int
+    neutral_count: int
+    off_topic_count: int
+
+    @property
+    def needs_review(self) -> bool:
+        return self.status in {"mixed", "needs_review", "missing"}
 
 
 RESEARCH_REVIEW_VERDICTS = {
@@ -1094,6 +1108,15 @@ def build_research_assessment(
             evidence_reading="还有数据缺口，不能判断证据是否互相支持。",
             next_decision="先补齐数据缺口，再重新运行研究执行链。",
         )
+    if candidate.evidence_quality in {"missing", "needs_review", "mixed"}:
+        return ResearchAssessment(
+            stage="evidence_review",
+            stage_label="先复核证据",
+            consistency="pending_evidence_direction_review",
+            consistency_label="待核验",
+            evidence_reading=_evidence_review_reading(candidate.evidence_quality),
+            next_decision="先运行下钻核验复核证据方向，再决定是否继续研究。",
+        )
     if candidate.proxy_symbols and not candidate.symbol:
         return ResearchAssessment(
             stage="proxy_review",
@@ -1132,6 +1155,14 @@ def build_research_assessment(
         evidence_reading="当前没有可核验的行情、新闻或公告/财报材料。",
         next_decision="先刷新数据，再决定是否进入研究队列。",
     )
+
+
+def _evidence_review_reading(evidence_quality: str) -> str:
+    if evidence_quality == "missing":
+        return "还没有命中研究主题的新闻证据，不能把市场噪音当作支持材料。"
+    if evidence_quality == "mixed":
+        return "支持证据和反向/待判定证据同时存在，必须先拆分证据方向。"
+    return "证据方向还没有形成支持，不能直接进入下钻结论。"
 
 
 def _ready_evidence_reading(filings_required: bool) -> str:
@@ -1542,44 +1573,52 @@ def _candidate_checks(packets: list[ResearchPacket]) -> list[CandidateCheck]:
             )
         else:
             explanation = f"还没有可研究入口。{why_watch}"
-        checks.append(
-            CandidateCheck(
+        base_candidate = CandidateCheck(
+            display_name=packet.display_name,
+            market=packet.market,
+            symbol=packet.symbol,
+            proxy_symbols=proxy_symbols,
+            evidence_count=len(evidence_ids),
+            gap_count=len(data_gaps),
+            data_gaps=data_gaps,
+            status=status,
+            explanation=explanation,
+            beginner_question=_beginner_question(
                 display_name=packet.display_name,
+                symbol=packet.symbol,
                 market=packet.market,
+                asset_type=asset_type,
+                related_theme=related_theme,
+            ),
+            why_it_matters=_why_it_matters(
                 symbol=packet.symbol,
                 proxy_symbols=proxy_symbols,
-                evidence_count=len(evidence_ids),
-                gap_count=len(data_gaps),
-                data_gaps=data_gaps,
-                status=status,
-                explanation=explanation,
-                beginner_question=_beginner_question(
-                    display_name=packet.display_name,
-                    symbol=packet.symbol,
-                    market=packet.market,
-                    asset_type=asset_type,
-                    related_theme=related_theme,
-                ),
-                why_it_matters=_why_it_matters(
-                    symbol=packet.symbol,
-                    proxy_symbols=proxy_symbols,
-                    asset_type=asset_type,
-                    why_watch=why_watch,
-                ),
-                observation_entry=_observation_entry(packet.symbol, proxy_symbols),
-                what_to_check=_what_to_check(
-                    market=packet.market,
-                    asset_type=asset_type,
-                    symbol=packet.symbol,
-                    proxy_symbols=proxy_symbols,
-                ),
-                next_step=_next_step(next_actions, data_gaps),
+                asset_type=asset_type,
+                why_watch=why_watch,
+            ),
+            observation_entry=_observation_entry(packet.symbol, proxy_symbols),
+            what_to_check=_what_to_check(
+                market=packet.market,
+                asset_type=asset_type,
+                symbol=packet.symbol,
+                proxy_symbols=proxy_symbols,
+            ),
+            next_step="",
+            priority="",
+            evidence_status="",
+        )
+        evidence_quality = _candidate_evidence_quality(base_candidate, packet)
+        checks.append(
+            replace(
+                base_candidate,
+                next_step=_next_step(next_actions, data_gaps, evidence_quality),
                 priority=_priority(
                     status=status,
                     symbol=packet.symbol,
                     proxy_symbols=proxy_symbols,
                     evidence_count=len(evidence_ids),
                     gap_count=len(data_gaps),
+                    evidence_quality=evidence_quality,
                 ),
                 ranking_reason=_ranking_reason(
                     status=status,
@@ -1587,12 +1626,15 @@ def _candidate_checks(packets: list[ResearchPacket]) -> list[CandidateCheck]:
                     proxy_symbols=proxy_symbols,
                     evidence_count=len(evidence_ids),
                     gap_count=len(data_gaps),
+                    evidence_quality=evidence_quality,
                 ),
                 evidence_status=_evidence_status(
                     evidence_count=len(evidence_ids),
                     gap_count=len(data_gaps),
                     proxy_symbols=proxy_symbols,
+                    evidence_quality=evidence_quality,
                 ),
+                evidence_quality=evidence_quality.status,
             )
         )
     return checks
@@ -1656,6 +1698,25 @@ def _workbench_gates(
     else:
         gates.append(WorkbenchGate("数据缺口", "pass", "当前深挖包没有未补齐缺口。"))
     return gates
+
+
+def _candidate_evidence_quality(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> CandidateEvidenceQuality:
+    relevance = _news_topic_relevance(candidate, packet)
+    status = "supporting"
+    if relevance.matched_count == 0:
+        status = "missing"
+    elif relevance.reverse_count or relevance.neutral_count:
+        status = "mixed" if relevance.support_count else "needs_review"
+    return CandidateEvidenceQuality(
+        status=status,
+        support_count=relevance.support_count,
+        reverse_count=relevance.reverse_count,
+        neutral_count=relevance.neutral_count,
+        off_topic_count=len(relevance.unmatched_rows),
+    )
 
 
 def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
@@ -1725,6 +1786,8 @@ def _signal_reading(
 ) -> str:
     if data_gaps:
         return f"阻塞: 还有 {_gap_summary(data_gaps)}。先补数据，再判断线索。"
+    if candidate.evidence_quality in {"missing", "needs_review", "mixed"}:
+        return _evidence_quality_signal_reading(candidate.evidence_quality)
     if not price and not candidate.proxy_symbols:
         return "证据不足: 缺少可观察行情，暂时只能保留在线索池。"
     if not evidence and not related_news and not filings:
@@ -1734,6 +1797,14 @@ def _signal_reading(
     if candidate.proxy_symbols:
         return "代理观察: 先确认代理标的是否真的覆盖主题，再下钻。"
     return "待增强证据: 还需要补齐更多可核验材料。"
+
+
+def _evidence_quality_signal_reading(evidence_quality: str) -> str:
+    if evidence_quality == "missing":
+        return "证据需复核: 当前新闻没有命中研究主题，不能把它当成支持材料。"
+    if evidence_quality == "mixed":
+        return "证据需复核: 支持和反向/待判定材料混在一起，先拆分方向。"
+    return "证据需复核: 当前只有反向或待判定材料，先核验方向再继续。"
 
 
 def _evidence_matrix_lines(
@@ -1840,9 +1911,12 @@ def _priority(
     proxy_symbols: list[str],
     evidence_count: int,
     gap_count: int,
+    evidence_quality: CandidateEvidenceQuality,
 ) -> str:
     if status == "blocked" or gap_count:
         return "P0 待补数据"
+    if evidence_quality.needs_review:
+        return "P2 先复核证据"
     if symbol and evidence_count >= 2:
         return "P1 直接下钻"
     if symbol:
@@ -1859,11 +1933,18 @@ def _ranking_reason(
     proxy_symbols: list[str],
     evidence_count: int,
     gap_count: int,
+    evidence_quality: CandidateEvidenceQuality,
 ) -> str:
     if gap_count:
         return f"还有 {gap_count} 个数据缺口，先补数据再研究。"
     if status == "blocked":
         return "当前未达到工作台自检门槛，先查看阻塞原因再继续。"
+    if evidence_quality.status == "missing":
+        return "还没有命中研究主题的新闻证据，先复核证据是否只是市场噪音。"
+    if evidence_quality.status == "needs_review":
+        return "只有反向或待判定证据，先运行下钻核验复核证据方向。"
+    if evidence_quality.status == "mixed":
+        return "支持证据和反向/待判定证据同时存在，先复核证据方向。"
     if symbol and evidence_count >= 2:
         return f"有直接代码和 {evidence_count} 条证据，且当前没有数据缺口。"
     if symbol:
@@ -1878,10 +1959,18 @@ def _evidence_status(
     evidence_count: int,
     gap_count: int,
     proxy_symbols: list[str],
+    evidence_quality: CandidateEvidenceQuality,
 ) -> str:
     parts = [f"证据 {evidence_count} 条", f"缺口 {gap_count} 个"]
     if proxy_symbols:
         parts.append("代理已映射")
+    parts.append(
+        "证据质量: "
+        f"支持 {evidence_quality.support_count} | "
+        f"反向 {evidence_quality.reverse_count} | "
+        f"待判定 {evidence_quality.neutral_count} | "
+        f"离题 {evidence_quality.off_topic_count}"
+    )
     return "；".join(parts)
 
 
@@ -1977,9 +2066,15 @@ def _what_to_check(
     return "先找到可观察入口，再检查行情、新闻、公告和成分是否能互相印证。"
 
 
-def _next_step(next_actions: list[str], data_gaps: list[str]) -> str:
+def _next_step(
+    next_actions: list[str],
+    data_gaps: list[str],
+    evidence_quality: CandidateEvidenceQuality,
+) -> str:
     if data_gaps:
         return f"下一步先补齐 {'；'.join(data_gaps)}。"
+    if evidence_quality.needs_review:
+        return "先运行下钻核验复核证据方向，再决定是否继续研究。"
     if next_actions:
         cleaned_actions = [
             action.rstrip("。；;,.， ")

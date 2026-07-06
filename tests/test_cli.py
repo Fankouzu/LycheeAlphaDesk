@@ -513,8 +513,11 @@ def test_research_run_command_executes_refresh_chain_and_writes_artifact(
                     "rows": [
                         {
                             "timestamp": "2026-07-05T09:00:00+00:00",
-                            "headline": "Updated AI storage news",
-                            "summary": "Fresh storage signal.",
+                            "headline": "Updated AI storage growth news",
+                            "summary": (
+                                "Fresh storage demand improved with stronger "
+                                "AI data-center orders."
+                            ),
                             "symbols": ["STX"],
                             "source_url": "https://example.com/updated-storage",
                         }
@@ -589,7 +592,7 @@ def test_research_run_command_executes_refresh_chain_and_writes_artifact(
     assert "STX 120.00 USD" in result.stdout
     assert "研究状态" in result.stdout
     assert "阶段: 可下钻研究" in result.stdout
-    assert "Updated AI storage news" in result.stdout
+    assert "Updated AI storage growth news" in result.stdout
     assert "8-K 2026-07-04" in result.stdout
     artifacts = list((tmp_path / "research").glob("research-run-*.json"))
     assert artifacts

@@ -11,7 +11,11 @@ from lychee_alphadesk.core.discovery import (
 from lychee_alphadesk.core.live_data import PullResult
 from lychee_alphadesk.core.research import ResearchPacket
 from lychee_alphadesk.core.research_db import write_discovery_research_run
-from lychee_alphadesk.core.workbench import beginner_research_brief, run_workbench_check
+from lychee_alphadesk.core.workbench import (
+    beginner_research_brief,
+    render_research_task_detail,
+    run_workbench_check,
+)
 
 
 def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
@@ -77,6 +81,44 @@ def test_workbench_check_marks_blocked_when_research_gaps_remain(
     assert "处理动作: 先补齐" in result.beginner_brief
 
 
+def test_workbench_check_downgrades_reverse_only_evidence(
+    tmp_path: Path,
+) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(
+        tmp_path,
+        include_stock_price=True,
+        include_filings=True,
+        news_headline="STX hard drive demand falls as cloud buyers cut orders",
+        news_summary=(
+            "Weak AI infrastructure spending pressures Seagate storage demand."
+        ),
+    )
+
+    result = run_workbench_check(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    assert result.status == "ready"
+    candidate = result.candidates[0]
+    assert candidate.display_name == "Seagate"
+    assert candidate.priority == "P2 先复核证据"
+    assert "证据质量: 支持 0 | 反向 " in candidate.evidence_status
+    assert "只有反向或待判定证据" in candidate.ranking_reason
+    assert "先运行下钻核验复核证据方向" in candidate.next_step
+    assert "P2 先复核证据" in result.beginner_brief
+    assert "只有反向或待判定证据" in result.beginner_brief
+
+    detail = render_research_task_detail(candidate, result.deepen_result.packets[0])
+    assert "阶段: 先复核证据" in detail
+    assert "信号读数: 证据需复核" in detail
+    assert "下一步判断: 先运行下钻核验复核证据方向" in detail
+
+    payload = json.loads(result.artifact_path.read_text(encoding="utf-8"))
+    assert payload["candidates"][0]["evidence_quality"] == "needs_review"
+
+
 def test_beginner_brief_formats_direct_etf_entry_readably() -> None:
     brief = beginner_research_brief(
         [
@@ -94,6 +136,12 @@ def test_beginner_brief_formats_direct_etf_entry_readably() -> None:
                         "why_watch": "用于观察科技反弹是否扩散。",
                     },
                     "evidence_ids": ["news_001"],
+                    "evidence": [
+                        {
+                            "headline": "QQQ technology growth rises",
+                            "summary": "Technology shares improved with stronger demand.",
+                        }
+                    ],
                     "data_gaps": [],
                     "next_actions": ["对比 QQQ 与 SPY。", "检查成交量。"],
                 },
@@ -194,6 +242,8 @@ def _write_live_caches(
     include_proxy_price: bool = False,
     include_stock_price: bool = False,
     include_filings: bool = False,
+    news_headline: str = "Market evidence",
+    news_summary: str = "Evidence for the candidate.",
 ) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir(exist_ok=True)
@@ -204,8 +254,8 @@ def _write_live_caches(
                 "rows": [
                     {
                         "timestamp": "2026-07-05T09:00:00+00:00",
-                        "headline": "Market evidence",
-                        "summary": "Evidence for the candidate.",
+                        "headline": news_headline,
+                        "summary": news_summary,
                         "symbols": ["MARKET"],
                         "source_url": "https://example.com/news",
                     }

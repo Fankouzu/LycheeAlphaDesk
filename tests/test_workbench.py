@@ -42,6 +42,9 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert "排序理由:" in result.beginner_brief
     assert "证据状态:" in result.beginner_brief
     assert "关键核验:" in result.beginner_brief
+    assert '执行命令: lychee research verify --name "恒生指数压力观察"' in (
+        result.beginner_brief
+    )
     assert "下一步队列" in result.beginner_brief
     assert "2800.HK" in result.beginner_brief
     assert "给新手的读法" not in result.beginner_brief
@@ -58,6 +61,10 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert payload["candidates"][0]["priority"]
     assert payload["candidates"][0]["ranking_reason"]
     assert payload["candidates"][0]["evidence_status"]
+    assert (
+        payload["candidates"][0]["next_command"]
+        == 'lychee research verify --name "恒生指数压力观察"'
+    )
 
 
 def test_workbench_check_marks_blocked_when_research_gaps_remain(
@@ -80,6 +87,9 @@ def test_workbench_check_marks_blocked_when_research_gaps_remain(
     assert "缺少 STX SEC 公告缓存" in result.beginner_brief
     assert "研究问题:" in result.beginner_brief
     assert "处理动作: 先补齐" in result.beginner_brief
+    assert "处理命令: lychee research run --symbol STX --force" in (
+        result.beginner_brief
+    )
 
 
 def test_workbench_check_downgrades_reverse_only_evidence(

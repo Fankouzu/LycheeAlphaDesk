@@ -57,6 +57,7 @@ class CandidateCheck:
     evidence_status: str
     ranking_reason: str = ""
     evidence_quality: str = ""
+    next_command: str = ""
 
 
 @dataclass(frozen=True)
@@ -2470,6 +2471,12 @@ def _candidate_checks(packets: list[ResearchPacket]) -> list[CandidateCheck]:
                     evidence_quality=evidence_quality,
                 ),
                 evidence_quality=evidence_quality.status,
+                next_command=_next_command(
+                    status=status,
+                    symbol=packet.symbol,
+                    display_name=packet.display_name,
+                    data_gaps=data_gaps,
+                ),
             )
         )
     return checks
@@ -2579,6 +2586,8 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
             lines.append(f"  研究问题: {candidate.beginner_question}")
             lines.append(f"  关键核验: {candidate.what_to_check}")
             lines.append(f"  下一步: {candidate.next_step}")
+            if candidate.next_command:
+                lines.append(f"  执行命令: {candidate.next_command}")
             if candidate.proxy_symbols:
                 lines.append("  代理核验: 核对成分、费用、流动性和是否可交易。")
     else:
@@ -2589,6 +2598,8 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
     if ready:
         for candidate in ready:
             lines.append(f"- {candidate.display_name}: {candidate.next_step}")
+            if candidate.next_command:
+                lines.append(f"  执行: {candidate.next_command}")
     else:
         lines.append("- 先解除阻塞任务。")
 
@@ -2606,6 +2617,8 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
             lines.append(f"  研究问题: {candidate.beginner_question}")
             lines.append(f"  缺口: {gap_text}。")
             lines.append(f"  处理动作: 先补齐 {gap_text}。")
+            if candidate.next_command:
+                lines.append(f"  处理命令: {candidate.next_command}")
     else:
         lines.append("- 无。")
     return "\n".join(lines)
@@ -2811,6 +2824,25 @@ def _evidence_status(
 
 def _gap_text(data_gaps: list[str]) -> str:
     return "；".join(gap.rstrip("。；;,.， ") for gap in data_gaps if gap.strip())
+
+
+def _research_selector(symbol: str | None, display_name: str) -> str:
+    if symbol:
+        return f"--symbol {symbol}"
+    return f"--name {_quote_cli_value(display_name)}"
+
+
+def _next_command(
+    *,
+    status: str,
+    symbol: str | None,
+    display_name: str,
+    data_gaps: list[str],
+) -> str:
+    selector = _research_selector(symbol, display_name)
+    if status == "blocked" or data_gaps:
+        return f"lychee research run {selector} --force"
+    return f"lychee research verify {selector}"
 
 
 def _beginner_question(

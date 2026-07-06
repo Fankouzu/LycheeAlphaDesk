@@ -385,13 +385,17 @@ def test_dashboard_research_task_selection_opens_research_result_workbench(
 
             detail = app.query_one("#action-status", Static)
             text = str(detail.content)
-            assert "研究结果" in text
+            assert "研究任务面板" in text
             assert "纳斯达克100ETF观察" in text
             assert "入口: QQQ" in text
+            assert "本次研究要解决的问题" in text
+            assert "研究启动" in text
+            assert "第一步: lychee research verify --symbol QQQ" in text
+            assert "看证据板: 支持证据 / 风险或反向待查 / 待补证据" in text
             assert "信号读数:" in text
             assert "证据矩阵" in text
             assert "可执行动作" in text
-            assert "当前研究结论:" in text
+            assert "当前研究结论:" not in text
             assert "已采集证据" in text
             assert "Tech shares rebound with QQQ volume rising" in text
             assert "行情: QQQ 530.26 USD" in text

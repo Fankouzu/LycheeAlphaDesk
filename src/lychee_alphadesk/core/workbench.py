@@ -627,12 +627,14 @@ def render_research_task_detail(
     commands = research_action_commands(candidate, packet)
     assessment = build_research_assessment(candidate, packet)
     lines = [
-        "研究结果",
+        "研究任务面板",
         f"任务: {candidate.display_name} [{candidate.market}]",
         f"入口: {candidate.observation_entry}",
         f"优先级: {candidate.priority}",
         f"排序理由: {candidate.ranking_reason}",
         f"证据状态: {candidate.evidence_status}",
+        "",
+        *_research_start_lines(candidate),
         "",
         "研究状态",
         f"- 阶段: {assessment.stage_label}",
@@ -642,9 +644,6 @@ def render_research_task_detail(
         "",
         "信号读数: "
         + _signal_reading(candidate, price, evidence, related_news, filings, data_gaps),
-        f"研究问题: {candidate.beginner_question}",
-        "",
-        f"当前研究结论: {candidate.what_to_check}",
         _price_line(price),
         "",
         "证据矩阵",
@@ -679,6 +678,41 @@ def render_research_task_detail(
     lines.append("")
     lines.append("边界: 这是研究工作台快照，不是买卖建议。")
     return "\n".join(lines)
+
+
+def _research_start_lines(candidate: CandidateCheck) -> list[str]:
+    selector = _research_selector_arg(candidate)
+    lines = [
+        "本次研究要解决的问题",
+        f"- {candidate.beginner_question}",
+        "",
+        "研究启动",
+        f"- 核验目标: {candidate.what_to_check}",
+    ]
+    if candidate.proxy_symbols and not candidate.symbol:
+        lines.append(
+            "- 先核验代理: 确认代理标的是否真的覆盖原主题、是否有足够流动性。"
+        )
+    lines.extend(
+        [
+            f"- 第一步: lychee research verify {selector}",
+            "- 看证据板: 支持证据 / 风险或反向待查 / 待补证据",
+            (
+                f"- 记录判断: lychee research review {selector} "
+                '--verdict needs_more_evidence --note "写下还缺什么"'
+            ),
+            f"- 可选 LLM: lychee research memo {selector}",
+        ]
+    )
+    return lines
+
+
+def _research_selector_arg(candidate: CandidateCheck) -> str:
+    symbols = research_action_symbols(candidate)
+    if symbols:
+        return f"--symbol {symbols[0]}"
+    safe_name = candidate.display_name.replace('"', '\\"')
+    return f'--name "{safe_name}"'
 
 
 def build_research_assessment(

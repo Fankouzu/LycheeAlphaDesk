@@ -725,7 +725,7 @@ def _research_review_history_text(records: list[ResearchReviewRecord]) -> str:
         return "\n".join(
             [
                 "研究复核历史",
-                "暂无研究复核记录。先在研究结果中运行下钻核验，再记录复核判断。",
+                "暂无研究复核记录。先在研究任务面板中运行下钻核验，再记录复核判断。",
                 "边界: 研究复核历史不是买卖建议。",
             ]
         )
@@ -756,7 +756,7 @@ def _research_memo_history_text(records: list[ResearchMemoRecord]) -> str:
         return "\n".join(
             [
                 "研究备忘录历史",
-                "暂无研究备忘录。先在研究结果中生成研究备忘录。",
+                "暂无研究备忘录。先在研究任务面板中生成研究备忘录。",
                 "边界: 研究备忘录历史不是买卖建议。",
             ]
         )

@@ -626,7 +626,7 @@ def research_run(
         typer.Option("--force", help="忽略已有缓存，强制刷新本任务相关数据。"),
     ] = False,
 ) -> None:
-    """执行单条研究任务的数据刷新链，并输出更新后的研究结果。"""
+    """执行单条研究任务的数据刷新链，并输出更新后的研究任务面板。"""
     try:
         result = run_research_task(
             output_dir=output_dir,

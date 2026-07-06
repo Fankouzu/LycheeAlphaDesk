@@ -387,8 +387,17 @@ def test_research_detail_command_prints_actionable_workbench_detail(
     )
 
     assert result.exit_code == 0
-    assert "研究结果" in result.stdout
+    assert "研究任务面板" in result.stdout
     assert "任务: Seagate [US]" in result.stdout
+    assert "本次研究要解决的问题" in result.stdout
+    assert "研究启动" in result.stdout
+    assert "第一步: lychee research verify --symbol STX" in result.stdout
+    assert "看证据板: 支持证据 / 风险或反向待查 / 待补证据" in result.stdout
+    assert (
+        "记录判断: lychee research review --symbol STX --verdict needs_more_evidence"
+        in result.stdout
+    )
+    assert "当前研究结论:" not in result.stdout
     assert "研究状态" in result.stdout
     assert "阶段: 可下钻研究" in result.stdout
     assert "一致性: 待核验" in result.stdout
@@ -589,7 +598,7 @@ def test_research_run_command_executes_refresh_chain_and_writes_artifact(
     assert payload["assessment"]["stage"] == "ready_for_drilldown"
     assert payload["assessment"]["consistency"] == "pending_review"
     assert payload["actions"][0]["action_type"] == "refresh_market"
-    assert payload["detail"].startswith("研究结果")
+    assert payload["detail"].startswith("研究任务面板")
 
 
 def test_research_verify_command_writes_drilldown_checklist(

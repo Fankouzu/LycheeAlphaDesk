@@ -31,6 +31,7 @@ from lychee_alphadesk.core.research import ResearchPacket
 from lychee_alphadesk.core.research_db import write_discovery_research_run
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
+    ResearchVerificationResult,
     WorkbenchCheckResult,
     render_research_task_detail,
     research_action_name,
@@ -39,6 +40,7 @@ from lychee_alphadesk.core.workbench import (
     research_detail_actions,
     research_filing_symbols,
     run_workbench_check,
+    verify_research_task,
 )
 
 ActionId = Literal[
@@ -292,6 +294,9 @@ class AlphaDeskApp(App[None]):
             )
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
+        if action == "verify_research":
+            await self._run_research_verification(candidate)
+            return
         await self._replace_action_panel(
             Static(
                 f"正在执行: {research_action_name(action)}，请稍候...",
@@ -367,6 +372,40 @@ class AlphaDeskApp(App[None]):
                     Option(label, id=f"research_detail:{detail_action_id}")
                     for detail_action_id, label in actions
                 ],
+                id="research-detail-action-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#research-detail-action-menu", OptionList))
+
+    async def _run_research_verification(self, candidate: CandidateCheck) -> None:
+        await self._replace_action_panel(
+            Static(
+                "正在执行: 下钻核验，请稍候...",
+                id="action-status",
+            )
+        )
+        symbols = research_action_symbols(candidate)
+        symbol = symbols[0] if symbols else None
+        name = None if symbol else candidate.display_name
+        try:
+            result = await asyncio.to_thread(
+                verify_research_task,
+                output_dir=self.output_dir,
+                symbol=symbol,
+                name=name,
+            )
+        except (RuntimeError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._refresh_research_state()
+        await self._replace_action_panel(
+            Static(_research_verification_text(result), id="action-status"),
+            OptionList(
+                Option("返回研究任务列表", id="research_detail:back_tasks"),
                 id="research-detail-action-menu",
                 markup=False,
             ),
@@ -539,4 +578,53 @@ def _display_workbench_status(status: str) -> str:
     return {
         "ready": "可执行研究",
         "blocked": "存在阻塞",
+    }.get(status, status)
+
+
+def _research_verification_text(result: ResearchVerificationResult) -> str:
+    lines = [
+        "下钻核验结果",
+        f"记录: {result.artifact_path}",
+        f"任务: {result.candidate.display_name} [{result.candidate.market}]",
+        f"一致性结论: {result.status_label}",
+        "",
+        "核验项",
+    ]
+    for check in result.checks:
+        lines.append(
+            f"- {check.name}: {_display_verification_status(check.status)} - "
+            f"{check.detail}"
+        )
+    lines.extend(
+        [
+            "",
+            "证据板",
+            *_evidence_board_lines("支持证据", result.evidence_board["support"]),
+            *_evidence_board_lines("风险/反向待查", result.evidence_board["risk"]),
+            *_evidence_board_lines("待补证据", result.evidence_board["missing"]),
+            "",
+            result.conclusion,
+            "下一步",
+        ]
+    )
+    lines.extend(f"- {action}" for action in result.next_actions)
+    lines.append("边界: 下钻核验不是买卖建议。")
+    return "\n".join(lines)
+
+
+def _evidence_board_lines(title: str, rows: list[str]) -> list[str]:
+    lines = [title]
+    if not rows:
+        lines.append("- 无")
+    else:
+        lines.extend(f"- {row}" for row in rows)
+    return lines
+
+
+def _display_verification_status(status: str) -> str:
+    return {
+        "pass": "通过",
+        "warn": "待核验",
+        "fail": "阻塞",
+        "na": "不适用",
     }.get(status, status)

@@ -663,6 +663,7 @@ def research_detail_actions(
     ]
     if research_filing_symbols(candidate, packet):
         actions.append(("refresh_filings", "刷新美股公告/财报"))
+    actions.append(("verify_research", "下钻核验"))
     actions.append(("back_tasks", "返回研究任务列表"))
     return actions
 
@@ -718,6 +719,7 @@ def research_action_name(action: str) -> str:
         "refresh_market": "刷新行情",
         "refresh_news": "刷新新闻",
         "refresh_filings": "刷新美股公告/财报",
+        "verify_research": "下钻核验",
     }.get(action, action)
 
 

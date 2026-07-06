@@ -87,7 +87,11 @@ def deepen_research_queue(
 ) -> ResearchDeepenResult:
     created_at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
     db_path = init_research_db(output_dir)
-    queue = list_research_queue(output_dir, status=status, limit=limit)
+    queue = list_research_queue(
+        output_dir,
+        status=status,
+        limit=max(limit * 4, limit, 1),
+    )
     if not queue:
         return ResearchDeepenResult(created_at, [], None, db_path)
 
@@ -106,6 +110,7 @@ def deepen_research_queue(
         )
         for item in queue
     ]
+    packets = sorted(packets, key=_research_packet_sort_key)[:limit]
     artifact_path = _write_research_packets_artifact(
         output_dir=output_dir,
         created_at=created_at,
@@ -124,6 +129,56 @@ def deepen_research_queue(
             artifact_path=artifact_path,
         )
     return ResearchDeepenResult(created_at, packets, artifact_path, research_db_path(output_dir))
+
+
+def _research_packet_sort_key(packet: ResearchPacket) -> tuple[int, int, int, int, int]:
+    payload = packet.packet
+    data_gaps = _text_list(payload.get("data_gaps"))
+    evidence_ids = _text_list(payload.get("evidence_ids"))
+    local_data = _dict_value(payload.get("local_data"))
+    symbol_mapping = _dict_list(local_data.get("symbol_mapping"))
+    has_symbol = bool(packet.symbol)
+    if has_symbol and len(evidence_ids) >= 2:
+        actionability_rank = 0
+    elif has_symbol:
+        actionability_rank = 1
+    elif symbol_mapping:
+        actionability_rank = 2
+    else:
+        actionability_rank = 3
+    return (
+        1 if data_gaps else 0,
+        actionability_rank,
+        -len(evidence_ids),
+        _packet_confidence_rank(payload),
+        -packet.candidate_id,
+    )
+
+
+def _packet_confidence_rank(payload: dict[str, object]) -> int:
+    candidate = _dict_value(payload.get("candidate"))
+    confidence = _string_value(candidate.get("confidence"))
+    return {"high": 0, "medium": 1, "low": 2}.get(confidence.strip().lower(), 3)
+
+
+def _text_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
+def _dict_value(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
+
+
+def _dict_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _string_value(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
 
 
 def fill_research_data_gaps(

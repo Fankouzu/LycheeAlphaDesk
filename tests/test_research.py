@@ -72,6 +72,95 @@ def test_deepen_research_queue_adds_auditable_proxy_mappings(
     ][0]
 
 
+def test_deepen_research_queue_prefers_ready_packets_within_candidate_pool(
+    tmp_path: Path,
+) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["HK"],
+        sources=[DiscoverySource("test-llm", "HK", "测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="港股科技观察",
+                markets=["HK"],
+                summary="测试深挖排序。",
+                evidence=["news_001"],
+                sectors=["Technology"],
+                risk_flags=[],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="高证据但缺缓存",
+                symbol="HIGH.HK",
+                market="HK",
+                asset_type="ETF",
+                related_theme="港股科技观察",
+                why_watch="证据 ID 还没有落到本地缓存。",
+                evidence=["news_998", "news_999"],
+                risk_flags=[],
+                next_actions=["先补证据"],
+                confidence="medium",
+                recommendation="research",
+            ),
+            DiscoveryCandidate(
+                display_name="可直接下钻",
+                symbol="READY.HK",
+                market="HK",
+                asset_type="ETF",
+                related_theme="港股科技观察",
+                why_watch="证据和行情都已缓存。",
+                evidence=["news_001"],
+                risk_flags=[],
+                next_actions=["下钻核验"],
+                confidence="medium",
+                recommendation="research",
+            ),
+        ],
+        warnings=[],
+        next_actions=[],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(
+        report,
+        tmp_path,
+        tmp_path / "data" / "discovery-today.json",
+    )
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "Ready ETF has cached evidence",
+                        "summary": "Cached research evidence.",
+                        "symbols": ["READY.HK"],
+                        "source_url": "https://example.com/ready",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    _write_market_cache(tmp_path, ["READY.HK"])
+
+    result = deepen_research_queue(
+        output_dir=tmp_path,
+        limit=1,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    assert result.count == 1
+    assert result.packets[0].display_name == "可直接下钻"
+    assert result.packets[0].packet["data_gaps"] == []
+
+
 def test_fill_research_data_gaps_pulls_proxy_mapping_prices_without_mutating_candidate(
     tmp_path: Path,
 ) -> None:

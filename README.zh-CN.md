@@ -251,7 +251,7 @@ lychee research queue
 lychee research deepen
 ```
 
-`research deepen` 会读取 SQLite 研究队列和本地 live cache，生成 `.alphadesk/research/research-packets-*.json`。每个研究包包含候选身份、证据 ID、可展开的新闻证据、已缓存行情/新闻/公告、数据缺口和下一步核验动作。它不会给出买入/卖出结论，而是把每条线索整理成工作台任务卡：研究问题、入口、优先级、证据状态、关键核验、下一步队列。
+`research deepen` 会读取 SQLite 研究队列和本地 live cache，生成 `.alphadesk/research/research-packets-*.json`。每个研究包包含候选身份、证据 ID、可展开的新闻证据、已缓存行情/新闻/公告、数据缺口和下一步核验动作。它会先从一个候选池里生成深挖包，再优先展示无数据缺口、可直接继续研究的任务，避免默认工作台被阻塞项占满。它不会给出买入/卖出结论，而是把每条线索整理成工作台任务卡：研究问题、入口、优先级、证据状态、关键核验、下一步队列。
 
 根据深挖包自动补齐可拉取的数据：
 

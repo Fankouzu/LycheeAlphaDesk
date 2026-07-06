@@ -251,7 +251,7 @@ Turn queued candidates into second-stage research packets:
 lychee research deepen
 ```
 
-`research deepen` reads the SQLite research queue and local live cache, then writes `.alphadesk/research/research-packets-*.json`. Each packet includes candidate identity, evidence IDs, expanded news evidence, cached prices/news/filings, data gaps, and next verification actions. It does not produce buy/sell calls; it turns each candidate into a workbench task card with research question, entrypoint, priority, evidence status, key checks, and next-action queue.
+`research deepen` reads the SQLite research queue and local live cache, then writes `.alphadesk/research/research-packets-*.json`. Each packet includes candidate identity, evidence IDs, expanded news evidence, cached prices/news/filings, data gaps, and next verification actions. It builds packets from a small candidate pool and prioritizes ready packets without data gaps so the default workbench is not filled by blocked items. It does not produce buy/sell calls; it turns each candidate into a workbench task card with research question, entrypoint, priority, evidence status, key checks, and next-action queue.
 
 Automatically fill data that can be pulled from research gaps:
 

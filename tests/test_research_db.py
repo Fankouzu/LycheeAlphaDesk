@@ -324,6 +324,85 @@ def test_research_queue_keeps_distinct_symbolless_topics(
     }
 
 
+def test_research_queue_sorts_more_actionable_candidates_first(
+    tmp_path: Path,
+) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["US", "CN"],
+        sources=[DiscoverySource("test-llm", "US", "测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="可研究性排序",
+                markets=["US", "CN"],
+                summary="排序测试。",
+                evidence=["news_001"],
+                sectors=["Technology"],
+                risk_flags=[],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="抽象 AI 供应链主题",
+                symbol=None,
+                market="CN",
+                asset_type="theme",
+                related_theme="AI 供应链",
+                why_watch="没有直接代码。",
+                evidence=["news_001", "news_002", "news_003"],
+                risk_flags=[],
+                next_actions=["先找代理"],
+                confidence="high",
+                recommendation="research",
+            ),
+            DiscoveryCandidate(
+                display_name="低证据直接代码",
+                symbol="LOW",
+                market="US",
+                asset_type="stock",
+                related_theme="AI 供应链",
+                why_watch="只有一条证据。",
+                evidence=["news_001"],
+                risk_flags=[],
+                next_actions=["补证据"],
+                confidence="medium",
+                recommendation="research",
+            ),
+            DiscoveryCandidate(
+                display_name="高证据直接代码",
+                symbol="HIGH",
+                market="US",
+                asset_type="stock",
+                related_theme="AI 供应链",
+                why_watch="有多条证据。",
+                evidence=["news_001", "news_002"],
+                risk_flags=[],
+                next_actions=["下钻核验"],
+                confidence="medium",
+                recommendation="research",
+            ),
+        ],
+        warnings=[],
+        next_actions=[],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(
+        report,
+        tmp_path,
+        tmp_path / "data" / "discovery.json",
+    )
+
+    queue = list_research_queue(tmp_path)
+
+    assert [item.display_name for item in queue] == [
+        "高证据直接代码",
+        "低证据直接代码",
+        "抽象 AI 供应链主题",
+    ]
+
+
 def test_research_packets_are_persisted_for_queue_candidates(tmp_path: Path) -> None:
     report = DiscoveryReport(
         mode="llm-synthesized",

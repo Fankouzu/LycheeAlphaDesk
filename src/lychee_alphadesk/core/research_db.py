@@ -316,6 +316,7 @@ def list_research_queue(
     queue = [_research_queue_item_from_row(row) for row in rows]
     if dedupe:
         queue = _dedupe_research_queue(queue)
+    queue = sorted(queue, key=_research_queue_sort_key)
     return queue[:limit]
 
 
@@ -350,6 +351,25 @@ def _dedupe_research_queue(
         seen.add(key)
         deduped.append(item)
     return deduped
+
+
+def _research_queue_sort_key(item: ResearchQueueItem) -> tuple[int, int, int, int]:
+    if item.symbol and len(item.evidence) >= 2:
+        actionability_rank = 0
+    elif item.symbol:
+        actionability_rank = 1
+    else:
+        actionability_rank = 2
+    return (
+        actionability_rank,
+        -len(item.evidence),
+        _confidence_rank(item.confidence),
+        -item.candidate_id,
+    )
+
+
+def _confidence_rank(value: str) -> int:
+    return {"high": 0, "medium": 1, "low": 2}.get(value.strip().lower(), 3)
 
 
 def _research_observation_key(item: ResearchQueueItem) -> str:

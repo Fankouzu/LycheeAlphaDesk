@@ -167,6 +167,163 @@ def test_research_queue_defaults_to_latest_candidate_per_observation(
     assert queue[0].next_actions == ["新动作"]
 
 
+def test_research_queue_groups_obvious_symbolless_topic_variants(
+    tmp_path: Path,
+) -> None:
+    first_report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["CN"],
+        sources=[DiscoverySource("test-llm", "CN", "测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="AI 基础设施扩散",
+                markets=["CN"],
+                summary="第一次发现的无代码主题。",
+                evidence=["news_001"],
+                sectors=["Technology"],
+                risk_flags=[],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="中国AI数据中心供应链观察",
+                symbol=None,
+                market="CN",
+                asset_type="theme",
+                related_theme="AI基础设施跨市场扩散观察",
+                why_watch="第一次发现。",
+                evidence=["news_001"],
+                risk_flags=[],
+                next_actions=["旧动作"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=[],
+        next_actions=[],
+        disclaimer="非投资建议。",
+    )
+    latest_report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T11:00:00+00:00",
+        markets=["CN"],
+        sources=[DiscoverySource("test-llm", "CN", "测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="AI 基础设施外溢",
+                markets=["CN"],
+                summary="更新后的无代码主题。",
+                evidence=["news_002"],
+                sectors=["Technology"],
+                risk_flags=[],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="中国 AI 数据中心与高科技链条",
+                symbol=None,
+                market="CN",
+                asset_type="theme",
+                related_theme="AI 基础设施外溢观察",
+                why_watch="更新后的发现。",
+                evidence=["news_002"],
+                risk_flags=[],
+                next_actions=["新动作"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=[],
+        next_actions=[],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(
+        first_report,
+        tmp_path,
+        tmp_path / "data" / "discovery-first.json",
+    )
+    write_discovery_research_run(
+        latest_report,
+        tmp_path,
+        tmp_path / "data" / "discovery-latest.json",
+    )
+
+    queue = list_research_queue(tmp_path)
+
+    assert len(queue) == 1
+    assert queue[0].display_name == "中国 AI 数据中心与高科技链条"
+    assert queue[0].next_actions == ["新动作"]
+
+
+def test_research_queue_keeps_distinct_symbolless_topics(
+    tmp_path: Path,
+) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["HK"],
+        sources=[DiscoverySource("test-llm", "HK", "测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="港股主题",
+                markets=["HK"],
+                summary="不同无代码主题。",
+                evidence=["news_001"],
+                sectors=["Technology"],
+                risk_flags=[],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="港股科技板块观察",
+                symbol=None,
+                market="HK",
+                asset_type="theme",
+                related_theme="港股科技与中国资金流观察",
+                why_watch="科技板块。",
+                evidence=["news_001"],
+                risk_flags=[],
+                next_actions=["核验科技 ETF"],
+                confidence="medium",
+                recommendation="research",
+            ),
+            DiscoveryCandidate(
+                display_name="恒生指数压力观察",
+                symbol=None,
+                market="HK",
+                asset_type="theme",
+                related_theme="港股流动性与中国科技压力观察",
+                why_watch="市场压力。",
+                evidence=["news_002"],
+                risk_flags=[],
+                next_actions=["核验指数压力"],
+                confidence="medium",
+                recommendation="research",
+            ),
+        ],
+        warnings=[],
+        next_actions=[],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(
+        report,
+        tmp_path,
+        tmp_path / "data" / "discovery.json",
+    )
+
+    queue = list_research_queue(tmp_path)
+
+    assert len(queue) == 2
+    assert {item.display_name for item in queue} == {
+        "港股科技板块观察",
+        "恒生指数压力观察",
+    }
+
+
 def test_research_packets_are_persisted_for_queue_candidates(tmp_path: Path) -> None:
     report = DiscoveryReport(
         mode="llm-synthesized",

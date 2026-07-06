@@ -356,11 +356,23 @@ def _research_observation_key(item: ResearchQueueItem) -> str:
     market = item.market.strip().upper()
     if item.symbol:
         return f"{market}:symbol:{item.symbol.strip().upper()}"
-    return f"{market}:name:{_compact_text_key(item.display_name)}"
+    return f"{market}:name:{_symbolless_topic_key(item)}"
 
 
 def _compact_text_key(value: str) -> str:
     return "".join(value.casefold().split())
+
+
+def _symbolless_topic_key(item: ResearchQueueItem) -> str:
+    text = _compact_text_key(f"{item.display_name} {item.related_theme}")
+    if _contains_any(text, ["ai", "人工智能"]) and "数据中心" in text:
+        if _contains_any(text, ["供应链", "产业链", "链条", "高科技链条"]):
+            return "ai-data-center-chain"
+    return _compact_text_key(item.display_name)
+
+
+def _contains_any(text: str, values: list[str]) -> bool:
+    return any(value in text for value in values)
 
 
 def write_research_packet(

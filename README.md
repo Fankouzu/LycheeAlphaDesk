@@ -243,7 +243,7 @@ This is not a server database and does not require deployment. It stores clues, 
 lychee research queue
 ```
 
-By default, the research queue is deduplicated by market + symbol and shows the latest active candidate for each observable entrypoint. Candidates without a symbol are kept by market + name. Historical discovery runs remain in SQLite, but they are not dumped into the beginner-facing workbench task list.
+By default, the research queue is deduplicated by market + symbol and shows the latest active candidate for each observable entrypoint. Candidates without a symbol are kept by market + name, with conservative grouping for very clear topic variants such as China AI data-center supply chain / industrial chain / chain wording. Historical discovery runs remain in SQLite, but they are not dumped into the beginner-facing workbench task list.
 
 Turn queued candidates into second-stage research packets:
 

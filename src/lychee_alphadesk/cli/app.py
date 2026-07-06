@@ -49,10 +49,12 @@ from lychee_alphadesk.core.research_db import (
     write_discovery_research_run,
 )
 from lychee_alphadesk.core.workbench import (
+    ResearchReviewResult,
     ResearchRunResult,
     ResearchVerificationResult,
     WorkbenchCheckResult,
     beginner_research_brief,
+    record_research_review,
     render_research_task_detail,
     run_research_task,
     run_workbench_check,
@@ -672,6 +674,57 @@ def research_verify(
     _print_research_verification(result)
 
 
+@research_app.command("review")
+def research_review(
+    verdict: Annotated[
+        str,
+        typer.Option(
+            "--verdict",
+            help="研究流程判断: continue_research, needs_more_evidence, pause_watch, blocked。",
+        ),
+    ],
+    note: Annotated[
+        str,
+        typer.Option("--note", help="人工或 agent 复核备注。"),
+    ] = "",
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="按证券代码选择研究任务，例如 STX、QQQ、0700.HK。"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="按任务名称选择研究任务，例如 Seagate。"),
+    ] = None,
+    status: Annotated[
+        str | None,
+        typer.Option("--status", help="按研究状态选择候选；默认处理 new。"),
+    ] = "new",
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多检查多少个研究候选。"),
+    ] = 5,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """记录一次研究复核判断，不产生买卖建议。"""
+    try:
+        result = record_research_review(
+            output_dir=output_dir,
+            symbol=symbol,
+            name=name,
+            status=status,
+            limit=limit,
+            verdict=verdict,
+            note=note,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    _print_research_review(result)
+
+
 @data_pull_app.command("market")
 def data_pull_market(
     symbols: Annotated[
@@ -906,6 +959,39 @@ def _print_research_verification(result: ResearchVerificationResult) -> None:
     for action in result.next_actions:
         console.print(f"- {action}", soft_wrap=True)
     console.print("边界: 下钻核验不是买卖建议。", soft_wrap=True)
+
+
+def _print_research_review(result: ResearchReviewResult) -> None:
+    console.print(f"研究复核记录已写入: {result.artifact_path}", soft_wrap=True)
+    console.print(f"研究库已更新: {result.db_path}", soft_wrap=True)
+    console.print(
+        f"复核任务: {result.verification.candidate.display_name} "
+        f"[{result.verification.candidate.market}]",
+        soft_wrap=True,
+    )
+    console.print(f"复核判断: {result.verdict_label}", soft_wrap=True)
+    console.print(f"备注: {result.note}", soft_wrap=True)
+    console.print(
+        "证据数量: "
+        f"支持 {result.evidence_counts['support']} | "
+        f"风险/反向待查 {result.evidence_counts['risk']} | "
+        f"待补 {result.evidence_counts['missing']}",
+        soft_wrap=True,
+    )
+    console.print("证据板")
+    _print_evidence_board_column(
+        "支持证据",
+        result.verification.evidence_board["support"],
+    )
+    _print_evidence_board_column(
+        "风险/反向待查",
+        result.verification.evidence_board["risk"],
+    )
+    _print_evidence_board_column(
+        "待补证据",
+        result.verification.evidence_board["missing"],
+    )
+    console.print("边界: 研究复核不是买卖建议。", soft_wrap=True)
 
 
 def _print_evidence_board_column(title: str, rows: list[str]) -> None:

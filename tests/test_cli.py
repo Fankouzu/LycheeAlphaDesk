@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -618,6 +619,125 @@ def test_research_verify_command_writes_drilldown_checklist(
     assert payload["evidence_board"]["support"]
     assert payload["evidence_board"]["risk"]
     assert payload["evidence_board"]["missing"] == []
+
+
+def test_research_review_command_records_non_advisory_verdict(
+    tmp_path: Path,
+) -> None:
+    _write_cli_research_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "AI storage demand rises",
+                        "summary": "Cloud infrastructure demand may affect hard drives.",
+                        "symbols": ["STX"],
+                        "source_url": "https://example.com/storage",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-05",
+                        "close": 120.0,
+                        "volume": 4560000,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "filings.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "date": "2026-07-04",
+                        "company": "Seagate",
+                        "form": "8-K",
+                        "summary": "STX 在 2026-07-04 提交了 8-K。",
+                        "source_url": "https://example.com/8k",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "review",
+            "--symbol",
+            "STX",
+            "--verdict",
+            "continue_research",
+            "--note",
+            "证据完整，下一步做一致性人工复核。",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "研究复核记录已写入" in result.stdout
+    assert "复核判断: 继续研究" in result.stdout
+    assert "证据板" in result.stdout
+    assert "不是买卖建议" in result.stdout
+    artifacts = list((tmp_path / "research").glob("research-review-*.json"))
+    assert artifacts
+    payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
+    assert payload["verdict"] == "continue_research"
+    assert payload["verdict_label"] == "继续研究"
+    assert payload["note"] == "证据完整，下一步做一致性人工复核。"
+    assert payload["verification"]["candidate"]["symbol"] == "STX"
+    assert payload["evidence_counts"] == {"support": 4, "risk": 1, "missing": 0}
+    with sqlite3.connect(tmp_path / "research.sqlite3") as connection:
+        row = connection.execute(
+            """
+            SELECT
+                display_name,
+                symbol,
+                verdict,
+                note,
+                support_count,
+                risk_count,
+                missing_count,
+                review_path,
+                verification_path
+            FROM research_reviews
+            """
+        ).fetchone()
+    assert row == (
+        "Seagate",
+        "STX",
+        "continue_research",
+        "证据完整，下一步做一致性人工复核。",
+        4,
+        1,
+        0,
+        str(artifacts[0]),
+        payload["verification_path"],
+    )
 
 
 def test_research_deepen_command_shows_proxy_mapping_symbols(tmp_path: Path) -> None:

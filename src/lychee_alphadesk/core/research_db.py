@@ -36,6 +36,24 @@ class ResearchPacketRecord:
     artifact_path: str
 
 
+@dataclass(frozen=True)
+class ResearchReviewRecord:
+    review_id: str
+    created_at: str
+    display_name: str
+    symbol: str | None
+    market: str
+    verdict: str
+    verdict_label: str
+    note: str
+    support_count: int
+    risk_count: int
+    missing_count: int
+    review_path: str
+    verification_path: str
+    payload: dict[str, object]
+
+
 def research_db_path(output_dir: Path) -> Path:
     return output_dir / "research.sqlite3"
 
@@ -105,6 +123,32 @@ def init_research_db(output_dir: Path) -> Path:
             """
             CREATE INDEX IF NOT EXISTS idx_research_packets_created
             ON research_packets(created_at DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_reviews (
+                review_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                symbol TEXT,
+                market TEXT NOT NULL,
+                verdict TEXT NOT NULL,
+                verdict_label TEXT NOT NULL,
+                note TEXT NOT NULL,
+                support_count INTEGER NOT NULL,
+                risk_count INTEGER NOT NULL,
+                missing_count INTEGER NOT NULL,
+                review_path TEXT NOT NULL,
+                verification_path TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_research_reviews_created
+            ON research_reviews(created_at DESC)
             """
         )
     return db_path
@@ -329,3 +373,62 @@ def list_research_packets(
         )
         for row in rows
     ]
+
+
+def write_research_review_record(
+    *,
+    output_dir: Path,
+    review_id: str,
+    created_at: str,
+    display_name: str,
+    symbol: str | None,
+    market: str,
+    verdict: str,
+    verdict_label: str,
+    note: str,
+    support_count: int,
+    risk_count: int,
+    missing_count: int,
+    review_path: Path,
+    verification_path: Path,
+    payload: dict[str, object],
+) -> Path:
+    init_research_db(output_dir)
+    with sqlite3.connect(research_db_path(output_dir)) as connection:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO research_reviews (
+                review_id,
+                created_at,
+                display_name,
+                symbol,
+                market,
+                verdict,
+                verdict_label,
+                note,
+                support_count,
+                risk_count,
+                missing_count,
+                review_path,
+                verification_path,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                review_id,
+                created_at,
+                display_name,
+                symbol,
+                market,
+                verdict,
+                verdict_label,
+                note,
+                support_count,
+                risk_count,
+                missing_count,
+                str(review_path),
+                str(verification_path),
+                json.dumps(payload, ensure_ascii=False),
+            ),
+        )
+    return research_db_path(output_dir)

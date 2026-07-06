@@ -17,6 +17,7 @@ from lychee_alphadesk.core.research import (
     deepen_research_queue,
     fill_research_data_gaps,
 )
+from lychee_alphadesk.core.research_db import write_research_review_record
 
 PullMarket = Callable[..., PullResult]
 PullNews = Callable[..., PullResult]
@@ -125,6 +126,26 @@ class ResearchVerificationResult:
     next_actions: list[str]
     artifact_path: Path
     workbench_result: WorkbenchCheckResult
+
+
+@dataclass(frozen=True)
+class ResearchReviewResult:
+    created_at: str
+    verdict: str
+    verdict_label: str
+    note: str
+    evidence_counts: dict[str, int]
+    verification: ResearchVerificationResult
+    artifact_path: Path
+    db_path: Path
+
+
+RESEARCH_REVIEW_VERDICTS = {
+    "continue_research": "继续研究",
+    "needs_more_evidence": "需要补证据",
+    "pause_watch": "暂停观察",
+    "blocked": "存在阻塞",
+}
 
 
 def run_workbench_check(
@@ -247,6 +268,78 @@ def verify_research_task(
         next_actions=next_actions,
         artifact_path=artifact_path,
         workbench_result=workbench,
+    )
+
+
+def record_research_review(
+    *,
+    output_dir: Path,
+    verdict: str,
+    note: str = "",
+    symbol: str | None = None,
+    name: str | None = None,
+    status: str | None = "new",
+    limit: int = 5,
+    now: datetime | None = None,
+) -> ResearchReviewResult:
+    if verdict not in RESEARCH_REVIEW_VERDICTS:
+        allowed = ", ".join(RESEARCH_REVIEW_VERDICTS)
+        raise ValueError(f"未知复核判断: {verdict}。可选值: {allowed}")
+    created_at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
+    verification = verify_research_task(
+        output_dir=output_dir,
+        symbol=symbol,
+        name=name,
+        status=status,
+        limit=limit,
+        now=now,
+    )
+    evidence_counts = {
+        "support": len(verification.evidence_board["support"]),
+        "risk": len(verification.evidence_board["risk"]),
+        "missing": len(verification.evidence_board["missing"]),
+    }
+    cleaned_note = note.strip() or "未填写复核备注。"
+    verdict_label = RESEARCH_REVIEW_VERDICTS[verdict]
+    payload = _research_review_payload(
+        created_at=created_at,
+        verdict=verdict,
+        verdict_label=verdict_label,
+        note=cleaned_note,
+        evidence_counts=evidence_counts,
+        verification=verification,
+    )
+    artifact_path = _write_research_review_artifact(
+        output_dir=output_dir,
+        created_at=created_at,
+        payload=payload,
+    )
+    db_path = write_research_review_record(
+        output_dir=output_dir,
+        review_id=str(payload["review_id"]),
+        created_at=created_at,
+        display_name=verification.candidate.display_name,
+        symbol=verification.candidate.symbol,
+        market=verification.candidate.market,
+        verdict=verdict,
+        verdict_label=verdict_label,
+        note=cleaned_note,
+        support_count=evidence_counts["support"],
+        risk_count=evidence_counts["risk"],
+        missing_count=evidence_counts["missing"],
+        review_path=artifact_path,
+        verification_path=verification.artifact_path,
+        payload=payload,
+    )
+    return ResearchReviewResult(
+        created_at=created_at,
+        verdict=verdict,
+        verdict_label=verdict_label,
+        note=cleaned_note,
+        evidence_counts=evidence_counts,
+        verification=verification,
+        artifact_path=artifact_path,
+        db_path=db_path,
     )
 
 
@@ -954,6 +1047,64 @@ def _write_research_verification_artifact(
             sort_keys=True,
         )
         + "\n",
+        encoding="utf-8",
+    )
+    return output_path
+
+
+def _research_review_payload(
+    *,
+    created_at: str,
+    verdict: str,
+    verdict_label: str,
+    note: str,
+    evidence_counts: dict[str, int],
+    verification: ResearchVerificationResult,
+) -> dict[str, object]:
+    return {
+        "review_id": f"research-review:{created_at}",
+        "created_at": created_at,
+        "verdict": verdict,
+        "verdict_label": verdict_label,
+        "note": note,
+        "candidate": asdict(verification.candidate),
+        "verification_path": str(verification.artifact_path),
+        "verification": _research_verification_payload(verification),
+        "evidence_counts": evidence_counts,
+        "evidence_board": verification.evidence_board,
+        "next_actions": verification.next_actions,
+        "disclaimer": "研究复核只记录证据状态和下一步研究流程，不是买卖建议。",
+    }
+
+
+def _research_verification_payload(
+    result: ResearchVerificationResult,
+) -> dict[str, object]:
+    return {
+        "created_at": result.created_at,
+        "status": result.status,
+        "status_label": result.status_label,
+        "candidate": asdict(result.candidate),
+        "checks": [asdict(check) for check in result.checks],
+        "evidence_board": result.evidence_board,
+        "conclusion": result.conclusion,
+        "next_actions": result.next_actions,
+        "artifact_path": str(result.artifact_path),
+    }
+
+
+def _write_research_review_artifact(
+    *,
+    output_dir: Path,
+    created_at: str,
+    payload: dict[str, object],
+) -> Path:
+    research_dir = output_dir / "research"
+    research_dir.mkdir(parents=True, exist_ok=True)
+    output_path = research_dir / f"research-review-{_safe_timestamp(created_at)}.json"
+    payload["review_path"] = str(output_path)
+    output_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     return output_path

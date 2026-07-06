@@ -49,6 +49,7 @@ class CandidateCheck:
     next_step: str
     priority: str
     evidence_status: str
+    ranking_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -630,6 +631,7 @@ def render_research_task_detail(
         f"任务: {candidate.display_name} [{candidate.market}]",
         f"入口: {candidate.observation_entry}",
         f"优先级: {candidate.priority}",
+        f"排序理由: {candidate.ranking_reason}",
         f"证据状态: {candidate.evidence_status}",
         "",
         "研究状态",
@@ -1187,6 +1189,13 @@ def _candidate_checks(packets: list[ResearchPacket]) -> list[CandidateCheck]:
                     evidence_count=len(evidence_ids),
                     gap_count=len(data_gaps),
                 ),
+                ranking_reason=_ranking_reason(
+                    status=status,
+                    symbol=packet.symbol,
+                    proxy_symbols=proxy_symbols,
+                    evidence_count=len(evidence_ids),
+                    gap_count=len(data_gaps),
+                ),
                 evidence_status=_evidence_status(
                     evidence_count=len(evidence_ids),
                     gap_count=len(data_gaps),
@@ -1278,6 +1287,7 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
                 f"[{candidate.market}] | 入口: {candidate.observation_entry} | "
                 f"优先级: {candidate.priority} | 证据状态: {candidate.evidence_status}"
             )
+            lines.append(f"  排序理由: {candidate.ranking_reason}")
             lines.append(f"  研究问题: {candidate.beginner_question}")
             lines.append(f"  关键核验: {candidate.what_to_check}")
             lines.append(f"  下一步: {candidate.next_step}")
@@ -1304,6 +1314,7 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
             )
             gap_text = _gap_text(candidate.data_gaps)
             lines.append(f"  优先级: {candidate.priority}")
+            lines.append(f"  排序理由: {candidate.ranking_reason}")
             lines.append(f"  研究问题: {candidate.beginner_question}")
             lines.append(f"  缺口: {gap_text}。")
             lines.append(f"  处理动作: 先补齐 {gap_text}。")
@@ -1447,6 +1458,27 @@ def _priority(
     if proxy_symbols:
         return "P2 代理核验"
     return "P3 待映射"
+
+
+def _ranking_reason(
+    *,
+    status: str,
+    symbol: str | None,
+    proxy_symbols: list[str],
+    evidence_count: int,
+    gap_count: int,
+) -> str:
+    if gap_count:
+        return f"还有 {gap_count} 个数据缺口，先补数据再研究。"
+    if status == "blocked":
+        return "当前未达到工作台自检门槛，先查看阻塞原因再继续。"
+    if symbol and evidence_count >= 2:
+        return f"有直接代码和 {evidence_count} 条证据，且当前没有数据缺口。"
+    if symbol:
+        return "有直接代码且当前没有数据缺口，但证据还需要增强。"
+    if proxy_symbols:
+        return "已有代理标的且当前没有数据缺口，先核验代理是否覆盖主题。"
+    return "还没有直接代码或代理标的，需要先完成入口映射。"
 
 
 def _evidence_status(

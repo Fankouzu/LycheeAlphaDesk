@@ -118,6 +118,7 @@ def test_dashboard_research_workbench_action_runs_check(
                 next_step="检查成交量是否配合反弹",
                 priority="P2 待增强证据",
                 evidence_status="证据 1 条；缺口 0 个",
+                ranking_reason="有直接代码且当前没有数据缺口，但证据还需要增强。",
             )
         ]
         beginner_brief = "\n".join(
@@ -176,6 +177,7 @@ def test_dashboard_research_workbench_action_runs_check(
             task_label = str(task_menu.get_option_at_index(0).prompt)
             assert "纳斯达克100ETF观察" in task_label
             assert "QQQ" in task_label
+            assert "排序: 有直接代码且当前没有数据缺口" in task_label
             assert not app.query(Input)
 
     asyncio.run(run_case())

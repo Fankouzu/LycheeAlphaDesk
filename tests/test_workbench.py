@@ -34,6 +34,7 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert "今日研究任务" in result.beginner_brief
     assert "研究问题:" in result.beginner_brief
     assert "优先级:" in result.beginner_brief
+    assert "排序理由:" in result.beginner_brief
     assert "证据状态:" in result.beginner_brief
     assert "关键核验:" in result.beginner_brief
     assert "下一步队列" in result.beginner_brief
@@ -50,6 +51,7 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert payload["candidates"][0]["beginner_question"]
     assert payload["candidates"][0]["what_to_check"]
     assert payload["candidates"][0]["priority"]
+    assert payload["candidates"][0]["ranking_reason"]
     assert payload["candidates"][0]["evidence_status"]
 
 
@@ -101,6 +103,7 @@ def test_beginner_brief_formats_direct_etf_entry_readably() -> None:
 
     assert "入口: QQQ" in brief
     assert "优先级:" in brief
+    assert "排序理由:" in brief
     assert "证据状态:" in brief
     assert "触发原因:" not in brief
     assert "对比 QQQ 与 SPY；检查成交量" in brief

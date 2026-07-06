@@ -251,7 +251,7 @@ Turn queued candidates into second-stage research packets:
 lychee research deepen
 ```
 
-`research deepen` reads the SQLite research queue and local live cache, then writes `.alphadesk/research/research-packets-*.json`. Each packet includes candidate identity, evidence IDs, expanded news evidence, cached prices/news/filings, data gaps, and next verification actions. It builds packets from a small candidate pool and prioritizes ready packets without data gaps so the default workbench is not filled by blocked items. It does not produce buy/sell calls; it turns each candidate into a workbench task card with research question, entrypoint, priority, evidence status, key checks, and next-action queue.
+`research deepen` reads the SQLite research queue and local live cache, then writes `.alphadesk/research/research-packets-*.json`. Each packet includes candidate identity, evidence IDs, expanded news evidence, cached prices/news/filings, data gaps, and next verification actions. It builds packets from a small candidate pool and prioritizes ready packets without data gaps so the default workbench is not filled by blocked items. It does not produce buy/sell calls; it turns each candidate into a workbench task card with research question, entrypoint, priority, ranking reason, evidence status, key checks, and next-action queue.
 
 Automatically fill data that can be pulled from research gaps:
 
@@ -267,7 +267,7 @@ Automatically run gap filling, deepening, and workbench readiness checks:
 lychee research check --strict
 ```
 
-`research check` is the shared human/agent verification loop: it fills pullable data gaps, regenerates research packets, prints the `AlphaDesk 研究工作台`, and writes `.alphadesk/research/workbench-check-*.json`. The output must not read like a lesson and must not be just symbols or tables; it must show executable tasks, blocked tasks, evidence status, and the next-action queue. With `--strict`, the command exits non-zero when evidence, research entrypoints, proxy prices, or data gaps fail the current readiness gates.
+`research check` is the shared human/agent verification loop: it fills pullable data gaps, regenerates research packets, prints the `AlphaDesk 研究工作台`, and writes `.alphadesk/research/workbench-check-*.json`. The output must not read like a lesson and must not be just symbols or tables; it must show executable tasks, blocked tasks, ranking reasons, evidence status, and the next-action queue so users can see why a task is shown first. With `--strict`, the command exits non-zero when evidence, research entrypoints, proxy prices, or data gaps fail the current readiness gates.
 
 Inspect one research task in detail:
 
@@ -277,7 +277,7 @@ lychee research detail --symbol QQQ
 lychee research detail --name "Alibaba"
 ```
 
-`research detail` runs the same workbench readiness loop, then prints a single task-level `研究结果`: entrypoint, research status, signal reading, evidence matrix, price data, related news, filings/financial clues, data gaps, and executable refresh commands. `研究状态` only tells whether the line is blocked, proxy-review-only, still building evidence, or ready for deeper research; it does not produce buy/sell, allocation, or target-price advice. Without `--symbol` or `--name`, it prints the first queued task so agents can run a non-interactive check.
+`research detail` runs the same workbench readiness loop, then prints a single task-level `研究结果`: entrypoint, research status, ranking reason, signal reading, evidence matrix, price data, related news, filings/financial clues, data gaps, and executable refresh commands. `研究状态` only tells whether the line is blocked, proxy-review-only, still building evidence, or ready for deeper research; it does not produce buy/sell, allocation, or target-price advice. Without `--symbol` or `--name`, it prints the first queued task so agents can run a non-interactive check.
 
 Execute the refresh chain for one research task:
 

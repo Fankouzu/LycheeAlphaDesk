@@ -392,6 +392,7 @@ def test_research_detail_command_prints_actionable_workbench_detail(
     assert "研究状态" in result.stdout
     assert "阶段: 可下钻研究" in result.stdout
     assert "一致性: 待核验" in result.stdout
+    assert "排序理由:" in result.stdout
     assert "信号读数:" in result.stdout
     assert "证据矩阵" in result.stdout
     assert "行情: STX 110.50 USD" in result.stdout

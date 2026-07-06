@@ -706,11 +706,17 @@ def _research_workbench_intro(result: WorkbenchCheckResult) -> str:
 
 
 def _research_task_label(candidate: CandidateCheck) -> str:
+    ranking_text = (
+        f" | 排序: {candidate.ranking_reason}"
+        if candidate.ranking_reason
+        else ""
+    )
     return (
         f"{candidate.display_name} [{candidate.market}] | "
         f"入口: {candidate.observation_entry} | "
         f"优先级: {candidate.priority} | "
         f"{candidate.evidence_status}"
+        f"{ranking_text}"
     )
 
 

@@ -295,6 +295,14 @@ lychee research verify --symbol QQQ
 
 `research verify` reads the current research packet, checks whether price, volume, news, filings/financial clues, and proxy instruments are present enough for deeper research, and writes `.alphadesk/research/research-verification-*.json`. It also organizes material into a three-column evidence board: support evidence, risks/reverse checks, and missing evidence. Its consistency conclusion defaults to pending human review; the system does not convert evidence completeness into a buy/sell signal.
 
+Generate an LLM second-stage research memo:
+
+```bash
+lychee research memo --symbol QQQ
+```
+
+`research memo` runs the same drilldown verification, sends the evidence board, checks, and next actions to the configured OpenAI-compatible LLM, and writes `.alphadesk/research/research-memo-*.json`. The memo includes a summary, evidence reading, support points, skeptic review, missing evidence, and next research steps. If the LLM is not configured, the request fails, the response is not valid JSON, required fields are missing, or the model returns buy/sell/hold, target-price, allocation, or position-sizing language, the command fails and does not write a research memo.
+
 Record a research review:
 
 ```bash

@@ -49,6 +49,10 @@ from lychee_alphadesk.core.research_db import (
     list_research_reviews,
     write_discovery_research_run,
 )
+from lychee_alphadesk.core.research_memo import (
+    ResearchMemoResult,
+    generate_research_memo,
+)
 from lychee_alphadesk.core.workbench import (
     ResearchReviewResult,
     ResearchRunResult,
@@ -795,6 +799,45 @@ def research_reviews(
     console.print("边界: 研究复核历史不是买卖建议。", soft_wrap=True)
 
 
+@research_app.command("memo")
+def research_memo(
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="按证券代码选择研究任务，例如 STX、QQQ、0700.HK。"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="按任务名称选择研究任务，例如 Seagate。"),
+    ] = None,
+    status: Annotated[
+        str | None,
+        typer.Option("--status", help="按研究状态选择候选；默认处理 new。"),
+    ] = "new",
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多检查多少个研究候选。"),
+    ] = 5,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """调用 LLM 为单条研究任务生成证据备忘录和反方审查。"""
+    console.print("正在调用 LLM 生成研究备忘录，请稍候...", soft_wrap=True)
+    try:
+        result = generate_research_memo(
+            output_dir=output_dir,
+            symbol=symbol,
+            name=name,
+            status=status,
+            limit=limit,
+        )
+    except (LLMProviderError, ValueError) as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    _print_research_memo(result)
+
+
 @data_pull_app.command("market")
 def data_pull_market(
     symbols: Annotated[
@@ -1062,6 +1105,30 @@ def _print_research_review(result: ResearchReviewResult) -> None:
         result.verification.evidence_board["missing"],
     )
     console.print("边界: 研究复核不是买卖建议。", soft_wrap=True)
+
+
+def _print_research_memo(result: ResearchMemoResult) -> None:
+    memo = result.memo
+    console.print(f"研究备忘录已写入: {result.artifact_path}", soft_wrap=True)
+    console.print(f"研究任务: {result.candidate.display_name} [{result.candidate.market}]")
+    console.print(f"置信度: {memo.confidence}")
+    console.print("摘要")
+    console.print(memo.summary, soft_wrap=True)
+    console.print("证据读数")
+    console.print(memo.evidence_reading, soft_wrap=True)
+    console.print("支持证据")
+    for item in memo.support_points:
+        console.print(f"- {item}", soft_wrap=True)
+    console.print("反方审查")
+    for item in memo.skeptic_review:
+        console.print(f"- {item}", soft_wrap=True)
+    console.print("待补证据")
+    for item in memo.missing_evidence:
+        console.print(f"- {item}", soft_wrap=True)
+    console.print("下一步研究动作")
+    for item in memo.next_research_steps:
+        console.print(f"- {item}", soft_wrap=True)
+    console.print("边界: 研究备忘录不是买卖建议。", soft_wrap=True)
 
 
 def _print_evidence_board_column(title: str, rows: list[str]) -> None:

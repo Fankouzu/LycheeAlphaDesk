@@ -295,6 +295,14 @@ lychee research verify --symbol QQQ
 
 `research verify` 会读取当前研究包，核验行情、成交量、新闻、公告/财报和代理标的是否具备继续研究所需的基础材料，并写入 `.alphadesk/research/research-verification-*.json`。输出会整理成“支持证据 / 风险或反向待查 / 待补证据”三栏证据板。它的“一致性结论”默认是待人工核验；系统不会把证据完整度直接解释为买入或卖出信号。
 
+生成 LLM 二阶段研究备忘录：
+
+```bash
+lychee research memo --symbol QQQ
+```
+
+`research memo` 会先运行同一套下钻核验，然后把证据板、核验项和下一步动作交给已配置的 OpenAI-compatible LLM，生成 `.alphadesk/research/research-memo-*.json`。备忘录包含摘要、证据读数、支持证据、反方审查、待补证据和下一步研究动作。LLM 未配置、请求失败、返回非 JSON、缺少必要字段，或输出买入/卖出/持有/目标价/仓位语言时，命令必须失败，不会写入研究备忘录。
+
 记录一次研究复核：
 
 ```bash

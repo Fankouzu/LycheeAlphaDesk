@@ -831,6 +831,172 @@ def test_research_reviews_command_lists_review_history(tmp_path: Path) -> None:
     assert "不是买卖建议" in result.stdout
 
 
+def test_research_memo_command_requires_llm_configuration(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))  # type: ignore[attr-defined]
+    _write_cli_research_seed(tmp_path)
+
+    result = runner.invoke(
+        app,
+        ["research", "memo", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 1
+    assert "LLM 服务尚未配置" in result.stdout
+    assert not list((tmp_path / "research").glob("research-memo-*.json"))
+
+
+def test_research_memo_command_writes_llm_research_memo(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))  # type: ignore[attr-defined]
+    set_openai_compatible_llm(
+        "https://llm.example.com/v1",
+        "sk-demo-secret",
+        "demo-model",
+    )
+    _write_cli_research_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "AI storage demand rises",
+                        "summary": "Cloud infrastructure demand may affect hard drives.",
+                        "symbols": ["STX"],
+                        "source_url": "https://example.com/storage",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-05",
+                        "close": 120.0,
+                        "volume": 4560000,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "filings.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "date": "2026-07-04",
+                        "company": "Seagate",
+                        "form": "8-K",
+                        "summary": "STX 在 2026-07-04 提交了 8-K。",
+                        "source_url": "https://example.com/8k",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_request_chat_json(config: object, **kwargs: object) -> dict[str, object]:
+        prompt = str(kwargs["messages"])
+        assert "STX" in prompt
+        assert "AI storage demand rises" in prompt
+        assert "证据板" in prompt
+        return {
+            "summary": "STX 的研究线索来自 AI 存储需求与本地行情证据的交叉。",
+            "evidence_reading": "已有行情、新闻和公告材料，但仍需核对是否同向。",
+            "support_points": ["新闻和行情都指向存储需求受到关注。"],
+            "skeptic_review": ["硬盘行业仍可能受到周期和库存波动影响。"],
+            "missing_evidence": ["需要更多订单、毛利率和同业对比证据。"],
+            "next_research_steps": ["核对最新财报中的收入和毛利率变化。"],
+            "confidence": "medium",
+        }
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        "lychee_alphadesk.core.research_memo.request_chat_json",
+        fake_request_chat_json,
+    )
+
+    result = runner.invoke(
+        app,
+        ["research", "memo", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "研究备忘录已写入" in result.stdout
+    assert "STX 的研究线索" in result.stdout
+    assert "反方审查" in result.stdout
+    assert "下一步研究动作" in result.stdout
+    assert "不是买卖建议" in result.stdout
+    artifacts = list((tmp_path / "research").glob("research-memo-*.json"))
+    assert artifacts
+    payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
+    assert payload["mode"] == "llm-research-memo"
+    assert payload["candidate"]["symbol"] == "STX"
+    assert payload["memo"]["confidence"] == "medium"
+    assert payload["memo"]["skeptic_review"] == [
+        "硬盘行业仍可能受到周期和库存波动影响。"
+    ]
+    assert payload["verification_path"].endswith(".json")
+
+
+def test_research_memo_command_rejects_investment_advice_language(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))  # type: ignore[attr-defined]
+    set_openai_compatible_llm(
+        "https://llm.example.com/v1",
+        "sk-demo-secret",
+        "demo-model",
+    )
+    _write_cli_research_seed(tmp_path)
+
+    def fake_request_chat_json(config: object, **kwargs: object) -> dict[str, object]:
+        return {
+            "summary": "这份备忘录错误地给出了目标价。",
+            "evidence_reading": "已有材料不足以支持交易判断。",
+            "support_points": ["新闻提到了 AI 存储需求。"],
+            "skeptic_review": ["周期行业波动仍需核验。"],
+            "missing_evidence": ["需要订单和毛利率证据。"],
+            "next_research_steps": ["目标价 150 美元，预期收益较高。"],
+            "confidence": "medium",
+        }
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        "lychee_alphadesk.core.research_memo.request_chat_json",
+        fake_request_chat_json,
+    )
+
+    result = runner.invoke(
+        app,
+        ["research", "memo", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 1
+    assert "包含买卖或仓位建议语言" in result.stdout
+    assert not list((tmp_path / "research").glob("research-memo-*.json"))
+
+
 def test_research_deepen_command_shows_proxy_mapping_symbols(tmp_path: Path) -> None:
     _write_cli_symbolless_mapping_seed(tmp_path)
     data_dir = tmp_path / "data"

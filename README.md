@@ -286,6 +286,15 @@ lychee research run --symbol QQQ --force
 
 `research run` selects one research task, refreshes task-level prices, news, and applicable US filings/financial clues, then reruns the workbench check and prints the updated `研究结果`. Each run writes `.alphadesk/research/research-run-*.json` so humans and agents can audit which actions ran, how many rows returned, and which actions failed or used cache; the artifact also stores structured `assessment` with stage, consistency-review state, evidence reading, and next decision.
 
+Generate a drilldown verification checklist for one research task:
+
+```bash
+lychee research verify
+lychee research verify --symbol QQQ
+```
+
+`research verify` reads the current research packet, checks whether price, volume, news, filings/financial clues, and proxy instruments are present enough for deeper research, and writes `.alphadesk/research/research-verification-*.json`. Its consistency conclusion defaults to pending human review; the system does not convert evidence completeness into a buy/sell signal.
+
 Current market-level and symbol-level cache commands:
 
 ```bash

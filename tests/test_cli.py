@@ -340,6 +340,7 @@ def test_research_detail_command_prints_actionable_workbench_detail(
     assert "可执行动作" in result.stdout
     assert "lychee data pull market --symbols STX --provider auto --force" in result.stdout
     assert "lychee data pull filings --symbols STX" in result.stdout
+    assert "lychee research verify --symbol STX" in result.stdout
 
 
 def test_research_run_command_executes_refresh_chain_and_writes_artifact(
@@ -528,6 +529,88 @@ def test_research_run_command_executes_refresh_chain_and_writes_artifact(
     assert payload["assessment"]["consistency"] == "pending_review"
     assert payload["actions"][0]["action_type"] == "refresh_market"
     assert payload["detail"].startswith("研究结果")
+
+
+def test_research_verify_command_writes_drilldown_checklist(
+    tmp_path: Path,
+) -> None:
+    _write_cli_research_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "AI storage demand rises",
+                        "summary": "Cloud infrastructure demand may affect hard drives.",
+                        "symbols": ["STX"],
+                        "source_url": "https://example.com/storage",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-05",
+                        "close": 120.0,
+                        "volume": 4560000,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "filings.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "date": "2026-07-04",
+                        "company": "Seagate",
+                        "form": "8-K",
+                        "summary": "STX 在 2026-07-04 提交了 8-K。",
+                        "source_url": "https://example.com/8k",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["research", "verify", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "下钻核验" in result.stdout
+    assert "行情核验" in result.stdout
+    assert "成交量核验" in result.stdout
+    assert "新闻核验" in result.stdout
+    assert "公告/财报核验" in result.stdout
+    assert "一致性结论: 待人工核验" in result.stdout
+    artifacts = list((tmp_path / "research").glob("research-verification-*.json"))
+    assert artifacts
+    payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
+    assert payload["candidate"]["symbol"] == "STX"
+    assert payload["status"] == "pending_review"
+    assert payload["checks"][0]["name"] == "行情核验"
+    assert payload["checks"][0]["status"] == "pass"
 
 
 def test_research_deepen_command_shows_proxy_mapping_symbols(tmp_path: Path) -> None:

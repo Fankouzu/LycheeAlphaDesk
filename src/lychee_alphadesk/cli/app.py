@@ -50,12 +50,14 @@ from lychee_alphadesk.core.research_db import (
 )
 from lychee_alphadesk.core.workbench import (
     ResearchRunResult,
+    ResearchVerificationResult,
     WorkbenchCheckResult,
     beginner_research_brief,
     render_research_task_detail,
     run_research_task,
     run_workbench_check,
     select_research_candidate_index,
+    verify_research_task,
 )
 from lychee_alphadesk.tui.app import run_tui
 from lychee_alphadesk.tui.setup import run_setup_tui
@@ -632,6 +634,44 @@ def research_run(
     _print_research_run(result)
 
 
+@research_app.command("verify")
+def research_verify(
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="按证券代码选择研究任务，例如 STX、QQQ、0700.HK。"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="按任务名称选择研究任务，例如 Seagate。"),
+    ] = None,
+    status: Annotated[
+        str | None,
+        typer.Option("--status", help="按研究状态选择候选；默认处理 new。"),
+    ] = "new",
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多检查多少个研究候选。"),
+    ] = 5,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """对单条研究任务生成下钻核验清单。"""
+    try:
+        result = verify_research_task(
+            output_dir=output_dir,
+            symbol=symbol,
+            name=name,
+            status=status,
+            limit=limit,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    _print_research_verification(result)
+
+
 @data_pull_app.command("market")
 def data_pull_market(
     symbols: Annotated[
@@ -840,6 +880,37 @@ def _print_research_run(result: ResearchRunResult) -> None:
         for warning in action.warnings:
             console.print(f"警告: {warning}", soft_wrap=True)
     console.print(result.detail, soft_wrap=True)
+
+
+def _print_research_verification(result: ResearchVerificationResult) -> None:
+    console.print(f"下钻核验记录已写入: {result.artifact_path}", soft_wrap=True)
+    console.print(f"下钻核验: {result.candidate.display_name} [{result.candidate.market}]")
+    console.print(f"一致性结论: {result.status_label}")
+    table = Table(title="Lychee AlphaDesk 下钻核验")
+    table.add_column("核验项")
+    table.add_column("状态")
+    table.add_column("说明", overflow="fold")
+    for check in result.checks:
+        table.add_row(
+            check.name,
+            _display_verification_check_status(check.status),
+            check.detail,
+        )
+    console.print(table)
+    console.print(result.conclusion, soft_wrap=True)
+    console.print("下一步")
+    for action in result.next_actions:
+        console.print(f"- {action}", soft_wrap=True)
+    console.print("边界: 下钻核验不是买卖建议。", soft_wrap=True)
+
+
+def _display_verification_check_status(status: str) -> str:
+    return {
+        "pass": "通过",
+        "warn": "待核验",
+        "fail": "阻塞",
+        "na": "不适用",
+    }.get(status, status)
 
 
 def _display_research_run_status(status: str) -> str:

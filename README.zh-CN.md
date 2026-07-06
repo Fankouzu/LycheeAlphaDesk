@@ -286,6 +286,15 @@ lychee research run --symbol QQQ --force
 
 `research run` 会选择一条研究任务，刷新该任务相关的行情、新闻和适用的美股公告/财报，然后重新运行工作台自检并输出更新后的 `研究结果`。每次执行会写入 `.alphadesk/research/research-run-*.json`，用于审计 agent 到底刷新了什么、返回多少数据、哪些动作失败或使用缓存；审计记录也会保存结构化 `assessment`，包括阶段、一致性核验状态、证据读数和下一步判断。
 
+生成单条研究任务的下钻核验清单：
+
+```bash
+lychee research verify
+lychee research verify --symbol QQQ
+```
+
+`research verify` 会读取当前研究包，核验行情、成交量、新闻、公告/财报和代理标的是否具备继续研究所需的基础材料，并写入 `.alphadesk/research/research-verification-*.json`。它的“一致性结论”默认是待人工核验；系统不会把证据完整度直接解释为买入或卖出信号。
+
 当前可用的市场级与 symbol 级 cache 命令：
 
 ```bash

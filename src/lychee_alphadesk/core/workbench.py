@@ -105,6 +105,27 @@ class ResearchAssessment:
     next_decision: str
 
 
+@dataclass(frozen=True)
+class ResearchVerificationCheck:
+    name: str
+    status: str
+    detail: str
+
+
+@dataclass(frozen=True)
+class ResearchVerificationResult:
+    created_at: str
+    status: str
+    status_label: str
+    candidate: CandidateCheck
+    packet: ResearchPacket | None
+    checks: list[ResearchVerificationCheck]
+    conclusion: str
+    next_actions: list[str]
+    artifact_path: Path
+    workbench_result: WorkbenchCheckResult
+
+
 def run_workbench_check(
     *,
     output_dir: Path,
@@ -159,6 +180,69 @@ def run_workbench_check(
         artifact_path=artifact_path,
         fill_result=fill_result,
         deepen_result=deepen_result,
+    )
+
+
+def verify_research_task(
+    *,
+    output_dir: Path,
+    symbol: str | None = None,
+    name: str | None = None,
+    status: str | None = "new",
+    limit: int = 5,
+    now: datetime | None = None,
+    pull_market: PullMarket | None = None,
+    pull_filings: PullFilings | None = None,
+) -> ResearchVerificationResult:
+    created_at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
+    workbench = run_workbench_check(
+        output_dir=output_dir,
+        status=status,
+        limit=limit,
+        force=False,
+        now=now,
+        pull_market=pull_market,
+        pull_filings=pull_filings,
+    )
+    selected_index = select_research_candidate_index(
+        workbench,
+        symbol=symbol,
+        name=name,
+    )
+    if selected_index is None:
+        raise ValueError("没有找到匹配的研究任务。")
+    candidate = workbench.candidates[selected_index]
+    packet = (
+        workbench.deepen_result.packets[selected_index]
+        if selected_index < len(workbench.deepen_result.packets)
+        else None
+    )
+    checks = build_research_verification_checks(candidate, packet)
+    verify_status = _verification_status(checks)
+    status_label = _verification_status_label(verify_status)
+    conclusion = _verification_conclusion(verify_status)
+    next_actions = _verification_next_actions(checks, candidate)
+    artifact_path = _write_research_verification_artifact(
+        output_dir=output_dir,
+        created_at=created_at,
+        status=verify_status,
+        status_label=status_label,
+        candidate=candidate,
+        checks=checks,
+        conclusion=conclusion,
+        next_actions=next_actions,
+    )
+    return ResearchVerificationResult(
+        created_at=created_at,
+        status=verify_status,
+        status_label=status_label,
+        candidate=candidate,
+        packet=packet,
+        checks=checks,
+        conclusion=conclusion,
+        next_actions=next_actions,
+        artifact_path=artifact_path,
+        workbench_result=workbench,
     )
 
 
@@ -258,6 +342,99 @@ def run_research_task(
         artifact_path=artifact_path,
         workbench_result=refreshed,
     )
+
+
+def build_research_verification_checks(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> list[ResearchVerificationCheck]:
+    packet_payload = packet.packet if packet is not None else {}
+    local_data = _dict_value(packet_payload.get("local_data"))
+    price = _dict_value(local_data.get("price"))
+    evidence = _dict_list(packet_payload.get("evidence"))
+    related_news = _dict_list(local_data.get("related_news"))
+    filings = _dict_list(local_data.get("filings"))
+    data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
+    asset_type = _asset_type(packet)
+    checks: list[ResearchVerificationCheck] = []
+    if data_gaps:
+        checks.append(
+            ResearchVerificationCheck(
+                name="数据缺口",
+                status="fail",
+                detail="；".join(data_gaps),
+            )
+        )
+    if price:
+        checks.append(
+            ResearchVerificationCheck(
+                name="行情核验",
+                status="pass",
+                detail=_price_line(price).removeprefix("行情: "),
+            )
+        )
+        volume = price.get("volume")
+        volume_ok = isinstance(volume, int | float) and volume > 0
+        checks.append(
+            ResearchVerificationCheck(
+                name="成交量核验",
+                status="pass" if volume_ok else "warn",
+                detail=f"成交量 {volume}" if volume is not None else "缺少成交量字段。",
+            )
+        )
+    else:
+        checks.append(
+            ResearchVerificationCheck(
+                name="行情核验",
+                status="fail",
+                detail="缺少本地行情，无法核验价格和成交量。",
+            )
+        )
+    news_count = len(evidence) + len(related_news)
+    checks.append(
+        ResearchVerificationCheck(
+            name="新闻核验",
+            status="pass" if news_count else "fail",
+            detail=f"可核验新闻/证据 {news_count} 条。"
+            if news_count
+            else "缺少 discovery 证据或相关新闻。",
+        )
+    )
+    filings_required = candidate.market.upper() == "US" and asset_type == "stock"
+    if filings_required:
+        checks.append(
+            ResearchVerificationCheck(
+                name="公告/财报核验",
+                status="pass" if filings else "fail",
+                detail=f"可核验公告/财报 {len(filings)} 条。"
+                if filings
+                else "美股股票缺少 SEC 公告/财报线索。",
+            )
+        )
+    else:
+        checks.append(
+            ResearchVerificationCheck(
+                name="公告/财报核验",
+                status="na",
+                detail="当前任务不要求 SEC 公告/财报核验。",
+            )
+        )
+    if candidate.proxy_symbols:
+        checks.append(
+            ResearchVerificationCheck(
+                name="代理标的核验",
+                status="warn",
+                detail="代理标的需要人工核对成分、费用、流动性和可交易性。",
+            )
+        )
+    checks.append(
+        ResearchVerificationCheck(
+            name="一致性核验",
+            status="warn" if all(check.status != "fail" for check in checks) else "fail",
+            detail="待人工核验行情、成交量、新闻和公告/财报是否指向同一主题。",
+        )
+    )
+    return checks
 
 
 def select_research_candidate_index(
@@ -463,6 +640,8 @@ def research_action_commands(
             f"刷新美股公告/财报: lychee data pull filings --symbols "
             f"{','.join(filing_symbols)}"
         )
+    if symbols:
+        commands.append(f"下钻核验: lychee research verify --symbol {symbols[0]}")
     return commands
 
 
@@ -643,6 +822,77 @@ def _write_research_run_artifact(
                 "assessment": asdict(assessment),
                 "actions": [_research_run_action_to_dict(action) for action in actions],
                 "detail": detail,
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return output_path
+
+
+def _verification_status(checks: list[ResearchVerificationCheck]) -> str:
+    if any(check.status == "fail" for check in checks):
+        return "blocked"
+    return "pending_review"
+
+
+def _verification_status_label(status: str) -> str:
+    return {
+        "blocked": "存在阻塞",
+        "pending_review": "待人工核验",
+    }.get(status, status)
+
+
+def _verification_conclusion(status: str) -> str:
+    if status == "blocked":
+        return "一致性结论: 存在阻塞，先补齐失败项。"
+    return "一致性结论: 待人工核验。"
+
+
+def _verification_next_actions(
+    checks: list[ResearchVerificationCheck],
+    candidate: CandidateCheck,
+) -> list[str]:
+    failed = [check for check in checks if check.status == "fail"]
+    if failed:
+        return [f"先处理{check.name}: {check.detail}" for check in failed]
+    actions = [
+        "对照行情方向、成交量变化和相关新闻是否支持同一研究问题。",
+        "记录支持证据、反向证据和仍需补充的数据。",
+    ]
+    if candidate.proxy_symbols:
+        actions.insert(0, "先人工核对代理标的是否覆盖原始主题。")
+    return actions
+
+
+def _write_research_verification_artifact(
+    *,
+    output_dir: Path,
+    created_at: str,
+    status: str,
+    status_label: str,
+    candidate: CandidateCheck,
+    checks: list[ResearchVerificationCheck],
+    conclusion: str,
+    next_actions: list[str],
+) -> Path:
+    research_dir = output_dir / "research"
+    research_dir.mkdir(parents=True, exist_ok=True)
+    output_path = research_dir / f"research-verification-{_safe_timestamp(created_at)}.json"
+    output_path.write_text(
+        json.dumps(
+            {
+                "created_at": created_at,
+                "status": status,
+                "status_label": status_label,
+                "candidate": asdict(candidate),
+                "checks": [asdict(check) for check in checks],
+                "conclusion": conclusion,
+                "next_actions": next_actions,
+                "disclaimer": "下钻核验只检查证据完整度和待核验项，不构成买卖建议。",
             },
             ensure_ascii=False,
             indent=2,

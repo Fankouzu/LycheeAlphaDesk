@@ -1541,6 +1541,17 @@ def test_dashboard_research_task_action_generates_llm_memo(
             assert "反方审查" in text
             assert "下一步研究动作" in text
             assert "研究备忘录不是买卖建议" in text
+            next_menu = app.query_one("#research-detail-action-menu", OptionList)
+            next_actions = [
+                str(next_menu.get_option_at_index(index).prompt)
+                for index in range(next_menu.option_count)
+            ]
+            assert next_actions[:4] == [
+                "记录研究复核: 继续研究",
+                "重新下钻核验",
+                "查看研究备忘录历史",
+                "返回研究任务列表",
+            ]
 
     asyncio.run(run_case())
 

@@ -862,7 +862,10 @@ class AlphaDeskApp(App[None]):
         await self._replace_action_panel(
             Static(_research_memo_text(result), id="action-status"),
             OptionList(
-                Option("返回研究任务列表", id="research_detail:back_tasks"),
+                *[
+                    Option(label, id=action_id)
+                    for action_id, label in _research_memo_followup_actions(result)
+                ],
                 id="research-detail-action-menu",
                 markup=False,
             ),
@@ -1452,6 +1455,24 @@ def _research_memo_text(result: ResearchMemoResult) -> str:
             "边界: 研究备忘录不是买卖建议。",
         ]
     )
+
+
+def _research_memo_followup_actions(
+    result: ResearchMemoResult,
+) -> list[tuple[str, str]]:
+    suggested_verdict = result.verification.decision_board.suggested_verdict
+    verdict = (
+        suggested_verdict
+        if suggested_verdict in RESEARCH_REVIEW_VERDICTS
+        else "continue_research"
+    )
+    verdict_label = RESEARCH_REVIEW_VERDICTS[verdict]
+    return [
+        (f"research_review:{verdict}", f"记录研究复核: {verdict_label}"),
+        ("research_detail:verify_research", "重新下钻核验"),
+        ("research_memos", "查看研究备忘录历史"),
+        ("research_detail:back_tasks", "返回研究任务列表"),
+    ]
 
 
 def _research_review_menu_options(

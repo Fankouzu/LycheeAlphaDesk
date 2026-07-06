@@ -15,6 +15,7 @@ from lychee_alphadesk.core.discovery import (
 from lychee_alphadesk.core.live_data import PullResult
 from lychee_alphadesk.core.research import ResearchDeepenResult, ResearchPacket
 from lychee_alphadesk.core.research_db import (
+    ResearchEvidenceReviewRecord,
     ResearchMemoRecord,
     ResearchReviewRecord,
     list_research_queue,
@@ -392,6 +393,60 @@ def test_dashboard_research_memo_history_action_lists_records(
             assert "支持 1 | 反方 1 | 待补 1 | 下一步 1" in text
             assert "research-memo-test.json" in text
             assert "研究备忘录历史不是买卖建议" in text
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_research_evidence_review_history_action_lists_records(
+    monkeypatch, tmp_path: Path
+) -> None:
+    def fake_list_research_evidence_reviews(
+        **kwargs: object,
+    ) -> list[ResearchEvidenceReviewRecord]:
+        assert kwargs["output_dir"] == tmp_path
+        return [
+            ResearchEvidenceReviewRecord(
+                review_id="research-evidence-review:2026-07-05T10:03:00+00:00",
+                created_at="2026-07-05T10:03:00+00:00",
+                display_name="Seagate",
+                symbol="STX",
+                market="US",
+                evidence_text="STX hard drive demand update",
+                verdict="reverse",
+                verdict_label="风险/反向待查",
+                note="这条新闻更像需求放缓风险，需要排除乐观解释。",
+                review_path=str(
+                    tmp_path / "research" / "research-evidence-review-test.json"
+                ),
+                payload={},
+            )
+        ]
+
+    monkeypatch.setattr(
+        tui_app,
+        "list_research_evidence_reviews",
+        fake_list_research_evidence_reviews,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            menu = app.query_one("#action-menu", OptionList)
+            history_index = _option_index(menu, "证据复核历史")
+            await pilot.press(*(["down"] * history_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            status = app.query_one("#action-status", Static)
+            text = str(status.content)
+            assert "证据复核历史" in text
+            assert "Seagate (STX) [US]" in text
+            assert "STX hard drive demand update" in text
+            assert "风险/反向待查" in text
+            assert "这条新闻更像需求放缓风险" in text
+            assert "research-evidence-review-test.json" in text
+            assert "单条证据复核历史不是买卖建议" in text
 
     asyncio.run(run_case())
 

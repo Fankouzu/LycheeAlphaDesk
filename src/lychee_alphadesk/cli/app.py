@@ -45,6 +45,7 @@ from lychee_alphadesk.core.policy import load_policy, validate_policy
 from lychee_alphadesk.core.reports import generate_demo_report
 from lychee_alphadesk.core.research import deepen_research_queue, fill_research_data_gaps
 from lychee_alphadesk.core.research_db import (
+    list_research_evidence_reviews,
     list_research_memos,
     list_research_queue,
     list_research_reviews,
@@ -854,6 +855,67 @@ def research_reviews(
         console.print(f"  记录: {record.review_path}", soft_wrap=True)
         console.print(f"  下钻核验: {record.verification_path}", soft_wrap=True)
     console.print("边界: 研究复核历史不是买卖建议。", soft_wrap=True)
+
+
+@research_app.command("evidence-reviews")
+def research_evidence_reviews(
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="按证券代码过滤证据复核历史，例如 STX、QQQ。"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="按任务名称过滤证据复核历史。"),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多显示多少条证据复核记录。"),
+    ] = 20,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """查看单条证据方向复核历史。"""
+    records = list_research_evidence_reviews(
+        output_dir,
+        symbol=symbol,
+        name=name,
+        limit=limit,
+    )
+    if not records:
+        console.print("暂无证据复核历史。请先运行 `lychee research evidence-review`。")
+        return
+    table = Table(title="Lychee AlphaDesk 证据复核历史")
+    table.add_column("时间")
+    table.add_column("名称", overflow="fold")
+    table.add_column("代码")
+    table.add_column("市场")
+    table.add_column("复核方向")
+    table.add_column("证据文本", overflow="fold")
+    table.add_column("备注", overflow="fold")
+    for record in records:
+        table.add_row(
+            record.created_at,
+            record.display_name,
+            record.symbol or "-",
+            record.market,
+            record.verdict_label,
+            record.evidence_text,
+            record.note,
+        )
+    console.print(table)
+    console.print("证据复核明细")
+    for record in records:
+        console.print(
+            f"- {record.display_name} ({record.symbol or '-'}) [{record.market}] "
+            f"{record.verdict_label}",
+            soft_wrap=True,
+        )
+        console.print(f"  证据文本: {record.evidence_text}", soft_wrap=True)
+        console.print(f"  备注: {record.note}", soft_wrap=True)
+        console.print(f"  记录: {record.review_path}", soft_wrap=True)
+    console.print("边界: 单条证据复核历史不是买卖建议。", soft_wrap=True)
 
 
 @research_app.command("memo")

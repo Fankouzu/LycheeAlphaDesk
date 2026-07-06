@@ -1108,6 +1108,52 @@ def test_research_evidence_review_reclassifies_pending_news(
     )
 
 
+def test_research_evidence_reviews_command_lists_audit_history(
+    tmp_path: Path,
+) -> None:
+    _write_cli_research_seed(tmp_path)
+    review = runner.invoke(
+        app,
+        [
+            "research",
+            "evidence-review",
+            "--symbol",
+            "STX",
+            "--text",
+            "STX hard drive demand update",
+            "--verdict",
+            "reverse",
+            "--note",
+            "这条新闻更像需求放缓风险，需要排除乐观解释。",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert review.exit_code == 0
+
+    history = runner.invoke(
+        app,
+        [
+            "research",
+            "evidence-reviews",
+            "--symbol",
+            "STX",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert history.exit_code == 0
+    assert "Lychee AlphaDesk 证据复核历史" in history.stdout
+    assert "Seagate" in history.stdout
+    assert "STX" in history.stdout
+    assert "STX hard drive demand update" in history.stdout
+    assert "风险/反向待查" in history.stdout
+    assert "这条新闻更像需求放缓风险" in history.stdout
+    assert "research-evidence-review-" in history.stdout
+    assert "单条证据复核历史不是买卖建议" in history.stdout
+
+
 def test_research_review_command_records_non_advisory_verdict(
     tmp_path: Path,
 ) -> None:

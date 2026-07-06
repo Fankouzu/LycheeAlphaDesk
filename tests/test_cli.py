@@ -690,6 +690,88 @@ def test_research_verify_command_writes_drilldown_checklist(
     assert payload["evidence_board"]["missing"] == []
 
 
+def test_research_verify_flags_off_topic_news_as_risk(
+    tmp_path: Path,
+) -> None:
+    _write_cli_research_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "Luxury handbags gain popularity in Europe",
+                        "summary": "Consumer fashion spending improved this quarter.",
+                        "symbols": ["STX"],
+                        "source_url": "https://example.com/fashion",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-05",
+                        "close": 120.0,
+                        "volume": 4560000,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "filings.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "date": "2026-07-04",
+                        "company": "Seagate",
+                        "form": "8-K",
+                        "summary": "STX 在 2026-07-04 提交了 8-K。",
+                        "source_url": "https://example.com/8k",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["research", "verify", "--symbol", "STX", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "主题相关性核验" in result.stdout
+    assert "未命中研究主题关键词" in result.stdout
+    artifacts = list((tmp_path / "research").glob("research-verification-*.json"))
+    assert artifacts
+    payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
+    topic_check = next(
+        check for check in payload["checks"] if check["name"] == "主题相关性核验"
+    )
+    assert topic_check["status"] == "warn"
+    support_text = "\n".join(payload["evidence_board"]["support"])
+    risk_text = "\n".join(payload["evidence_board"]["risk"])
+    assert "Luxury handbags gain popularity" not in support_text
+    assert "Luxury handbags gain popularity" in risk_text
+
+
 def test_research_review_command_records_non_advisory_verdict(
     tmp_path: Path,
 ) -> None:

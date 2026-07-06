@@ -1,4 +1,5 @@
 import json
+import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -139,6 +140,17 @@ class ResearchReviewResult:
     verification: ResearchVerificationResult
     artifact_path: Path
     db_path: Path
+
+
+@dataclass(frozen=True)
+class NewsTopicRelevance:
+    terms: list[str]
+    matched_rows: list[dict[str, object]]
+    unmatched_rows: list[dict[str, object]]
+
+    @property
+    def matched_count(self) -> int:
+        return len(self.matched_rows)
 
 
 RESEARCH_REVIEW_VERDICTS = {
@@ -489,6 +501,7 @@ def build_research_verification_checks(
             )
         )
     news_count = len(evidence) + len(related_news)
+    topic_relevance = _news_topic_relevance(candidate, packet)
     checks.append(
         ResearchVerificationCheck(
             name="新闻核验",
@@ -496,6 +509,13 @@ def build_research_verification_checks(
             detail=f"可核验新闻/证据 {news_count} 条。"
             if news_count
             else "缺少 discovery 证据或相关新闻。",
+        )
+    )
+    checks.append(
+        ResearchVerificationCheck(
+            name="主题相关性核验",
+            status=_topic_relevance_status(news_count, topic_relevance.matched_count),
+            detail=_topic_relevance_detail(news_count, topic_relevance),
         )
     )
     filings_required = candidate.market.upper() == "US" and asset_type == "stock"
@@ -543,17 +563,21 @@ def build_research_evidence_board(
     packet_payload = packet.packet if packet is not None else {}
     local_data = _dict_value(packet_payload.get("local_data"))
     price = _dict_value(local_data.get("price"))
-    evidence = _dict_list(packet_payload.get("evidence"))
-    related_news = _dict_list(local_data.get("related_news"))
     filings = _dict_list(local_data.get("filings"))
     support: list[str] = []
     risk: list[str] = []
     missing: list[str] = []
     if price:
         support.append(_price_line(price).removeprefix("行情: "))
-    for row in [*evidence, *related_news][:3]:
+    topic_relevance = _news_topic_relevance(candidate, packet)
+    relevant_rows = topic_relevance.matched_rows
+    weak_rows = topic_relevance.unmatched_rows
+    for row in relevant_rows[:3]:
         headline = _string_value(row.get("headline")) or "未命名新闻证据"
         support.append(f"新闻: {headline}")
+    for row in weak_rows[:3]:
+        headline = _string_value(row.get("headline")) or "未命名新闻证据"
+        risk.append(f"新闻待查: {headline} 未命中研究主题关键词。")
     for row in filings[:2]:
         form = _string_value(row.get("form")) or "公告"
         date = _string_value(row.get("date"))
@@ -580,6 +604,168 @@ def build_research_evidence_board(
         "risk": risk,
         "missing": missing,
     }
+
+
+def _topic_relevance_status(news_count: int, matched_count: int) -> str:
+    if news_count == 0:
+        return "fail"
+    if matched_count > 0:
+        return "pass"
+    return "warn"
+
+
+def _topic_relevance_detail(
+    news_count: int,
+    topic_relevance: NewsTopicRelevance,
+) -> str:
+    if news_count == 0:
+        return "缺少新闻或 discovery 证据，无法检查主题相关性。"
+    terms = ", ".join(topic_relevance.terms[:6])
+    if topic_relevance.matched_count > 0:
+        return (
+            f"可核验证据 {news_count} 条，其中 {topic_relevance.matched_count} "
+            f"条命中研究主题关键词: {terms}。"
+        )
+    return (
+        f"有 {news_count} 条新闻/证据，但没有命中研究主题关键词，"
+        f"需要人工判断是否只是市场噪音。关键词: {terms}。"
+    )
+
+
+def _news_topic_relevance(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> NewsTopicRelevance:
+    packet_payload = packet.packet if packet is not None else {}
+    local_data = _dict_value(packet_payload.get("local_data"))
+    rows = [
+        *_dict_list(packet_payload.get("evidence")),
+        *_dict_list(local_data.get("related_news")),
+    ]
+    terms = _topic_terms(candidate, packet)
+    matched_rows: list[dict[str, object]] = []
+    unmatched_rows: list[dict[str, object]] = []
+    for row in rows:
+        text = _news_text(row)
+        if _text_matches_any_topic_term(text, terms):
+            matched_rows.append(row)
+        else:
+            unmatched_rows.append(row)
+    return NewsTopicRelevance(
+        terms=terms,
+        matched_rows=matched_rows,
+        unmatched_rows=unmatched_rows,
+    )
+
+
+def _topic_terms(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> list[str]:
+    packet_payload = packet.packet if packet is not None else {}
+    packet_candidate = _dict_value(packet_payload.get("candidate"))
+    raw_values = [
+        candidate.symbol or "",
+        candidate.display_name,
+        candidate.observation_entry,
+        candidate.beginner_question,
+        _string_value(packet_candidate.get("related_theme")),
+        _string_value(packet_candidate.get("why_watch")),
+    ]
+    terms: list[str] = []
+    for value in raw_values:
+        terms.extend(_extract_topic_terms(value))
+    if (candidate.symbol or "").upper() == "QQQ":
+        terms.extend(["qqq", "nasdaq", "nasdaq 100", "纳指", "科技"])
+    return _dedupe_terms(terms)
+
+
+def _extract_topic_terms(value: str) -> list[str]:
+    terms: list[str] = []
+    lowered = value.lower()
+    for token in re.findall(r"[a-z0-9][a-z0-9.+-]*", lowered):
+        if len(token) >= 3 or token in {"ai"}:
+            terms.append(token)
+    for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", value):
+        terms.append(chunk)
+        terms.extend(keyword for keyword in _CHINESE_TOPIC_KEYWORDS if keyword in chunk)
+    return terms
+
+
+_CHINESE_TOPIC_KEYWORDS = {
+    "人工智能",
+    "数据中心",
+    "供应链",
+    "半导体",
+    "机器人",
+    "自动驾驶",
+    "电动车",
+    "科技",
+    "美股",
+    "港股",
+    "A股",
+    "指数",
+    "消费",
+    "政策",
+    "流动性",
+    "利率",
+    "大盘",
+    "存储",
+    "硬盘",
+    "需求",
+    "云",
+}
+
+
+def _dedupe_terms(terms: list[str]) -> list[str]:
+    stop_terms = {
+        "the",
+        "and",
+        "with",
+        "this",
+        "that",
+        "research",
+        "观察",
+        "研究",
+        "主题",
+        "当前",
+        "是否",
+        "什么",
+        "可以",
+        "用于",
+    }
+    unique: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        cleaned = term.strip().lower()
+        if not cleaned or cleaned in stop_terms or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        unique.append(cleaned)
+    return unique
+
+
+def _news_text(row: dict[str, object]) -> str:
+    return " ".join(
+        item
+        for item in [
+            _string_value(row.get("headline")),
+            _string_value(row.get("summary")),
+            _string_value(row.get("title")),
+            _string_value(row.get("description")),
+        ]
+        if item
+    ).lower()
+
+
+def _text_matches_any_topic_term(text: str, terms: list[str]) -> bool:
+    for term in terms:
+        if re.fullmatch(r"[a-z0-9][a-z0-9.+-]*", term):
+            if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text):
+                return True
+        elif term and term in text:
+            return True
+    return False
 
 
 def select_research_candidate_index(

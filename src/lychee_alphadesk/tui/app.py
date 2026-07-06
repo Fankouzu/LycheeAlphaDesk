@@ -105,6 +105,7 @@ class AlphaDeskApp(App[None]):
         self.current_research_verification: ResearchVerificationResult | None = None
         self.pending_evidence_items: list[PendingEvidenceReviewItem] = []
         self.pending_evidence_review_items: list[str] = []
+        self.last_pending_evidence_review: ResearchEvidenceReviewResult | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -175,6 +176,9 @@ class AlphaDeskApp(App[None]):
             return
         if isinstance(action_id, str) and action_id.startswith("pending_evidence_review:"):
             await self._run_pending_evidence_review_action(action_id)
+            return
+        if action_id == "pending_evidence_verify_last":
+            await self._run_pending_evidence_verification()
             return
         if action_id == "today_discovery":
             await self._show_today_discovery()
@@ -407,9 +411,103 @@ class AlphaDeskApp(App[None]):
             )
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
-        await self._render_pending_evidence_queue(
+        self.last_pending_evidence_review = review_result
+        await self._render_pending_evidence_followup(
             status_prefix=_pending_evidence_review_recorded_summary(review_result),
         )
+
+    async def _render_pending_evidence_followup(
+        self,
+        status_prefix: str,
+    ) -> None:
+        status_text = _pending_evidence_queue_text(
+            self.pending_evidence_items,
+            prefix=status_prefix,
+        )
+        await self._replace_action_panel(
+            Static(status_text, id="action-status"),
+            OptionList(
+                Option("重新下钻核验", id="pending_evidence_verify_last"),
+                *[
+                    Option(
+                        _pending_evidence_item_label(item),
+                        id=f"pending_evidence_item:{index}",
+                    )
+                    for index, item in enumerate(self.pending_evidence_items)
+                ],
+                Option("返回待判定证据队列", id="pending_evidence"),
+                id="pending-evidence-followup-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#pending-evidence-followup-menu", OptionList))
+
+    async def _run_pending_evidence_verification(self) -> None:
+        review = self.last_pending_evidence_review
+        if review is None:
+            await self._replace_action_panel(
+                Static(
+                    "还没有刚刚记录的证据复核，请先在待判定证据队列中复核一条证据。",
+                    id="action-status",
+                )
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        candidate = review.candidate
+        symbols = research_action_symbols(candidate)
+        symbol = symbols[0] if symbols else None
+        name = None if symbol else candidate.display_name
+        await self._replace_action_panel(
+            Static("正在重新下钻核验，请稍候...", id="action-status")
+        )
+        try:
+            verification = await asyncio.to_thread(
+                verify_research_task,
+                output_dir=self.output_dir,
+                symbol=symbol,
+                name=name,
+            )
+        except (RuntimeError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+
+        workbench = verification.workbench_result
+        self.research_candidates = list(workbench.candidates)
+        deepen_result = getattr(workbench, "deepen_result", None)
+        self.research_packets = list(getattr(deepen_result, "packets", []))
+        self.selected_research_index = select_research_candidate_index(
+            workbench,
+            symbol=symbol,
+            name=name,
+        )
+        self.current_research_verification = verification
+        self.pending_evidence_review_items = _pending_evidence_review_items(
+            verification
+        )
+        await self._replace_action_panel(
+            Static(_research_verification_text(verification), id="action-status"),
+            OptionList(
+                *[
+                    Option(label, id=f"research_review:{verdict_id}")
+                    for verdict_id, label in _research_review_menu_options(
+                        verification.decision_board.suggested_verdict
+                    )
+                ],
+                *[
+                    Option(label, id=f"research_evidence_review:{detail_action_id}")
+                    for detail_action_id, label in _research_evidence_review_menu_options(
+                        verification
+                    )
+                ],
+                Option("返回待判定证据队列", id="pending_evidence"),
+                id="research-detail-action-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#research-detail-action-menu", OptionList))
 
     async def _show_research_evidence_review_history(self) -> None:
         records = await asyncio.to_thread(
@@ -1038,10 +1136,15 @@ def _pending_evidence_queue_text(
     if prefix:
         lines.extend([prefix, ""])
     if not items:
+        empty_hint = (
+            "暂无待判定证据。可以重新下钻核验，查看证据板是否已经更新。"
+            if prefix
+            else "暂无待判定证据。先在研究工作台里运行下钻核验。"
+        )
         lines.extend(
             (
                 "待判定证据队列",
-                "暂无待判定证据。先在研究工作台里运行下钻核验。",
+                empty_hint,
                 "边界: 待判定证据队列不是买卖建议。",
             )
         )

@@ -434,7 +434,7 @@ class AlphaDeskApp(App[None]):
             if refreshed_index < len(self.research_packets)
             else None
         )
-        actions = research_detail_actions(candidate, packet)
+        actions = _post_refresh_research_actions(candidate, packet)
         status = research_action_result(action, result.count, result.warnings)
         await self._replace_action_panel(
             Static(
@@ -909,6 +909,24 @@ def _research_review_followup_actions(verdict: str) -> list[tuple[str, str]]:
             ("back_tasks", "返回研究任务列表"),
         ]
     return [("back_tasks", "返回研究任务列表")]
+
+
+def _post_refresh_research_actions(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> list[tuple[str, str]]:
+    priority_actions = [
+        ("verify_research", "重新下钻核验"),
+        ("generate_memo", "生成研究备忘录"),
+        ("back_tasks", "返回研究任务列表"),
+    ]
+    priority_ids = {action for action, _ in priority_actions}
+    remaining_actions = [
+        (action, label)
+        for action, label in research_detail_actions(candidate, packet)
+        if action not in priority_ids
+    ]
+    return [*priority_actions, *remaining_actions]
 
 
 def _research_memo_text(result: ResearchMemoResult) -> str:

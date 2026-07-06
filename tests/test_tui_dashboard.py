@@ -1151,6 +1151,16 @@ def test_dashboard_refresh_topic_news_keeps_current_research_task(
             assert "入口: QQQ" in text
             assert "已执行: 刷新主题新闻" in text
             assert "返回行数: 2" in text
+            refreshed_menu = app.query_one("#research-detail-action-menu", OptionList)
+            refreshed_actions = [
+                str(refreshed_menu.get_option_at_index(index).prompt)
+                for index in range(refreshed_menu.option_count)
+            ]
+            assert refreshed_actions[:3] == [
+                "重新下钻核验",
+                "生成研究备忘录",
+                "返回研究任务列表",
+            ]
 
     asyncio.run(run_case())
 

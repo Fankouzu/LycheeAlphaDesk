@@ -211,6 +211,65 @@ def test_discover_today_command_writes_report_when_llm_configured(
     assert "NVDA" in queue_result.stdout
 
 
+def test_research_queue_command_hides_duplicate_observation_history(
+    tmp_path: Path,
+) -> None:
+    def report(created_at: str, display_name: str, action: str) -> DiscoveryReport:
+        return DiscoveryReport(
+            mode="llm-synthesized",
+            created_at=created_at,
+            markets=["US"],
+            sources=[DiscoverySource("test-llm", "US", "测试来源")],
+            themes=[
+                DiscoveryTheme(
+                    name="AI 存储需求",
+                    markets=["US"],
+                    summary="测试重复发现。",
+                    evidence=["news_001"],
+                    sectors=["Technology"],
+                    risk_flags=[],
+                    confidence="medium",
+                )
+            ],
+            candidates=[
+                DiscoveryCandidate(
+                    display_name=display_name,
+                    symbol="STX",
+                    market="US",
+                    asset_type="stock",
+                    related_theme="AI 存储需求",
+                    why_watch="测试重复发现。",
+                    evidence=["news_001"],
+                    risk_flags=[],
+                    next_actions=[action],
+                    confidence="medium",
+                    recommendation="research",
+                )
+            ],
+            warnings=[],
+            next_actions=[],
+            disclaimer="非投资建议。",
+        )
+
+    write_discovery_research_run(
+        report("2026-07-05T10:00:00+00:00", "Seagate Legacy", "旧动作"),
+        tmp_path,
+        tmp_path / "data" / "discovery-old.json",
+    )
+    write_discovery_research_run(
+        report("2026-07-05T11:00:00+00:00", "Seagate Active", "新动作"),
+        tmp_path,
+        tmp_path / "data" / "discovery-new.json",
+    )
+
+    result = runner.invoke(app, ["research", "queue", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Seagate Active" in result.stdout
+    assert "Seagate Legacy" not in result.stdout
+    assert "旧动作" not in result.stdout
+
+
 def test_research_deepen_command_writes_research_packets(tmp_path: Path) -> None:
     _write_cli_research_seed(tmp_path)
     data_dir = tmp_path / "data"

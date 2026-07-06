@@ -74,6 +74,99 @@ def test_discovery_report_is_persisted_as_research_queue(tmp_path: Path) -> None
     assert candidate.next_actions == ["检查财报电话会", "比较 Western Digital"]
 
 
+def test_research_queue_defaults_to_latest_candidate_per_observation(
+    tmp_path: Path,
+) -> None:
+    first_report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["US"],
+        sources=[DiscoverySource("test-llm", "US", "测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="AI 存储需求",
+                markets=["US"],
+                summary="第一次发现的存储线索。",
+                evidence=["news_001"],
+                sectors=["Technology"],
+                risk_flags=[],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="Seagate",
+                symbol="STX",
+                market="US",
+                asset_type="stock",
+                related_theme="AI 存储需求",
+                why_watch="第一次发现。",
+                evidence=["news_001"],
+                risk_flags=[],
+                next_actions=["旧动作"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=[],
+        next_actions=[],
+        disclaimer="非投资建议。",
+    )
+    latest_report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T11:00:00+00:00",
+        markets=["US"],
+        sources=[DiscoverySource("test-llm", "US", "测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="AI 存储需求更新",
+                markets=["US"],
+                summary="更新后的存储线索。",
+                evidence=["news_002"],
+                sectors=["Technology"],
+                risk_flags=[],
+                confidence="high",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="Seagate Technology",
+                symbol="STX",
+                market="US",
+                asset_type="stock",
+                related_theme="AI 存储需求更新",
+                why_watch="更新后的发现。",
+                evidence=["news_002"],
+                risk_flags=[],
+                next_actions=["新动作"],
+                confidence="high",
+                recommendation="research",
+            )
+        ],
+        warnings=[],
+        next_actions=[],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(
+        first_report,
+        tmp_path,
+        tmp_path / "data" / "discovery-first.json",
+    )
+    write_discovery_research_run(
+        latest_report,
+        tmp_path,
+        tmp_path / "data" / "discovery-latest.json",
+    )
+
+    queue = list_research_queue(tmp_path)
+
+    assert len(queue) == 1
+    assert queue[0].display_name == "Seagate Technology"
+    assert queue[0].symbol == "STX"
+    assert queue[0].related_theme == "AI 存储需求更新"
+    assert queue[0].next_actions == ["新动作"]
+
+
 def test_research_packets_are_persisted_for_queue_candidates(tmp_path: Path) -> None:
     report = DiscoveryReport(
         mode="llm-synthesized",

@@ -276,6 +276,7 @@ def list_research_queue(
     *,
     status: str | None = None,
     limit: int = 20,
+    dedupe: bool = True,
 ) -> list[ResearchQueueItem]:
     db_path = research_db_path(output_dir)
     if not db_path.exists():
@@ -286,7 +287,6 @@ def list_research_queue(
     if status:
         where_clause = "WHERE status = ?"
         parameters.append(status)
-    parameters.append(limit)
 
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute(
@@ -309,30 +309,58 @@ def list_research_queue(
             FROM research_candidates
             {where_clause}
             ORDER BY created_at DESC, candidate_id ASC
-            LIMIT ?
             """,
             parameters,
         ).fetchall()
 
-    return [
-        ResearchQueueItem(
-            candidate_id=row[0],
-            run_id=row[1],
-            created_at=row[2],
-            display_name=row[3],
-            symbol=row[4],
-            market=row[5],
-            asset_type=row[6],
-            related_theme=row[7],
-            why_watch=row[8],
-            evidence=json.loads(row[9]),
-            risk_flags=json.loads(row[10]),
-            next_actions=json.loads(row[11]),
-            confidence=row[12],
-            status=row[13],
-        )
-        for row in rows
-    ]
+    queue = [_research_queue_item_from_row(row) for row in rows]
+    if dedupe:
+        queue = _dedupe_research_queue(queue)
+    return queue[:limit]
+
+
+def _research_queue_item_from_row(row: tuple[object, ...]) -> ResearchQueueItem:
+    return ResearchQueueItem(
+        candidate_id=int(str(row[0])),
+        run_id=str(row[1]),
+        created_at=str(row[2]),
+        display_name=str(row[3]),
+        symbol=str(row[4]) if row[4] is not None else None,
+        market=str(row[5]),
+        asset_type=str(row[6]),
+        related_theme=str(row[7]),
+        why_watch=str(row[8]),
+        evidence=json.loads(str(row[9])),
+        risk_flags=json.loads(str(row[10])),
+        next_actions=json.loads(str(row[11])),
+        confidence=str(row[12]),
+        status=str(row[13]),
+    )
+
+
+def _dedupe_research_queue(
+    queue: list[ResearchQueueItem],
+) -> list[ResearchQueueItem]:
+    seen: set[str] = set()
+    deduped: list[ResearchQueueItem] = []
+    for item in queue:
+        key = _research_observation_key(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def _research_observation_key(item: ResearchQueueItem) -> str:
+    market = item.market.strip().upper()
+    if item.symbol:
+        return f"{market}:symbol:{item.symbol.strip().upper()}"
+    return f"{market}:name:{_compact_text_key(item.display_name)}"
+
+
+def _compact_text_key(value: str) -> str:
+    return "".join(value.casefold().split())
 
 
 def write_research_packet(

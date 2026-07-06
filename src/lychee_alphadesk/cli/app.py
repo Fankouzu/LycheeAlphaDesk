@@ -62,6 +62,7 @@ from lychee_alphadesk.core.workbench import (
     ResearchVerificationResult,
     WorkbenchCheckResult,
     beginner_research_brief,
+    list_pending_evidence_reviews,
     record_research_evidence_review,
     record_research_review,
     render_research_task_detail,
@@ -916,6 +917,50 @@ def research_evidence_reviews(
         console.print(f"  备注: {record.note}", soft_wrap=True)
         console.print(f"  记录: {record.review_path}", soft_wrap=True)
     console.print("边界: 单条证据复核历史不是买卖建议。", soft_wrap=True)
+
+
+@research_app.command("pending-evidence")
+def research_pending_evidence(
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多显示多少条待判定证据。"),
+    ] = 50,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """查看仍需人工判定方向的新闻证据队列。"""
+    items = list_pending_evidence_reviews(output_dir=output_dir, limit=limit)
+    if not items:
+        console.print("暂无待判定证据。请先运行 `lychee research verify`。")
+        return
+    table = Table(title="Lychee AlphaDesk 待判定证据队列")
+    table.add_column("时间")
+    table.add_column("名称", overflow="fold")
+    table.add_column("代码")
+    table.add_column("市场")
+    table.add_column("证据文本", overflow="fold")
+    for item in items:
+        table.add_row(
+            item.created_at,
+            item.display_name,
+            item.symbol or "-",
+            item.market,
+            item.evidence_text,
+        )
+    console.print(table)
+    console.print("待处理明细")
+    for item in items:
+        console.print(
+            f"- {item.display_name} ({item.symbol or '-'}) [{item.market}]",
+            soft_wrap=True,
+        )
+        console.print(f"  要回答的问题: {item.primary_question}", soft_wrap=True)
+        console.print(f"  待判定证据: {item.evidence_text}", soft_wrap=True)
+        console.print(f"  下钻核验: {item.artifact_path}", soft_wrap=True)
+        console.print(f"  复核命令: {item.review_command}", soft_wrap=True)
+    console.print("边界: 待判定证据队列不是买卖建议。", soft_wrap=True)
 
 
 @research_app.command("memo")

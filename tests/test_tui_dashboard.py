@@ -23,6 +23,7 @@ from lychee_alphadesk.core.research_db import (
 from lychee_alphadesk.core.research_memo import ResearchMemo, ResearchMemoResult
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
+    PendingEvidenceReviewItem,
     ResearchDecisionBoard,
     ResearchEvidenceChange,
     ResearchEvidenceReviewResult,
@@ -447,6 +448,59 @@ def test_dashboard_research_evidence_review_history_action_lists_records(
             assert "这条新闻更像需求放缓风险" in text
             assert "research-evidence-review-test.json" in text
             assert "单条证据复核历史不是买卖建议" in text
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_pending_evidence_action_lists_review_queue(
+    monkeypatch, tmp_path: Path
+) -> None:
+    def fake_list_pending_evidence_reviews(**kwargs: object) -> list[PendingEvidenceReviewItem]:
+        assert kwargs["output_dir"] == tmp_path
+        return [
+            PendingEvidenceReviewItem(
+                created_at="2026-07-06T10:00:00+00:00",
+                display_name="Invesco QQQ Trust",
+                symbol="QQQ",
+                market="US",
+                primary_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+                evidence_text="QQQ tech rebound headline",
+                raw_evidence="新闻待判定: QQQ tech rebound headline 命中主题但方向未明。",
+                artifact_path=str(
+                    tmp_path / "research" / "research-verification-test.json"
+                ),
+                review_command=(
+                    'lychee research evidence-review --symbol QQQ --text '
+                    '"QQQ tech rebound headline" '
+                    '--verdict "<support|reverse|irrelevant>" --note "..."'
+                ),
+            )
+        ]
+
+    monkeypatch.setattr(
+        tui_app,
+        "list_pending_evidence_reviews",
+        fake_list_pending_evidence_reviews,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            menu = app.query_one("#action-menu", OptionList)
+            queue_index = _option_index(menu, "待判定证据队列")
+            await pilot.press(*(["down"] * queue_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            status = app.query_one("#action-status", Static)
+            text = str(status.content)
+            assert "待判定证据队列" in text
+            assert "Invesco QQQ Trust (QQQ) [US]" in text
+            assert "美股科技股现在是独立主线" in text
+            assert "QQQ tech rebound headline" in text
+            assert "lychee research evidence-review --symbol QQQ" in text
+            assert "待判定证据队列不是买卖建议" in text
 
     asyncio.run(run_case())
 

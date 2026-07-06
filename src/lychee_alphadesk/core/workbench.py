@@ -194,6 +194,19 @@ class ResearchEvidenceReviewResult:
 
 
 @dataclass(frozen=True)
+class PendingEvidenceReviewItem:
+    created_at: str
+    display_name: str
+    symbol: str | None
+    market: str
+    primary_question: str
+    evidence_text: str
+    raw_evidence: str
+    artifact_path: str
+    review_command: str
+
+
+@dataclass(frozen=True)
 class NewsTopicRelevance:
     terms: list[str]
     matched_rows: list[dict[str, object]]
@@ -393,6 +406,63 @@ def verify_research_task(
         artifact_path=artifact_path,
         workbench_result=workbench,
     )
+
+
+def list_pending_evidence_reviews(
+    output_dir: Path,
+    *,
+    limit: int = 50,
+) -> list[PendingEvidenceReviewItem]:
+    latest_artifacts = _latest_verification_artifacts(output_dir)
+    items: list[PendingEvidenceReviewItem] = []
+    for payload, artifact_path in latest_artifacts:
+        candidate = _dict_value(payload.get("candidate"))
+        display_name = _string_value(candidate.get("display_name")) or "未知研究任务"
+        symbol = _string_value(candidate.get("symbol")) or None
+        market = _string_value(candidate.get("market")) or "-"
+        decision_board = _dict_value(payload.get("decision_board"))
+        primary_question = (
+            _string_value(decision_board.get("primary_question"))
+            or "先判断这条新闻能否回答当前研究问题。"
+        )
+        evidence_reviews = list_research_evidence_reviews(
+            output_dir,
+            symbol=symbol,
+            name=None if symbol else display_name,
+            limit=100,
+        )
+        evidence_board = _dict_value(payload.get("evidence_board"))
+        seen: set[str] = set()
+        for raw_evidence in _text_list(evidence_board.get("risk")):
+            evidence_text = _pending_news_evidence_text(raw_evidence)
+            if evidence_text is None:
+                continue
+            normalized = evidence_text.lower()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            if _reviewed_evidence_verdict(normalized, evidence_reviews):
+                continue
+            items.append(
+                PendingEvidenceReviewItem(
+                    created_at=_string_value(payload.get("created_at")),
+                    display_name=display_name,
+                    symbol=symbol,
+                    market=market,
+                    primary_question=primary_question,
+                    evidence_text=evidence_text,
+                    raw_evidence=raw_evidence,
+                    artifact_path=str(artifact_path),
+                    review_command=_pending_evidence_review_command(
+                        symbol=symbol,
+                        display_name=display_name,
+                        evidence_text=evidence_text,
+                    ),
+                )
+            )
+            if len(items) >= limit:
+                return items
+    return items
 
 
 def record_research_evidence_review(
@@ -1018,6 +1088,49 @@ def _latest_matching_verification_artifact(
     return None
 
 
+def _latest_verification_artifacts(output_dir: Path) -> list[tuple[dict[str, object], Path]]:
+    research_dir = output_dir / "research"
+    if not research_dir.exists():
+        return []
+    latest: dict[str, tuple[str, dict[str, object], Path]] = {}
+    for path in sorted(research_dir.glob("research-verification-*.json")):
+        payload = _read_json_dict(path)
+        candidate = _dict_value(payload.get("candidate"))
+        key = _verification_candidate_key(candidate)
+        if not key:
+            continue
+        created_at = _string_value(payload.get("created_at"))
+        current = latest.get(key)
+        if current is None or created_at >= current[0]:
+            latest[key] = (created_at, payload, path)
+    return [
+        (payload, path)
+        for created_at, payload, path in sorted(
+            latest.values(),
+            key=lambda item: item[0],
+            reverse=True,
+        )
+    ]
+
+
+def _verification_candidate_key(candidate: dict[str, object]) -> str:
+    market = (_string_value(candidate.get("market")) or "").upper()
+    symbol = (_string_value(candidate.get("symbol")) or "").upper()
+    proxy_symbols = [
+        symbol.upper()
+        for symbol in _text_list(candidate.get("proxy_symbols"))
+        if symbol.strip()
+    ]
+    if symbol:
+        return f"{market}:symbol:{symbol}"
+    if proxy_symbols:
+        return f"{market}:proxy:{','.join(sorted(proxy_symbols))}"
+    display_name = (_string_value(candidate.get("display_name")) or "").lower()
+    if display_name:
+        return f"{market}:name:{display_name}"
+    return ""
+
+
 def _verification_candidate_matches(
     payload_candidate: dict[str, object],
     candidate: CandidateCheck,
@@ -1037,6 +1150,41 @@ def _verification_candidate_matches(
         return bool(payload_symbol_set & current_symbol_set)
     payload_name = (_string_value(payload_candidate.get("display_name")) or "").lower()
     return bool(payload_name and payload_name == candidate.display_name.lower())
+
+
+def _pending_news_evidence_text(raw_evidence: str) -> str | None:
+    prefix = "新闻待判定: "
+    if not raw_evidence.startswith(prefix):
+        return None
+    evidence_text = raw_evidence.removeprefix(prefix)
+    suffix = " 命中主题但方向未明。"
+    if evidence_text.endswith(suffix):
+        evidence_text = evidence_text.removesuffix(suffix)
+    evidence_text = evidence_text.strip()
+    return evidence_text or None
+
+
+def _pending_evidence_review_command(
+    *,
+    symbol: str | None,
+    display_name: str,
+    evidence_text: str,
+) -> str:
+    selector = (
+        f"--symbol {symbol}"
+        if symbol
+        else f"--name {_quote_cli_value(display_name)}"
+    )
+    return (
+        f"lychee research evidence-review {selector} "
+        f"--text {_quote_cli_value(evidence_text)} "
+        '--verdict "<support|reverse|irrelevant>" --note "..."'
+    )
+
+
+def _quote_cli_value(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _read_json_dict(path: Path) -> dict[str, object]:

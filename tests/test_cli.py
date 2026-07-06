@@ -16,7 +16,10 @@ from lychee_alphadesk.core.discovery import (
     DiscoveryTheme,
 )
 from lychee_alphadesk.core.live_data import PullResult
-from lychee_alphadesk.core.research_db import write_discovery_research_run
+from lychee_alphadesk.core.research_db import (
+    write_discovery_research_run,
+    write_research_evidence_review_record,
+)
 
 runner = CliRunner()
 
@@ -1154,6 +1157,63 @@ def test_research_evidence_reviews_command_lists_audit_history(
     assert "单条证据复核历史不是买卖建议" in history.stdout
 
 
+def test_research_pending_evidence_command_lists_unreviewed_queue(
+    tmp_path: Path,
+) -> None:
+    _write_cli_verification_artifact(
+        tmp_path,
+        created_at="2026-07-05T10:00:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        risk_items=[
+            "新闻待判定: stale QQQ headline 命中主题但方向未明。",
+        ],
+    )
+    _write_cli_verification_artifact(
+        tmp_path,
+        created_at="2026-07-06T10:00:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        primary_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+        risk_items=[
+            "新闻待判定: QQQ tech rebound headline 命中主题但方向未明。",
+            "新闻待判定: reviewed QQQ headline 命中主题但方向未明。",
+        ],
+    )
+    write_research_evidence_review_record(
+        output_dir=tmp_path,
+        review_id="research-evidence-review:test",
+        created_at="2026-07-06T10:05:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        evidence_text="reviewed QQQ headline",
+        verdict="irrelevant",
+        verdict_label="无关/排除",
+        note="已确认和本次研究问题无关。",
+        review_path=tmp_path / "research" / "research-evidence-review-test.json",
+        payload={},
+    )
+
+    result = runner.invoke(
+        app,
+        ["research", "pending-evidence", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "Lychee AlphaDesk 待判定证据队列" in result.stdout
+    assert "Invesco QQQ Trust" in result.stdout
+    assert "QQQ" in result.stdout
+    assert "美股科技股现在是独立主线" in result.stdout
+    assert "QQQ tech rebound headline" in result.stdout
+    assert "reviewed QQQ headline" not in result.stdout
+    assert "stale QQQ headline" not in result.stdout
+    assert "lychee research evidence-review --symbol QQQ" in result.stdout
+    assert "待判定证据队列不是买卖建议" in result.stdout
+
+
 def test_research_review_command_records_non_advisory_verdict(
     tmp_path: Path,
 ) -> None:
@@ -2265,6 +2325,51 @@ def _write_cli_research_seed(output_dir: Path) -> None:
         output_dir,
         output_dir / "data" / "discovery-today.json",
     )
+
+
+def _write_cli_verification_artifact(
+    output_dir: Path,
+    *,
+    created_at: str,
+    display_name: str,
+    symbol: str | None,
+    market: str,
+    risk_items: list[str],
+    primary_question: str = "这个研究任务要先回答什么问题？",
+) -> Path:
+    research_dir = output_dir / "research"
+    research_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = (
+        created_at.replace("-", "")
+        .replace(":", "")
+        .replace("+00:00", "Z")
+        .replace("T", "-")
+    )
+    artifact_path = research_dir / f"research-verification-{timestamp}.json"
+    artifact_path.write_text(
+        json.dumps(
+            {
+                "created_at": created_at,
+                "candidate": {
+                    "display_name": display_name,
+                    "symbol": symbol,
+                    "market": market,
+                    "proxy_symbols": [],
+                },
+                "decision_board": {
+                    "primary_question": primary_question,
+                },
+                "evidence_board": {
+                    "support": [],
+                    "risk": risk_items,
+                    "missing": [],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return artifact_path
 
 
 def _write_cli_symbolless_mapping_seed(output_dir: Path) -> None:

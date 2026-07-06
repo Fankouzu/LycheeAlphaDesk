@@ -45,10 +45,12 @@ from lychee_alphadesk.core.workbench import (
     RESEARCH_EVIDENCE_REVIEW_VERDICTS,
     RESEARCH_REVIEW_VERDICTS,
     CandidateCheck,
+    PendingEvidenceReviewItem,
     ResearchEvidenceReviewResult,
     ResearchReviewResult,
     ResearchVerificationResult,
     WorkbenchCheckResult,
+    list_pending_evidence_reviews,
     record_research_evidence_review,
     record_research_review,
     render_research_task_detail,
@@ -67,6 +69,7 @@ from lychee_alphadesk.core.workbench import (
 ActionId = Literal[
     "today_discovery",
     "research_workbench",
+    "pending_evidence",
     "research_reviews",
     "research_evidence_reviews",
     "research_memos",
@@ -109,6 +112,7 @@ class AlphaDeskApp(App[None]):
         yield OptionList(
             Option("今日市场发现", id="today_discovery"),
             Option("研究工作台", id="research_workbench"),
+            Option("待判定证据队列", id="pending_evidence"),
             Option("研究复核历史", id="research_reviews"),
             Option("证据复核历史", id="research_evidence_reviews"),
             Option("研究备忘录历史", id="research_memos"),
@@ -169,6 +173,8 @@ class AlphaDeskApp(App[None]):
             await self._show_today_discovery()
         elif action_id == "research_workbench":
             await self._show_research_workbench()
+        elif action_id == "pending_evidence":
+            await self._show_pending_evidence_queue()
         elif action_id == "research_reviews":
             await self._show_research_review_history()
         elif action_id == "research_evidence_reviews":
@@ -288,6 +294,17 @@ class AlphaDeskApp(App[None]):
         )
         await self._replace_action_panel(
             Static(_research_review_history_text(records), id="action-status")
+        )
+        self.set_focus(self.query_one("#action-menu", OptionList))
+
+    async def _show_pending_evidence_queue(self) -> None:
+        items = await asyncio.to_thread(
+            list_pending_evidence_reviews,
+            output_dir=self.output_dir,
+            limit=20,
+        )
+        await self._replace_action_panel(
+            Static(_pending_evidence_queue_text(items), id="action-status")
         )
         self.set_focus(self.query_one("#action-menu", OptionList))
 
@@ -906,6 +923,33 @@ def _research_review_history_text(records: list[ResearchReviewRecord]) -> str:
             ]
         )
     lines.append("边界: 研究复核历史不是买卖建议。")
+    return "\n".join(lines)
+
+
+def _pending_evidence_queue_text(items: list[PendingEvidenceReviewItem]) -> str:
+    if not items:
+        return "\n".join(
+            [
+                "待判定证据队列",
+                "暂无待判定证据。先在研究工作台里运行下钻核验。",
+                "边界: 待判定证据队列不是买卖建议。",
+            ]
+        )
+    lines = ["待判定证据队列"]
+    for item in items:
+        lines.extend(
+            [
+                (
+                    f"- {item.display_name} ({item.symbol or '-'}) "
+                    f"[{item.market}]"
+                ),
+                f"  要回答的问题: {item.primary_question}",
+                f"  待判定证据: {item.evidence_text}",
+                f"  复核命令: {item.review_command}",
+                f"  下钻核验: {item.artifact_path}",
+            ]
+        )
+    lines.append("边界: 待判定证据队列不是买卖建议。")
     return "\n".join(lines)
 
 

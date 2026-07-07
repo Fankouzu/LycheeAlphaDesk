@@ -5,6 +5,7 @@ from pathlib import Path
 from textual.widgets import Input, OptionList, Static
 
 import lychee_alphadesk.tui.app as tui_app
+from lychee_alphadesk.core.action_queue import ActionQueueItem
 from lychee_alphadesk.core.config import set_openai_compatible_llm
 from lychee_alphadesk.core.discovery import (
     DiscoveryCandidate,
@@ -503,6 +504,48 @@ def test_dashboard_research_data_requests_action_lists_actionable_requests(
             assert "基金资料模板: 已完成" in result_text
             assert "下钻核验: 跳过" in result_text
             assert "数据请求执行只补证据，不是买卖建议" in result_text
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_next_actions_action_lists_unified_queue(
+    monkeypatch, tmp_path: Path
+) -> None:
+    def fake_build_action_queue(**kwargs: object) -> list[ActionQueueItem]:
+        assert kwargs["output_dir"] == tmp_path
+        return [
+            ActionQueueItem(
+                priority=1,
+                area="待判定证据",
+                title="复核 Seagate 的待判定新闻",
+                detail="判断这条新闻是支持、反向还是无关。",
+                command="lychee research evidence-review --symbol STX --verdict support",
+                source="research-verification-test.json",
+            )
+        ]
+
+    monkeypatch.setattr(
+        tui_app,
+        "build_action_queue",
+        fake_build_action_queue,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            menu = app.query_one("#action-menu", OptionList)
+            next_index = _option_index(menu, "下一步行动队列")
+            await pilot.press(*(["down"] * next_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            text = str(app.query_one("#action-status", Static).content)
+            assert "下一步行动队列" in text
+            assert "待判定证据" in text
+            assert "复核 Seagate 的待判定新闻" in text
+            assert "lychee research evidence-review --symbol STX" in text
+            assert "行动队列只推进研究流程，不是买卖建议" in text
 
     asyncio.run(run_case())
 

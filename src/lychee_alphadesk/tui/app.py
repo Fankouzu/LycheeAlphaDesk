@@ -9,6 +9,7 @@ from textual.widget import Widget
 from textual.widgets import Footer, Header, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
+from lychee_alphadesk.core.action_queue import ActionQueueItem, build_action_queue
 from lychee_alphadesk.core.data_engine import write_snapshot_json
 from lychee_alphadesk.core.discovery import (
     DiscoveryDataRequiredError,
@@ -81,11 +82,13 @@ from lychee_alphadesk.core.workbench import (
 ActionId = Literal[
     "today_discovery",
     "research_workbench",
+    "next_actions",
     "pending_evidence",
     "research_reviews",
     "research_evidence_reviews",
     "research_memos",
     "research_data_requests",
+    "provider_backlog",
     "pull_market",
     "pull_news",
     "pull_filings",
@@ -129,6 +132,7 @@ class AlphaDeskApp(App[None]):
         yield OptionList(
             Option("今日市场发现", id="today_discovery"),
             Option("研究工作台", id="research_workbench"),
+            Option("下一步行动队列", id="next_actions"),
             Option("待判定证据队列", id="pending_evidence"),
             Option("研究复核历史", id="research_reviews"),
             Option("证据复核历史", id="research_evidence_reviews"),
@@ -204,6 +208,8 @@ class AlphaDeskApp(App[None]):
             await self._show_today_discovery()
         elif action_id == "research_workbench":
             await self._show_research_workbench()
+        elif action_id == "next_actions":
+            await self._show_next_actions()
         elif action_id == "pending_evidence":
             await self._show_pending_evidence_queue()
         elif action_id == "research_reviews":
@@ -320,6 +326,27 @@ class AlphaDeskApp(App[None]):
             ),
         )
         self.set_focus(self.query_one("#research-task-menu", OptionList))
+
+    async def _show_next_actions(self) -> None:
+        await self._replace_action_panel(
+            Static("正在整理下一步行动队列，请稍候...", id="action-status")
+        )
+        try:
+            items = await asyncio.to_thread(
+                build_action_queue,
+                output_dir=self.output_dir,
+                limit=12,
+            )
+        except (RuntimeError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static(_action_queue_text(items), id="action-status")
+        )
+        self.set_focus(self.query_one("#action-menu", OptionList))
 
     async def _show_research_review_history(self) -> None:
         records = await asyncio.to_thread(
@@ -1516,6 +1543,29 @@ def _research_data_requests_text(requests: list[ResearchDataRequest]) -> str:
             ]
         )
     lines.append("边界: 数据请求队列只用于补证据，不是买卖建议。")
+    return "\n".join(lines)
+
+
+def _action_queue_text(items: list[ActionQueueItem]) -> str:
+    if not items:
+        return "\n".join(
+            [
+                "下一步行动队列",
+                "暂无下一步行动。请先运行“今日市场发现”或“研究工作台”。",
+                "边界: 行动队列只推进研究流程，不是买卖建议。",
+            ]
+        )
+    lines = ["下一步行动队列"]
+    for index, item in enumerate(items, start=1):
+        lines.extend(
+            [
+                f"{index}. [{item.area}] {item.title}",
+                f"  为什么: {item.detail}",
+                f"  执行: {item.command}",
+                f"  来源: {item.source}",
+            ]
+        )
+    lines.append("边界: 行动队列只推进研究流程，不是买卖建议。")
     return "\n".join(lines)
 
 

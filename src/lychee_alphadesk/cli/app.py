@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.table import Table
 
 from lychee_alphadesk.core import setup as setup_helpers
+from lychee_alphadesk.core.action_queue import ActionQueueItem, build_action_queue
 from lychee_alphadesk.core.audit import init_audit_db, list_audit_records
 from lychee_alphadesk.core.cache_freshness import (
     cache_entry_status,
@@ -1141,6 +1142,22 @@ def research_data_requests(
     _print_research_data_requests(requests)
 
 
+@research_app.command("next")
+def research_next(
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多展示多少条下一步行动。"),
+    ] = 10,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """查看统一的下一步研究行动队列。"""
+    queue = build_action_queue(output_dir, limit=limit)
+    _print_action_queue(queue)
+
+
 @research_app.command("provider-backlog")
 def research_provider_backlog(
     symbol: Annotated[
@@ -2072,6 +2089,29 @@ def _print_provider_backlog(items: list[ProviderBacklogItem]) -> None:
         console.print(f"   来源备忘录: {item.memo_path}", soft_wrap=True)
         console.print(f"   下钻核验: {item.verification_path}", soft_wrap=True)
     console.print("边界: 数据源缺口队列只用于规划补数据能力，不是买卖建议。", soft_wrap=True)
+
+
+def _print_action_queue(items: list[ActionQueueItem]) -> None:
+    if not items:
+        console.print(
+            "暂无下一步行动。请先运行 `lychee discover today` 或 `lychee research check`。"
+        )
+        return
+    table = Table(title="Lychee AlphaDesk 下一步行动队列")
+    table.add_column("优先级")
+    table.add_column("区域")
+    table.add_column("行动", overflow="fold")
+    table.add_column("命令", overflow="fold")
+    for index, item in enumerate(items, start=1):
+        table.add_row(str(index), item.area, item.title, item.command)
+    console.print(table)
+    console.print("行动明细")
+    for index, item in enumerate(items, start=1):
+        console.print(f"{index}. [{item.area}] {item.title}", soft_wrap=True)
+        console.print(f"   为什么: {item.detail}", soft_wrap=True)
+        console.print(f"   执行: {item.command}", soft_wrap=True)
+        console.print(f"   来源: {item.source}", soft_wrap=True)
+    console.print("边界: 行动队列只推进研究流程，不是买卖建议。", soft_wrap=True)
 
 
 def _print_research_data_request_fulfillment(

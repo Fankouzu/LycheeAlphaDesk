@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 import lychee_alphadesk.cli.app as cli_app
 from lychee_alphadesk.cli.app import app
+from lychee_alphadesk.core.action_queue import ActionQueueItem
 from lychee_alphadesk.core.cache_freshness import record_cache_entry
 from lychee_alphadesk.core.config import set_openai_compatible_llm
 from lychee_alphadesk.core.discovery import (
@@ -2290,6 +2291,48 @@ def test_research_data_requests_command_lists_actionable_requests(tmp_path: Path
     )
     assert "lychee research verify --symbol QQQ" in result.stdout
     assert "数据请求队列只用于补证据，不是买卖建议" in result.stdout
+
+
+def test_research_next_command_lists_unified_action_queue(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    def fake_build_action_queue(output_dir: Path, **kwargs: object) -> list[ActionQueueItem]:
+        assert output_dir == tmp_path
+        assert kwargs["limit"] == 10
+        return [
+            ActionQueueItem(
+                priority=1,
+                area="待判定证据",
+                title="复核 Seagate 的待判定新闻",
+                detail="判断这条新闻是支持、反向还是无关。",
+                command="lychee research evidence-review --symbol STX --verdict support",
+                source="research-verification-test.json",
+            ),
+            ActionQueueItem(
+                priority=2,
+                area="数据源缺口",
+                title="补充 Seagate 的市场广度指标",
+                detail="当前缺少市场广度 provider。",
+                command="lychee data set metric --symbol STX --domain market_breadth",
+                source="research-memo-test.json",
+            ),
+        ]
+
+    monkeypatch.setattr(cli_app, "build_action_queue", fake_build_action_queue)
+
+    result = runner.invoke(
+        app,
+        ["research", "next", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "Lychee AlphaDesk 下一步行动队列" in result.stdout
+    assert "待判定证据" in result.stdout
+    assert "数据源缺口" in result.stdout
+    assert "lychee research evidence-review --symbol STX" in result.stdout
+    assert "lychee data set metric --symbol STX --domain market_breadth" in result.stdout
+    assert "行动队列只推进研究流程，不是买卖建议" in result.stdout
 
 
 def test_research_provider_backlog_command_lists_manual_provider_gaps(

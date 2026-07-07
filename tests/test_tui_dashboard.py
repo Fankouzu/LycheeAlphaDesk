@@ -1754,10 +1754,17 @@ def test_dashboard_research_task_action_generates_llm_memo(
             created_at="2026-07-05T10:02:00+00:00",
             memo=ResearchMemo(
                 summary="QQQ 线索需要先区分科技独立主线和大盘反弹。",
+                working_hypothesis=(
+                    "如果科技股是独立主线，QQQ 相对 SPY 应持续更强并伴随成交量扩散。"
+                ),
                 evidence_reading="已有行情证据，但仍需补充相对强弱和成交量证据。",
                 support_points=["QQQ 已有可观察行情入口。"],
                 skeptic_review=["单一 ETF 不能证明科技主线独立成立。"],
+                falsification_checks=[
+                    "若 QQQ 只是跟随 SPY 同步反弹且成交量不扩散，应降低主题置信度。"
+                ],
                 missing_evidence=["缺少 QQQ 与 SPY 的相对强弱对比。"],
+                next_data_requests=["拉取 QQQ/SPY 近 20 日行情、成交量和前十大成分变化。"],
                 next_research_steps=["补充 QQQ/SPY 对比和成交量扩散证据。"],
                 confidence="medium",
             ),

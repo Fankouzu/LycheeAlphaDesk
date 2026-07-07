@@ -1819,12 +1819,20 @@ def test_research_memo_command_writes_llm_research_memo(
         assert "STX" in prompt
         assert "AI storage demand rises" in prompt
         assert "证据板" in prompt
+        assert "working_hypothesis" in prompt
+        assert "falsification_checks" in prompt
+        assert "next_data_requests" in prompt
         return {
             "summary": "STX 的研究线索来自 AI 存储需求与本地行情证据的交叉。",
+            "working_hypothesis": (
+                "如果 AI 存储需求真实扩散，STX 的订单、毛利率和同行数据应同步改善。"
+            ),
             "evidence_reading": "已有行情、新闻和公告材料，但仍需核对是否同向。",
             "support_points": ["新闻和行情都指向存储需求受到关注。"],
             "skeptic_review": ["硬盘行业仍可能受到周期和库存波动影响。"],
+            "falsification_checks": ["若最新财报没有订单或毛利率改善，这条线索应降级。"],
             "missing_evidence": ["需要更多订单、毛利率和同业对比证据。"],
+            "next_data_requests": ["拉取 STX 最新 10-Q 和同行 WDC 的财报摘要。"],
             "next_research_steps": ["核对最新财报中的收入和毛利率变化。"],
             "confidence": "medium",
         }
@@ -1842,6 +1850,9 @@ def test_research_memo_command_writes_llm_research_memo(
     assert result.exit_code == 0
     assert "研究备忘录已写入" in result.stdout
     assert "STX 的研究线索" in result.stdout
+    assert "工作假设" in result.stdout
+    assert "反证检查" in result.stdout
+    assert "下一批数据请求" in result.stdout
     assert "反方审查" in result.stdout
     assert "下一步研究动作" in result.stdout
     assert "工作台下一步" in result.stdout
@@ -1858,6 +1869,13 @@ def test_research_memo_command_writes_llm_research_memo(
     assert payload["mode"] == "llm-research-memo"
     assert payload["candidate"]["symbol"] == "STX"
     assert payload["memo"]["confidence"] == "medium"
+    assert payload["memo"]["working_hypothesis"].startswith("如果 AI 存储需求")
+    assert payload["memo"]["falsification_checks"] == [
+        "若最新财报没有订单或毛利率改善，这条线索应降级。"
+    ]
+    assert payload["memo"]["next_data_requests"] == [
+        "拉取 STX 最新 10-Q 和同行 WDC 的财报摘要。"
+    ]
     assert payload["memo"]["skeptic_review"] == [
         "硬盘行业仍可能受到周期和库存波动影响。"
     ]
@@ -1949,10 +1967,13 @@ def test_research_memo_next_steps_follow_decision_board_for_weak_evidence(
         assert "needs_more_evidence" in prompt
         return {
             "summary": "港股压力观察已有代理行情，但主题新闻证据不足。",
+            "working_hypothesis": "如果港股压力是市场级问题，宽基代理与主题新闻应同时显示压力。",
             "evidence_reading": "可交易性和成交量可观察，主题证据仍需补强。",
             "support_points": ["2800.HK 已有本地行情和成交量。"],
             "skeptic_review": ["现有新闻不能回答港股压力研究问题。"],
+            "falsification_checks": ["若宽基代理没有走弱且主题新闻缺席，应降低这条线索优先级。"],
             "missing_evidence": ["缺少直接命中港股压力主题的新闻。"],
+            "next_data_requests": ["刷新港股市场级新闻并拉取 2800.HK 与 3033.HK 行情。"],
             "next_research_steps": ["刷新主题新闻后重新下钻核验。"],
             "confidence": "low",
         }
@@ -2067,10 +2088,17 @@ def test_research_memo_artifacts_do_not_overwrite_with_same_second(
                         "content": json.dumps(
                             {
                                 "summary": "STX 研究备忘录。",
+                                "working_hypothesis": (
+                                    "如果 AI 存储需求扩散，STX 与同行数据应出现同向改善。"
+                                ),
                                 "evidence_reading": "已有行情、新闻和公告材料。",
                                 "support_points": ["已有 STX 行情。"],
                                 "skeptic_review": ["仍需核对周期风险。"],
+                                "falsification_checks": [
+                                    "若同行和财报没有同步改善，应降低线索置信度。"
+                                ],
                                 "missing_evidence": ["缺少同行对比。"],
+                                "next_data_requests": ["拉取 WDC 行情与 STX 最新公告摘要。"],
                                 "next_research_steps": ["继续补同行数据。"],
                                 "confidence": "medium",
                             },
@@ -2121,10 +2149,15 @@ def test_research_memos_command_lists_memo_history(
     def fake_request_chat_json(config: object, **kwargs: object) -> dict[str, object]:
         return {
             "summary": "STX 需要继续核验 AI 存储需求是否反映到订单和利润。",
+            "working_hypothesis": (
+                "如果 AI 存储需求真实转化为基本面，订单、利润率和同行表现应互相印证。"
+            ),
             "evidence_reading": "已有研究入口，但证据仍需继续补强。",
             "support_points": ["已有 STX 研究任务。"],
             "skeptic_review": ["单一新闻不能证明基本面变化。"],
+            "falsification_checks": ["若最新财报和同行对比没有改善，应把线索降级为新闻噪声。"],
             "missing_evidence": ["缺少最新财报证据。"],
+            "next_data_requests": ["补充 STX 财报摘要、WDC 对比和近 20 日成交量。"],
             "next_research_steps": ["补充财报和同行对比。"],
             "confidence": "low",
         }
@@ -2170,10 +2203,13 @@ def test_research_memo_command_rejects_investment_advice_language(
     def fake_request_chat_json(config: object, **kwargs: object) -> dict[str, object]:
         return {
             "summary": "这份备忘录错误地给出了目标价。",
+            "working_hypothesis": "如果 AI 存储线索成立，需要看到订单和毛利率改善。",
             "evidence_reading": "已有材料不足以支持交易判断。",
             "support_points": ["新闻提到了 AI 存储需求。"],
             "skeptic_review": ["周期行业波动仍需核验。"],
+            "falsification_checks": ["若财报没有订单改善，线索应降级。"],
             "missing_evidence": ["需要订单和毛利率证据。"],
+            "next_data_requests": ["补充最新财报和同行数据。"],
             "next_research_steps": ["目标价 150 美元，预期收益较高。"],
             "confidence": "medium",
         }

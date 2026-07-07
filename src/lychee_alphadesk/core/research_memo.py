@@ -16,10 +16,13 @@ from lychee_alphadesk.core.workbench import (
 @dataclass(frozen=True)
 class ResearchMemo:
     summary: str
+    working_hypothesis: str
     evidence_reading: str
     support_points: list[str]
     skeptic_review: list[str]
+    falsification_checks: list[str]
     missing_evidence: list[str]
+    next_data_requests: list[str]
     next_research_steps: list[str]
     confidence: str
 
@@ -103,10 +106,13 @@ def _build_research_memo_messages(
 ) -> list[dict[str, str]]:
     schema = {
         "summary": "string",
+        "working_hypothesis": "string",
         "evidence_reading": "string",
         "support_points": ["string"],
         "skeptic_review": ["string"],
+        "falsification_checks": ["string"],
         "missing_evidence": ["string"],
+        "next_data_requests": ["string"],
         "next_research_steps": ["string"],
         "confidence": "low|medium|high",
     }
@@ -129,8 +135,10 @@ def _build_research_memo_messages(
         "Do not give buy/sell/hold advice, target prices, allocation advice, "
         "position sizing, expected return, or trading instructions. "
         "Your job is to summarize the evidence board, list support points, "
-        "write a skeptic review, identify missing evidence, and propose next "
-        "research steps."
+        "state one working hypothesis, write a skeptic review, define "
+        "falsification checks that would downgrade the clue, identify missing "
+        "evidence, request the next data to collect, and propose next research "
+        "steps."
     )
     user_prompt = (
         "请基于这条研究任务的下钻核验结果生成研究备忘录。\n\n"
@@ -146,10 +154,13 @@ def _build_research_memo_messages(
 def _parse_research_memo(payload: dict[str, object]) -> ResearchMemo:
     memo = ResearchMemo(
         summary=_required_string(payload, "summary"),
+        working_hypothesis=_required_string(payload, "working_hypothesis"),
         evidence_reading=_required_string(payload, "evidence_reading"),
         support_points=_required_string_list(payload, "support_points"),
         skeptic_review=_required_string_list(payload, "skeptic_review"),
+        falsification_checks=_required_string_list(payload, "falsification_checks"),
         missing_evidence=_required_string_list(payload, "missing_evidence"),
+        next_data_requests=_required_string_list(payload, "next_data_requests"),
         next_research_steps=_required_string_list(payload, "next_research_steps"),
         confidence=_required_string(payload, "confidence"),
     )

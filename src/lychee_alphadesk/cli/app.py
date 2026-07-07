@@ -1730,6 +1730,8 @@ def _print_research_memo(result: ResearchMemoResult) -> None:
     console.print(f"置信度: {memo.confidence}")
     console.print("摘要")
     console.print(memo.summary, soft_wrap=True)
+    console.print("工作假设")
+    console.print(memo.working_hypothesis, soft_wrap=True)
     console.print("证据读数")
     console.print(memo.evidence_reading, soft_wrap=True)
     console.print("支持证据")
@@ -1738,8 +1740,14 @@ def _print_research_memo(result: ResearchMemoResult) -> None:
     console.print("反方审查")
     for item in memo.skeptic_review:
         console.print(f"- {item}", soft_wrap=True)
+    console.print("反证检查")
+    for item in memo.falsification_checks:
+        console.print(f"- {item}", soft_wrap=True)
     console.print("待补证据")
     for item in memo.missing_evidence:
+        console.print(f"- {item}", soft_wrap=True)
+    console.print("下一批数据请求")
+    for item in memo.next_data_requests:
         console.print(f"- {item}", soft_wrap=True)
     console.print("下一步研究动作")
     for item in memo.next_research_steps:

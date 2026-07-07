@@ -159,6 +159,65 @@ def test_data_guide_fund_command_writes_beginner_metadata_template(
     assert "tracking_index" in guide["required_fields"]
     assert "香港交易所 ETF 页面" in guide["suggested_sources"]
     assert guide["write_command"].startswith("lychee data set fund --symbol 3456.HK")
+    assert guide["apply_command"].startswith("lychee data set fund --from-file")
+
+
+def test_data_set_fund_command_imports_completed_guide_template(
+    tmp_path: Path,
+) -> None:
+    guide_result = runner.invoke(
+        app,
+        [
+            "data",
+            "guide",
+            "fund",
+            "--symbol",
+            "3456.HK",
+            "--name",
+            "E Fund HKEX Tech 100 ETF",
+            "--market",
+            "HK",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert guide_result.exit_code == 0
+    guide_path = tmp_path / "data" / "fund-metadata-guide-3456.HK.json"
+    guide = json.loads(guide_path.read_text("utf-8"))
+    guide["template"].update(
+        {
+            "tracking_index": "HKEX Tech 100 Index",
+            "expense_ratio": "0.99%",
+            "holdings_summary": "前十大成分覆盖港股科技龙头",
+            "source_url": "https://example.com/3456",
+            "as_of": "2026-07-07",
+        }
+    )
+    guide_path.write_text(json.dumps(guide, ensure_ascii=False), encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "set",
+            "fund",
+            "--from-file",
+            str(guide_path),
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "基金资料已写入" in result.stdout
+    assert "3456.HK" in result.stdout
+    cache = json.loads((tmp_path / "data" / "fund-metadata.json").read_text("utf-8"))
+    row = cache["rows"][0]
+    assert row["symbol"] == "3456.HK"
+    assert row["tracking_index"] == "HKEX Tech 100 Index"
+    assert row["expense_ratio"] == "0.99%"
+    assert row["holdings_summary"] == "前十大成分覆盖港股科技龙头"
+    assert row["source_url"] == "https://example.com/3456"
 
 
 def test_discover_today_requires_llm_configuration(

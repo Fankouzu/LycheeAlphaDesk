@@ -77,6 +77,7 @@ class FundMetadataGuide:
     required_fields: list[str]
     suggested_sources: list[str]
     write_command: str
+    apply_command: str
     output_path: Path
 
 
@@ -104,6 +105,7 @@ def write_fund_metadata_guide(
         display_name=clean_name,
         market=normalized_market,
     )
+    output_path = _fund_metadata_guide_path(output_dir, normalized_symbol)
     guide = FundMetadataGuide(
         symbol=normalized_symbol,
         display_name=clean_name,
@@ -111,7 +113,8 @@ def write_fund_metadata_guide(
         required_fields=required_fields,
         suggested_sources=suggested_sources,
         write_command=write_command,
-        output_path=_fund_metadata_guide_path(output_dir, normalized_symbol),
+        apply_command=f"lychee data set fund --from-file {_quote_cli_value(str(output_path))}",
+        output_path=output_path,
     )
     guide.output_path.parent.mkdir(parents=True, exist_ok=True)
     guide.output_path.write_text(
@@ -123,6 +126,7 @@ def write_fund_metadata_guide(
                 "required_fields": guide.required_fields,
                 "suggested_sources": guide.suggested_sources,
                 "write_command": guide.write_command,
+                "apply_command": guide.apply_command,
                 "template": {
                     "tracking_index": "",
                     "expense_ratio": "",
@@ -141,6 +145,36 @@ def write_fund_metadata_guide(
         encoding="utf-8",
     )
     return guide
+
+
+def write_fund_metadata_cache_from_file(
+    *,
+    output_dir: Path,
+    guide_path: Path,
+) -> PullResult:
+    try:
+        payload = json.loads(guide_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as error:
+        raise ValueError(f"基金资料模板不存在: {guide_path}") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f"基金资料模板不是有效 JSON: {guide_path}") from error
+    if not isinstance(payload, dict):
+        raise ValueError("基金资料模板必须是 JSON 对象。")
+    template = payload.get("template")
+    if not isinstance(template, dict):
+        raise ValueError("基金资料模板缺少 template 对象。")
+    return write_fund_metadata_cache(
+        output_dir=output_dir,
+        symbol=_json_text(payload, "symbol"),
+        display_name=_json_text(payload, "display_name"),
+        market=_json_text(payload, "market"),
+        tracking_index=_json_text(template, "tracking_index"),
+        expense_ratio=_json_text(template, "expense_ratio"),
+        holdings_summary=_json_text(template, "holdings_summary"),
+        source_url=_json_text(template, "source_url"),
+        as_of=_json_text(template, "as_of"),
+        provider="manual",
+    )
 
 
 def write_fund_metadata_cache(
@@ -191,6 +225,11 @@ def write_fund_metadata_cache(
 def _fund_metadata_guide_path(output_dir: Path, symbol: str) -> Path:
     safe_symbol = re.sub(r"[^A-Z0-9._-]+", "-", symbol.upper()).strip("-")
     return output_dir / "data" / f"fund-metadata-guide-{safe_symbol}.json"
+
+
+def _json_text(payload: dict[object, object], key: str) -> str:
+    value = payload.get(key)
+    return value if isinstance(value, str) else ""
 
 
 def _fund_metadata_suggested_sources(market: str) -> list[str]:

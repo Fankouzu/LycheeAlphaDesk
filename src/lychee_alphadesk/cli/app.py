@@ -39,6 +39,7 @@ from lychee_alphadesk.core.live_data import (
     pull_sec_filings,
     run_cached_data_health,
     write_fund_metadata_cache,
+    write_fund_metadata_cache_from_file,
     write_fund_metadata_guide,
 )
 from lychee_alphadesk.core.llm import LLMProviderError
@@ -1213,17 +1214,21 @@ def data_pull_filings(
 @data_set_app.command("fund")
 def data_set_fund(
     symbol: Annotated[
-        str,
+        str | None,
         typer.Option("--symbol", help="基金或 ETF 代码，例如 2800.HK、510300.SH。"),
-    ],
+    ] = None,
     display_name: Annotated[
-        str,
+        str | None,
         typer.Option("--name", help="基金或 ETF 显示名称。"),
-    ],
+    ] = None,
     source_url: Annotated[
-        str,
+        str | None,
         typer.Option("--source-url", help="资料来源 URL。"),
-    ],
+    ] = None,
+    from_file: Annotated[
+        Path | None,
+        typer.Option("--from-file", help="从 data guide fund 生成并填写后的 JSON 模板导入。"),
+    ] = None,
     market: Annotated[
         str,
         typer.Option("--market", help="市场，例如 US、HK、CN。"),
@@ -1255,23 +1260,42 @@ def data_set_fund(
 ) -> None:
     """写入基金/ETF 元资料缓存，用于代理标的核验。"""
     try:
-        result = write_fund_metadata_cache(
-            output_dir=output_dir,
-            symbol=symbol,
-            display_name=display_name,
-            market=market,
-            tracking_index=tracking_index,
-            expense_ratio=expense_ratio,
-            holdings_summary=holdings_summary,
-            source_url=source_url,
-            as_of=as_of,
-            provider=provider,
-        )
+        if from_file is not None:
+            result = write_fund_metadata_cache_from_file(
+                output_dir=output_dir,
+                guide_path=from_file,
+            )
+            symbol_text = _fund_symbol_from_result_path(from_file)
+        else:
+            if symbol is None or display_name is None or source_url is None:
+                raise ValueError(
+                    "请提供 --symbol、--name、--source-url，或使用 --from-file 导入已填写模板。"
+                )
+            result = write_fund_metadata_cache(
+                output_dir=output_dir,
+                symbol=symbol,
+                display_name=display_name,
+                market=market,
+                tracking_index=tracking_index,
+                expense_ratio=expense_ratio,
+                holdings_summary=holdings_summary,
+                source_url=source_url,
+                as_of=as_of,
+                provider=provider,
+            )
+            symbol_text = symbol.strip().upper()
     except ValueError as error:
         console.print(str(error), soft_wrap=True)
         raise typer.Exit(code=1) from error
-    console.print(f"基金资料已写入: {symbol.strip().upper()}")
+    console.print(f"基金资料已写入: {symbol_text}")
     _print_pull_result(result_label="基金资料", count=result.count, result=result)
+
+
+def _fund_symbol_from_result_path(path: Path) -> str:
+    return (
+        path.stem.removeprefix("fund-metadata-guide-").strip().upper()
+        or path.stem.upper()
+    )
 
 
 @data_guide_app.command("fund")
@@ -1315,6 +1339,8 @@ def data_guide_fund(
     console.print("建议来源")
     for source in guide.suggested_sources:
         console.print(f"- {source}")
+    console.print("填完模板后导入")
+    console.print(guide.apply_command, soft_wrap=True)
     console.print("查完后写入")
     console.print(guide.write_command, soft_wrap=True)
     console.print("边界: 向导只生成模板，不会猜测基金资料，也不是投资建议。")

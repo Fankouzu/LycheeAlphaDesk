@@ -45,7 +45,7 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert "排序理由:" in result.beginner_brief
     assert "证据状态:" in result.beginner_brief
     assert "关键核验:" in result.beginner_brief
-    assert '执行命令: lychee research verify --name "恒生指数压力观察"' in (
+    assert '执行命令: lychee research run --name "恒生指数压力观察" --force' in (
         result.beginner_brief
     )
     assert "下一步队列" in result.beginner_brief
@@ -74,7 +74,7 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert payload["candidates"][0]["evidence_status"]
     assert (
         payload["candidates"][0]["next_command"]
-        == 'lychee research verify --name "恒生指数压力观察"'
+        == 'lychee research run --name "恒生指数压力观察" --force'
     )
 
 
@@ -212,14 +212,15 @@ def test_workbench_check_downgrades_reverse_only_evidence(
     assert candidate.priority == "P2 先复核证据"
     assert "证据质量: 支持 0 | 反向 " in candidate.evidence_status
     assert "只有反向或待判定证据" in candidate.ranking_reason
-    assert "先运行下钻核验复核证据方向" in candidate.next_step
+    assert "刷新主题新闻" in candidate.next_step
+    assert candidate.next_command == "lychee research run --symbol STX --force"
     assert "P2 先复核证据" in result.beginner_brief
     assert "只有反向或待判定证据" in result.beginner_brief
 
     detail = render_research_task_detail(candidate, result.deepen_result.packets[0])
     assert "阶段: 先复核证据" in detail
     assert "信号读数: 证据需复核" in detail
-    assert "下一步判断: 先运行下钻核验复核证据方向" in detail
+    assert "下一步判断: 先刷新主题新闻" in detail
 
     payload = json.loads(result.artifact_path.read_text(encoding="utf-8"))
     assert payload["candidates"][0]["evidence_quality"] == "needs_review"

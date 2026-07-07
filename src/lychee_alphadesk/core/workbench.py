@@ -2006,7 +2006,7 @@ def build_research_assessment(
             consistency="pending_evidence_direction_review",
             consistency_label="待核验",
             evidence_reading=_evidence_review_reading(candidate.evidence_quality),
-            next_decision="先运行下钻核验复核证据方向，再决定是否继续研究。",
+            next_decision="先刷新主题新闻并重新下钻核验，再决定是否继续研究。",
         )
     if candidate.proxy_symbols and not candidate.symbol:
         return ResearchAssessment(
@@ -2725,6 +2725,7 @@ def _candidate_checks(packets: list[ResearchPacket]) -> list[CandidateCheck]:
                     symbol=packet.symbol,
                     display_name=packet.display_name,
                     data_gaps=data_gaps,
+                    evidence_quality=evidence_quality,
                 ),
             )
         )
@@ -3097,9 +3098,10 @@ def _next_command(
     symbol: str | None,
     display_name: str,
     data_gaps: list[str],
+    evidence_quality: CandidateEvidenceQuality,
 ) -> str:
     selector = _research_selector(symbol, display_name)
-    if status == "blocked" or data_gaps:
+    if status == "blocked" or data_gaps or evidence_quality.needs_review:
         return f"lychee research run {selector} --force"
     return f"lychee research verify {selector}"
 
@@ -3200,7 +3202,7 @@ def _next_step(
     if data_gaps:
         return f"下一步先补齐 {'；'.join(data_gaps)}。"
     if evidence_quality.needs_review:
-        return "先运行下钻核验复核证据方向，再决定是否继续研究。"
+        return "先刷新主题新闻并重新下钻核验，确认现有证据是否只是市场噪音。"
     if next_actions:
         cleaned_actions = [
             action.rstrip("。；;,.， ")

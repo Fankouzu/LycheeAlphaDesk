@@ -263,6 +263,203 @@ def test_verify_research_task_uses_cached_proxy_fund_metadata(
     assert "缺少 2800.HK 成分/费用缓存" not in proxy_check.detail
 
 
+def test_verify_research_task_requires_direct_etf_fund_metadata(
+    tmp_path: Path,
+) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["HK"],
+        sources=[DiscoverySource(provider="test-llm", market="HK", description="测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="港股科技 ETF 观察",
+                markets=["HK"],
+                summary="观察港股科技 ETF 的成交额和成分覆盖。",
+                evidence=["news_001"],
+                sectors=["ETF"],
+                risk_flags=["需要核对 ETF 成分和费用"],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="E Fund HKEX Tech 100 ETF",
+                symbol="3456.HK",
+                market="HK",
+                asset_type="ETF",
+                related_theme="港股科技 ETF 观察",
+                why_watch="用 ETF 观察港股科技板块资金是否回流。",
+                evidence=["news_001"],
+                risk_flags=["需要核对 ETF 成分和费用"],
+                next_actions=["核对基金成分和费用", "观察成交额稳定性"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(report, tmp_path, tmp_path / "data" / "discovery-today.json")
+    _write_live_caches(tmp_path, news_headline="HKEX Tech ETF turnover improves")
+    data_dir = tmp_path / "data"
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "auto",
+                "rows": [
+                    {
+                        "symbol": "3456.HK",
+                        "date": "2026-07-05",
+                        "close": 7.8,
+                        "volume": 647200,
+                        "currency": "HKD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = verify_research_task(
+        output_dir=tmp_path,
+        symbol="3456.HK",
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    fund_check = next(check for check in result.checks if check.name == "基金资料核验")
+    assert fund_check.status == "warn"
+    assert "缺少 3456.HK 成分/费用缓存" in fund_check.detail
+    assert any(
+        "基金资料: 缺少 3456.HK 成分/费用缓存" in item
+        for item in result.evidence_board["missing"]
+    )
+    assert result.decision_board.workflow_state == "fund_metadata_review"
+    assert any(
+        "lychee data set fund --symbol 3456.HK" in command
+        for command in result.decision_board.next_commands
+    )
+    assert not any(
+        "lychee research memo --symbol 3456.HK" in command
+        for command in result.decision_board.next_commands
+    )
+    workbench = run_workbench_check(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 5, tzinfo=UTC),
+    )
+    candidate = workbench.candidates[0]
+    assert candidate.priority == "P2 待补基金资料"
+    assert "先补 ETF/基金资料" in candidate.next_step
+    assert "lychee data set fund --symbol 3456.HK" in candidate.next_command
+    assert "lychee data set fund --symbol 3456.HK" in workbench.beginner_brief
+
+
+def test_verify_research_task_uses_direct_etf_fund_metadata(
+    tmp_path: Path,
+) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["HK"],
+        sources=[DiscoverySource(provider="test-llm", market="HK", description="测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="港股科技 ETF 观察",
+                markets=["HK"],
+                summary="观察港股科技 ETF 的成交额和成分覆盖。",
+                evidence=["news_001"],
+                sectors=["ETF"],
+                risk_flags=["需要核对 ETF 成分和费用"],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="E Fund HKEX Tech 100 ETF",
+                symbol="3456.HK",
+                market="HK",
+                asset_type="ETF",
+                related_theme="港股科技 ETF 观察",
+                why_watch="用 ETF 观察港股科技板块资金是否回流。",
+                evidence=["news_001"],
+                risk_flags=["需要核对 ETF 成分和费用"],
+                next_actions=["核对基金成分和费用", "观察成交额稳定性"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(report, tmp_path, tmp_path / "data" / "discovery-today.json")
+    _write_live_caches(tmp_path, news_headline="HKEX Tech ETF turnover improves")
+    data_dir = tmp_path / "data"
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "auto",
+                "rows": [
+                    {
+                        "symbol": "3456.HK",
+                        "date": "2026-07-05",
+                        "close": 7.8,
+                        "volume": 647200,
+                        "currency": "HKD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "fund-metadata.json").write_text(
+        json.dumps(
+            {
+                "provider": "manual",
+                "rows": [
+                    {
+                        "symbol": "3456.HK",
+                        "display_name": "E Fund HKEX Tech 100 ETF",
+                        "market": "HK",
+                        "tracking_index": "HKEX Tech 100 Index",
+                        "expense_ratio": "0.99%",
+                        "holdings_summary": "港股科技龙头组合",
+                        "source_url": "https://example.com/3456",
+                        "as_of": "2026-07-05",
+                        "provider": "manual",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = verify_research_task(
+        output_dir=tmp_path,
+        symbol="3456.HK",
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    fund_check = next(check for check in result.checks if check.name == "基金资料核验")
+    assert fund_check.status == "pass"
+    assert "跟踪指数 HKEX Tech 100 Index" in fund_check.detail
+    assert "费用 0.99%" in fund_check.detail
+    assert any(
+        "基金资料: 3456.HK" in item
+        and "跟踪指数 HKEX Tech 100 Index" in item
+        and "费用 0.99%" in item
+        for item in result.evidence_board["support"]
+    )
+    assert not any(
+        "基金资料: 缺少 3456.HK 成分/费用缓存" in item
+        for item in result.evidence_board["missing"]
+    )
+
+
 def test_workbench_check_downgrades_reverse_only_evidence(
     tmp_path: Path,
 ) -> None:

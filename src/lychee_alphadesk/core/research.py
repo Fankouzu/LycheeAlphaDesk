@@ -255,6 +255,9 @@ def _build_research_packet(
         evidence_id for evidence_id in item.evidence if evidence_id not in evidence_by_id
     ]
     price = _latest_price(symbol, prices) if symbol else None
+    fund_detail = None
+    if _requires_fund_metadata(item, symbol) and symbol is not None:
+        fund_detail = _fund_metadata(symbol, fund_metadata)
     symbol_mapping = _symbol_mapping_rows(item, prices, fund_metadata) if not symbol else []
     related_news = _related_news(
         symbol,
@@ -292,6 +295,7 @@ def _build_research_packet(
         "missing_evidence_ids": missing_evidence,
         "local_data": {
             "price": price,
+            "fund_metadata": asdict(fund_detail) if fund_detail is not None else None,
             "symbol_mapping": symbol_mapping,
             "related_news": related_news,
             "filings": related_filings,
@@ -310,6 +314,10 @@ def _build_research_packet(
         market=item.market,
         packet=packet,
     )
+
+
+def _requires_fund_metadata(item: ResearchQueueItem, symbol: str | None) -> bool:
+    return bool(symbol) and item.asset_type.lower() in {"etf", "fund"}
 
 
 def _symbols_missing_prices(

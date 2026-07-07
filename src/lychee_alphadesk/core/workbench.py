@@ -845,6 +845,15 @@ def build_research_verification_checks(
                 detail="当前任务不要求 SEC 公告/财报核验。",
             )
         )
+    if _requires_direct_fund_metadata(candidate, packet):
+        has_metadata = _direct_fund_metadata_is_complete(candidate, packet_payload)
+        checks.append(
+            ResearchVerificationCheck(
+                name="基金资料核验",
+                status="pass" if has_metadata else "warn",
+                detail=_direct_fund_metadata_check_detail(candidate, packet_payload),
+            )
+        )
     if candidate.proxy_symbols:
         checks.append(
             ResearchVerificationCheck(
@@ -880,6 +889,9 @@ def build_research_evidence_board(
     missing: list[str] = []
     for price in prices[:3]:
         support.append(_price_line(price).removeprefix("行情: "))
+    if _requires_direct_fund_metadata(candidate, packet):
+        support.extend(_direct_fund_metadata_support_lines(candidate, packet_payload))
+        missing.extend(_direct_fund_metadata_missing_data_lines(candidate, packet_payload))
     support.extend(_proxy_mapping_support_lines(packet_payload))
     support.extend(_proxy_operability_support_lines(packet_payload))
     support.extend(_proxy_fund_metadata_support_lines(packet_payload))
@@ -973,6 +985,60 @@ def _proxy_operability_support_lines(packet_payload: dict[str, object]) -> list[
     return lines
 
 
+def _requires_direct_fund_metadata(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> bool:
+    return bool(candidate.symbol) and _asset_type(packet) in {"etf", "fund"}
+
+
+def _direct_fund_metadata_support_lines(
+    candidate: CandidateCheck,
+    packet_payload: dict[str, object],
+) -> list[str]:
+    metadata = _dict_value(_dict_value(packet_payload.get("local_data")).get("fund_metadata"))
+    if not candidate.symbol or not metadata:
+        return []
+    return [_fund_metadata_line("基金资料", candidate.symbol, metadata)]
+
+
+def _direct_fund_metadata_missing_data_lines(
+    candidate: CandidateCheck,
+    packet_payload: dict[str, object],
+) -> list[str]:
+    if not candidate.symbol:
+        return []
+    metadata = _dict_value(_dict_value(packet_payload.get("local_data")).get("fund_metadata"))
+    return _fund_metadata_missing_lines("基金资料", candidate.symbol, metadata)
+
+
+def _direct_fund_metadata_is_complete(
+    candidate: CandidateCheck,
+    packet_payload: dict[str, object],
+) -> bool:
+    if not candidate.symbol:
+        return False
+    metadata = _dict_value(_dict_value(packet_payload.get("local_data")).get("fund_metadata"))
+    return bool(metadata) and not _fund_metadata_missing_lines(
+        "基金资料",
+        candidate.symbol,
+        metadata,
+    )
+
+
+def _direct_fund_metadata_check_detail(
+    candidate: CandidateCheck,
+    packet_payload: dict[str, object],
+) -> str:
+    if not candidate.symbol:
+        return "缺少基金或 ETF 代码，无法核验成分和费用。"
+    metadata = _dict_value(_dict_value(packet_payload.get("local_data")).get("fund_metadata"))
+    missing = _fund_metadata_missing_lines("基金资料", candidate.symbol, metadata)
+    if missing:
+        return "；".join(missing)
+    return _fund_metadata_line("基金资料", candidate.symbol, metadata)
+
+
 def _proxy_fund_metadata_support_lines(packet_payload: dict[str, object]) -> list[str]:
     lines: list[str] = []
     for row in _symbol_mapping_rows(packet_payload):
@@ -980,26 +1046,7 @@ def _proxy_fund_metadata_support_lines(packet_payload: dict[str, object]) -> lis
         metadata = _dict_value(row.get("fund_metadata"))
         if not symbol or not metadata:
             continue
-        parts = [f"代理资料: {symbol}"]
-        display_name = _string_value(metadata.get("display_name"))
-        tracking_index = _string_value(metadata.get("tracking_index"))
-        expense_ratio = _string_value(metadata.get("expense_ratio"))
-        holdings_summary = _string_value(metadata.get("holdings_summary"))
-        source_url = _string_value(metadata.get("source_url"))
-        as_of = _string_value(metadata.get("as_of"))
-        if display_name:
-            parts.append(f"名称 {display_name}")
-        if tracking_index:
-            parts.append(f"跟踪指数 {tracking_index}")
-        if expense_ratio:
-            parts.append(f"费用 {expense_ratio}")
-        if holdings_summary:
-            parts.append(f"成分 {holdings_summary}")
-        if source_url:
-            parts.append(f"来源 {source_url}")
-        if as_of:
-            parts.append(f"截止 {as_of}")
-        lines.append(" | ".join(parts))
+        lines.append(_fund_metadata_line("代理资料", symbol, metadata))
     return lines
 
 
@@ -1008,22 +1055,58 @@ def _proxy_missing_data_lines(packet_payload: dict[str, object]) -> list[str]:
     for row in _symbol_mapping_rows(packet_payload):
         symbol = _string_value(row.get("symbol"))
         metadata = _dict_value(row.get("fund_metadata"))
-        if symbol and not metadata:
-            lines.append(f"代理资料: 缺少 {symbol} 成分/费用缓存")
-            continue
-        missing_parts: list[str] = []
-        if not (
-            _string_value(metadata.get("tracking_index"))
-            or _string_value(metadata.get("holdings_summary"))
-        ):
-            missing_parts.append("成分/跟踪指数")
-        if not _string_value(metadata.get("expense_ratio")):
-            missing_parts.append("费用")
-        if not _string_value(metadata.get("source_url")):
-            missing_parts.append("来源")
-        if symbol and missing_parts:
-            lines.append(f"代理资料: {symbol} 缺少{'、'.join(missing_parts)}缓存")
+        if symbol:
+            lines.extend(_fund_metadata_missing_lines("代理资料", symbol, metadata))
     return lines
+
+
+def _fund_metadata_line(
+    label: str,
+    symbol: str,
+    metadata: dict[str, object],
+) -> str:
+    parts = [f"{label}: {symbol}"]
+    display_name = _string_value(metadata.get("display_name"))
+    tracking_index = _string_value(metadata.get("tracking_index"))
+    expense_ratio = _string_value(metadata.get("expense_ratio"))
+    holdings_summary = _string_value(metadata.get("holdings_summary"))
+    source_url = _string_value(metadata.get("source_url"))
+    as_of = _string_value(metadata.get("as_of"))
+    if display_name:
+        parts.append(f"名称 {display_name}")
+    if tracking_index:
+        parts.append(f"跟踪指数 {tracking_index}")
+    if expense_ratio:
+        parts.append(f"费用 {expense_ratio}")
+    if holdings_summary:
+        parts.append(f"成分 {holdings_summary}")
+    if source_url:
+        parts.append(f"来源 {source_url}")
+    if as_of:
+        parts.append(f"截止 {as_of}")
+    return " | ".join(parts)
+
+
+def _fund_metadata_missing_lines(
+    label: str,
+    symbol: str,
+    metadata: dict[str, object],
+) -> list[str]:
+    if not metadata:
+        return [f"{label}: 缺少 {symbol} 成分/费用缓存"]
+    missing_parts: list[str] = []
+    if not (
+        _string_value(metadata.get("tracking_index"))
+        or _string_value(metadata.get("holdings_summary"))
+    ):
+        missing_parts.append("成分/跟踪指数")
+    if not _string_value(metadata.get("expense_ratio")):
+        missing_parts.append("费用")
+    if not _string_value(metadata.get("source_url")):
+        missing_parts.append("来源")
+    if not missing_parts:
+        return []
+    return [f"{label}: {symbol} 缺少{'、'.join(missing_parts)}缓存"]
 
 
 def _proxy_mapping_check_detail(packet_payload: dict[str, object]) -> str:
@@ -1085,6 +1168,24 @@ def build_research_decision_board(
             suggested_verdict="blocked",
             next_steps=[f"先处理{check.name}: {check.detail}" for check in failed[:3]],
             candidate=candidate,
+        )
+    fund_metadata_check = _warning_check(checks, "基金资料核验")
+    if fund_metadata_check is not None:
+        return _research_decision_board(
+            workflow_state="fund_metadata_review",
+            workflow_label="先补 ETF/基金资料",
+            primary_question=question,
+            decision_rule="ETF/基金必须先核对成分、跟踪指数、费用和来源，否则不能判断它是否覆盖研究主题。",
+            suggested_verdict="needs_more_evidence",
+            next_steps=[
+                "先从基金公司、交易所或券商页面补齐成分/跟踪指数、费用和来源。",
+                "补齐后重新运行下钻核验，再决定是否生成研究备忘录。",
+            ],
+            candidate=candidate,
+            next_commands=[
+                _fund_metadata_set_command(candidate),
+                _research_review_command(candidate, "needs_more_evidence"),
+            ],
         )
     if topic_relevance.matched_count == 0:
         next_steps = [
@@ -1181,6 +1282,7 @@ def _research_decision_board(
     suggested_verdict: str,
     next_steps: list[str],
     candidate: CandidateCheck,
+    next_commands: list[str] | None = None,
 ) -> ResearchDecisionBoard:
     return ResearchDecisionBoard(
         workflow_state=workflow_state,
@@ -1190,8 +1292,17 @@ def _research_decision_board(
         suggested_verdict=suggested_verdict,
         suggested_verdict_label=RESEARCH_REVIEW_VERDICTS[suggested_verdict],
         next_steps=next_steps,
-        next_commands=_decision_board_next_commands(candidate, suggested_verdict),
+        next_commands=next_commands
+        if next_commands is not None
+        else _decision_board_next_commands(candidate, suggested_verdict),
     )
+
+
+def _warning_check(
+    checks: list[ResearchVerificationCheck],
+    name: str,
+) -> ResearchVerificationCheck | None:
+    return next((check for check in checks if check.name == name and check.status == "warn"), None)
 
 
 def _decision_board_next_commands(
@@ -1221,6 +1332,28 @@ def _decision_board_next_commands(
         f"--verdict {suggested_verdict} --note {note}"
     )
     return commands
+
+
+def _research_review_command(
+    candidate: CandidateCheck,
+    verdict: str,
+) -> str:
+    selector = _research_selector(candidate.symbol, candidate.display_name)
+    note = _quote_cli_value("证据仍需补强，继续研究流程复核。")
+    return f"lychee research review {selector} --verdict {verdict} --note {note}"
+
+
+def _fund_metadata_set_command(candidate: CandidateCheck) -> str:
+    symbol = candidate.symbol or "<SYMBOL>"
+    return (
+        f"lychee data set fund --symbol {symbol} "
+        f"--name {_quote_cli_value(candidate.display_name)} "
+        f"--market {candidate.market.upper() or '<MARKET>'} "
+        '--tracking-index "<填写跟踪指数>" '
+        '--expense-ratio "<填写费用率>" '
+        '--holdings-summary "<填写成分摘要>" '
+        '--source-url "<填写资料来源URL>"'
+    )
 
 
 def build_research_evidence_change(
@@ -2935,7 +3068,12 @@ def _candidate_checks(
                 evidence_quality=evidence_quality,
             ),
         )
-        if output_dir is not None and _latest_research_run_exhausted_topic_news(
+        if output_dir is not None and _latest_verification_requires_fund_metadata(
+            output_dir,
+            candidate_check,
+        ):
+            candidate_check = _mark_fund_metadata_review(candidate_check)
+        elif output_dir is not None and _latest_research_run_exhausted_topic_news(
             output_dir,
             candidate_check,
             packet,
@@ -2949,6 +3087,28 @@ def _candidate_checks(
             candidate_check = _mark_topic_news_review_ready(candidate_check)
         checks.append(candidate_check)
     return checks
+
+
+def _latest_verification_requires_fund_metadata(
+    output_dir: Path,
+    candidate: CandidateCheck,
+) -> bool:
+    path = _latest_matching_verification_artifact(output_dir, candidate)
+    if path is None:
+        return False
+    payload = _read_json_dict(path)
+    decision_board = _dict_value(payload.get("decision_board"))
+    return _string_value(decision_board.get("workflow_state")) == "fund_metadata_review"
+
+
+def _mark_fund_metadata_review(candidate: CandidateCheck) -> CandidateCheck:
+    return replace(
+        candidate,
+        priority="P2 待补基金资料",
+        ranking_reason="最近一次下钻核验要求先补 ETF/基金成分、跟踪指数、费用和来源。",
+        next_step="先补 ETF/基金资料；补齐后重新运行下钻核验。",
+        next_command=_fund_metadata_set_command(candidate),
+    )
 
 
 def _actions_exhausted_topic_news(

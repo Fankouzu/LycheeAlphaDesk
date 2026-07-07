@@ -12,7 +12,9 @@ from lychee_alphadesk.core.live_data import PullResult
 from lychee_alphadesk.core.research import ResearchPacket
 from lychee_alphadesk.core.research_db import write_discovery_research_run
 from lychee_alphadesk.core.workbench import (
+    CandidateCheck,
     beginner_research_brief,
+    build_research_evidence_change,
     render_research_task_detail,
     run_research_task,
     run_workbench_check,
@@ -224,6 +226,187 @@ def test_research_run_refreshes_topic_news_for_weak_evidence(
     assert result.assessment.stage == "ready_for_drilldown"
     assert "阶段: 可下钻研究" in result.detail
     assert "AI storage demand growth improves" in result.detail
+
+
+def test_research_run_detail_shows_refreshed_proxy_prices(tmp_path: Path) -> None:
+    _write_symbolless_seed(tmp_path)
+    _write_live_caches(tmp_path)
+
+    def fake_market_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        data_dir = output_dir / "data"
+        data_dir.mkdir(exist_ok=True)
+        output_path = data_dir / "market-prices.json"
+        output_path.write_text(
+            json.dumps(
+                {
+                    "provider": "auto",
+                    "rows": [
+                        {
+                            "symbol": "2800.HK",
+                            "date": "2026-07-05",
+                            "close": 24.06,
+                            "volume": 315211058,
+                            "currency": "HKD",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("market", "auto", 1, output_path, [])
+
+    result = run_research_task(
+        output_dir=tmp_path,
+        name="恒生指数压力观察",
+        force=True,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+        pull_market=fake_market_pull,
+        pull_news=_fake_news_pull,
+    )
+
+    assert "行情: 2800.HK 24.06 HKD | 2026-07-05" in result.detail
+    assert "行情: 暂无本地行情。" not in result.detail
+
+
+def test_research_run_detail_includes_topic_news_for_proxy_theme(
+    tmp_path: Path,
+) -> None:
+    _write_symbolless_seed(tmp_path)
+    _write_live_caches(tmp_path, include_proxy_price=True)
+
+    def fake_news_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        data_dir = output_dir / "data"
+        data_dir.mkdir(exist_ok=True)
+        output_path = data_dir / "news-events.json"
+        query = str(kwargs.get("query") or "")
+        if query:
+            output_path.write_text(
+                json.dumps(
+                    {
+                        "provider": "newsapi",
+                        "rows": [
+                            {
+                                "timestamp": "2026-07-05T09:30:00+00:00",
+                                "headline": "Hang Seng liquidity improves for Hong Kong stocks",
+                                "summary": (
+                                    "Hong Kong stocks rose as broad market "
+                                    "liquidity improved."
+                                ),
+                                "symbols": ["MARKET"],
+                                "source_url": "https://example.com/hang-seng",
+                            },
+                            {
+                                "timestamp": "2026-07-05T09:31:00+00:00",
+                                "headline": "QQQ broad market technology ETF gains",
+                                "summary": (
+                                    "US broad market technology shares rose "
+                                    "with Nasdaq strength."
+                                ),
+                                "symbols": ["QQQ"],
+                                "source_url": "https://example.com/qqq",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            return PullResult("news", "newsapi", 2, output_path, [])
+        return PullResult("news", "newsapi", 0, output_path, [])
+
+    result = run_research_task(
+        output_dir=tmp_path,
+        name="恒生指数压力观察",
+        force=True,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+        pull_market=_fake_market_pull,
+        pull_news=fake_news_pull,
+    )
+
+    assert "相关新闻" in result.detail
+    assert "Hang Seng liquidity improves for Hong Kong stocks" in result.detail
+    assert "QQQ broad market technology ETF gains" not in result.detail
+    assert "相关新闻: 1 条" in result.detail
+    assert "主题新闻过滤: 本次拉取 2 条，1 条进入相关新闻。" in result.detail
+
+
+def test_evidence_change_marks_content_replacement_as_changed(tmp_path: Path) -> None:
+    research_dir = tmp_path / "research"
+    research_dir.mkdir(parents=True)
+    (research_dir / "research-verification-20260704-010000Z.json").write_text(
+        json.dumps(
+            {
+                "created_at": "2026-07-04T01:00:00+00:00",
+                "candidate": {
+                    "display_name": "Invesco QQQ Trust",
+                    "market": "US",
+                    "symbol": "QQQ",
+                    "proxy_symbols": [],
+                },
+                "evidence_board": {
+                    "support": ["QQQ 712.60 USD | 2026-07-02 | 成交量 50959800"],
+                    "risk": ["新闻待判定: Old QQQ headline 命中主题但方向未明。"],
+                    "missing": [],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    candidate = CandidateCheck(
+        display_name="Invesco QQQ Trust",
+        market="US",
+        symbol="QQQ",
+        proxy_symbols=[],
+        evidence_count=1,
+        gap_count=0,
+        data_gaps=[],
+        status="ready",
+        explanation="",
+        beginner_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+        why_it_matters="",
+        observation_entry="QQQ",
+        what_to_check="",
+        next_step="",
+        priority="P2 先复核证据",
+        evidence_status="",
+    )
+
+    change = build_research_evidence_change(
+        output_dir=tmp_path,
+        candidate=candidate,
+        evidence_board={
+            "support": ["QQQ 722.82 USD | 2026-07-06 | 成交量 30220428"],
+            "risk": ["新闻待判定: New QQQ headline 命中主题但方向未明。"],
+            "missing": [],
+        },
+    )
+
+    assert change.status != "unchanged"
+    assert change.status_label != "证据未变化"
+    assert change.added["support"]
+    assert change.removed["support"]
+
+
+def test_research_verification_artifacts_do_not_overwrite_with_same_second(
+    tmp_path: Path,
+) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(tmp_path, include_stock_price=True, include_filings=True)
+    now = datetime(2026, 7, 5, 11, 0, tzinfo=UTC)
+
+    first = verify_research_task(output_dir=tmp_path, symbol="STX", now=now)
+    second = verify_research_task(output_dir=tmp_path, symbol="STX", now=now)
+
+    assert first.artifact_path != second.artifact_path
+    assert first.artifact_path.exists()
+    assert second.artifact_path.exists()
+    assert len(list((tmp_path / "research").glob("research-verification-*.json"))) == 2
 
 
 def test_beginner_brief_formats_direct_etf_entry_readably() -> None:
@@ -441,3 +624,9 @@ def _fake_filings_pull(**kwargs: object) -> PullResult:
     output_dir = kwargs["output_dir"]
     assert isinstance(output_dir, Path)
     return PullResult("filings", "sec_edgar", 1, output_dir / "data" / "filings.json", [])
+
+
+def _fake_news_pull(**kwargs: object) -> PullResult:
+    output_dir = kwargs["output_dir"]
+    assert isinstance(output_dir, Path)
+    return PullResult("news", "auto", 0, output_dir / "data" / "news-events.json", [])

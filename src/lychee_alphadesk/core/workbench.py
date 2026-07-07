@@ -683,7 +683,10 @@ def run_research_task(
         if refreshed_index < len(refreshed.deepen_result.packets)
         else None
     )
-    action_status = _research_run_action_status(actions)
+    action_status = _research_run_action_status(
+        actions,
+        related_news_count=_packet_related_news_count(refreshed_packet),
+    )
     detail = render_research_task_detail(
         refreshed_candidate,
         refreshed_packet,
@@ -1093,6 +1096,7 @@ def build_research_evidence_change(
     previous_counts = _evidence_board_counts(previous_board)
     current_counts = _evidence_board_counts(evidence_board)
     added, removed = _evidence_board_diff(previous_board, evidence_board)
+    has_item_changes = _has_evidence_item_changes(added, removed)
     support_delta = current_counts["support"] - previous_counts["support"]
     risk_delta = current_counts["risk"] - previous_counts["risk"]
     missing_delta = current_counts["missing"] - previous_counts["missing"]
@@ -1100,6 +1104,7 @@ def build_research_evidence_change(
         support_delta,
         risk_delta,
         missing_delta,
+        has_item_changes,
     )
     return ResearchEvidenceChange(
         status=status,
@@ -1108,6 +1113,7 @@ def build_research_evidence_change(
             support_delta,
             risk_delta,
             missing_delta,
+            has_item_changes,
         ),
         support_delta=support_delta,
         risk_delta=risk_delta,
@@ -1314,8 +1320,11 @@ def _evidence_change_status(
     support_delta: int,
     risk_delta: int,
     missing_delta: int,
+    has_item_changes: bool,
 ) -> tuple[str, str]:
     if support_delta == 0 and risk_delta == 0 and missing_delta == 0:
+        if has_item_changes:
+            return "replaced", "证据内容已替换"
         return "unchanged", "证据未变化"
     score = support_delta - risk_delta - missing_delta
     if score > 0:
@@ -1329,13 +1338,31 @@ def _evidence_change_summary(
     support_delta: int,
     risk_delta: int,
     missing_delta: int,
+    has_item_changes: bool,
 ) -> str:
+    if (
+        has_item_changes
+        and support_delta == 0
+        and risk_delta == 0
+        and missing_delta == 0
+    ):
+        return "证据数量无变化，但具体内容有替换，需要重新核验。"
     parts = [
         _delta_phrase("支持证据", support_delta),
         _delta_phrase("风险/反向待查", risk_delta),
         _delta_phrase("待补证据", missing_delta),
     ]
     return "；".join(parts) + "。"
+
+
+def _has_evidence_item_changes(
+    added: Mapping[str, list[str]],
+    removed: Mapping[str, list[str]],
+) -> bool:
+    return any(
+        added.get(key) or removed.get(key)
+        for key in ("support", "risk", "missing")
+    )
 
 
 def _delta_phrase(label: str, delta: int) -> str:
@@ -1730,7 +1757,8 @@ def render_research_task_detail(
 ) -> str:
     packet_payload = packet.packet if packet is not None else {}
     local_data = _dict_value(packet_payload.get("local_data"))
-    price = _dict_value(local_data.get("price"))
+    prices = _verification_price_rows(packet_payload, local_data)
+    price = prices[0] if prices else {}
     evidence = _dict_list(packet_payload.get("evidence"))
     related_news = _dict_list(local_data.get("related_news"))
     filings = _dict_list(local_data.get("filings"))
@@ -1755,13 +1783,13 @@ def render_research_task_detail(
         "",
         "信号读数: "
         + _signal_reading(candidate, price, evidence, related_news, filings, data_gaps),
-        _price_line(price),
+        *_price_lines(prices),
         "",
         "证据矩阵",
         *_evidence_matrix_lines(
             candidate=candidate,
             packet=packet,
-            price=price,
+            prices=prices,
             evidence=evidence,
             related_news=related_news,
             filings=filings,
@@ -2210,7 +2238,11 @@ def _pull_research_action(
     )
 
 
-def _research_run_action_status(actions: list[ResearchRunAction]) -> str:
+def _research_run_action_status(
+    actions: list[ResearchRunAction],
+    *,
+    related_news_count: int | None = None,
+) -> str:
     lines = ["研究执行链"]
     for action in actions:
         symbol_text = ", ".join(action.symbols) if action.symbols else "-"
@@ -2221,7 +2253,23 @@ def _research_run_action_status(actions: list[ResearchRunAction]) -> str:
         )
         if action.warnings:
             lines.append("  警告: " + "；".join(action.warnings[:3]))
+    topic_action = next(
+        (action for action in actions if action.action_type == "refresh_topic_news"),
+        None,
+    )
+    if topic_action is not None and related_news_count is not None:
+        lines.append(
+            f"主题新闻过滤: 本次拉取 {topic_action.count} 条，"
+            f"{related_news_count} 条进入相关新闻。"
+        )
     return "\n".join(lines)
+
+
+def _packet_related_news_count(packet: ResearchPacket | None) -> int:
+    if packet is None:
+        return 0
+    local_data = _dict_value(packet.packet.get("local_data"))
+    return len(_dict_list(local_data.get("related_news")))
 
 
 def _display_action_status(status: str) -> str:
@@ -2245,7 +2293,7 @@ def _write_research_run_artifact(
 ) -> Path:
     research_dir = output_dir / "research"
     research_dir.mkdir(parents=True, exist_ok=True)
-    output_path = research_dir / f"research-run-{_safe_timestamp(created_at)}.json"
+    output_path = _unique_artifact_path(research_dir, "research-run", created_at)
     output_path.write_text(
         json.dumps(
             {
@@ -2317,7 +2365,11 @@ def _write_research_verification_artifact(
 ) -> Path:
     research_dir = output_dir / "research"
     research_dir.mkdir(parents=True, exist_ok=True)
-    output_path = research_dir / f"research-verification-{_safe_timestamp(created_at)}.json"
+    output_path = _unique_artifact_path(
+        research_dir,
+        "research-verification",
+        created_at,
+    )
     output_path.write_text(
         json.dumps(
             {
@@ -2419,8 +2471,10 @@ def _write_research_evidence_review_artifact(
 ) -> Path:
     research_dir = output_dir / "research"
     research_dir.mkdir(parents=True, exist_ok=True)
-    output_path = (
-        research_dir / f"research-evidence-review-{_safe_timestamp(created_at)}.json"
+    output_path = _unique_artifact_path(
+        research_dir,
+        "research-evidence-review",
+        created_at,
     )
     payload["review_path"] = str(output_path)
     output_path.write_text(
@@ -2438,7 +2492,7 @@ def _write_research_review_artifact(
 ) -> Path:
     research_dir = output_dir / "research"
     research_dir.mkdir(parents=True, exist_ok=True)
-    output_path = research_dir / f"research-review-{_safe_timestamp(created_at)}.json"
+    output_path = _unique_artifact_path(research_dir, "research-review", created_at)
     payload["review_path"] = str(output_path)
     output_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -2730,7 +2784,7 @@ def _evidence_matrix_lines(
     *,
     candidate: CandidateCheck,
     packet: ResearchPacket | None,
-    price: dict[str, object],
+    prices: list[dict[str, object]],
     evidence: list[dict[str, object]],
     related_news: list[dict[str, object]],
     filings: list[dict[str, object]],
@@ -2744,7 +2798,7 @@ def _evidence_matrix_lines(
         filing_status = f"{len(filings)} 条"
     proxy_status = _display_values(candidate.proxy_symbols)
     return [
-        f"- 行情: {'已采集' if price else '缺失'}",
+        f"- 行情: {'已采集' if prices else '缺失'}",
         f"- Discovery 证据: {len(evidence)} 条",
         f"- 相关新闻: {len(related_news)} 条",
         f"- 公告/财报: {filing_status}",
@@ -2774,6 +2828,12 @@ def _price_line(price: dict[str, object]) -> str:
     if volume is not None:
         parts.append(f"成交量 {volume}")
     return " | ".join(parts)
+
+
+def _price_lines(prices: list[dict[str, object]]) -> list[str]:
+    if not prices:
+        return [_price_line({})]
+    return [_price_line(price) for price in prices[:3]]
 
 
 def _headline_lines(rows: list[dict[str, object]], *, empty: str) -> list[str]:
@@ -3036,7 +3096,7 @@ def _write_workbench_check_artifact(
 ) -> Path:
     research_dir = output_dir / "research"
     research_dir.mkdir(parents=True, exist_ok=True)
-    output_path = research_dir / f"workbench-check-{_safe_timestamp(created_at)}.json"
+    output_path = _unique_artifact_path(research_dir, "workbench-check", created_at)
     output_path.write_text(
         json.dumps(
             {
@@ -3127,3 +3187,15 @@ def _safe_timestamp(value: str) -> str:
         .replace(".", "")
         .replace("T", "-")
     )
+
+
+def _unique_artifact_path(directory: Path, prefix: str, created_at: str) -> Path:
+    timestamp = _safe_timestamp(created_at)
+    output_path = directory / f"{prefix}-{timestamp}.json"
+    if not output_path.exists():
+        return output_path
+    for index in range(1, 1000):
+        candidate = directory / f"{prefix}-{timestamp}~{index:02d}.json"
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"无法为 {prefix}-{timestamp} 生成唯一审计文件名。")

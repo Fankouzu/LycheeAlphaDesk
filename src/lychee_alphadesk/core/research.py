@@ -254,6 +254,7 @@ def _build_research_packet(
     related_news = _related_news(
         symbol,
         item.display_name,
+        item.market,
         news_events,
         topic_terms=_research_topic_terms(item),
     )
@@ -580,20 +581,24 @@ def _symbol_mapping_to_dict(proposal: SymbolMappingProposal) -> dict[str, object
 def _related_news(
     symbol: str | None,
     display_name: str,
+    market: str,
     news_events: list[NewsEvent],
     *,
     topic_terms: list[str] | None = None,
 ) -> list[dict[str, object]]:
     terms = _match_terms(symbol, display_name)
     normalized_topic_terms = [term.lower() for term in topic_terms or [] if term.strip()]
+    market_terms = _market_context_terms(market)
     rows: list[dict[str, object]] = []
     for event in news_events:
         text = f"{event.headline} {event.summary}".lower()
         event_symbols = {event_symbol.upper() for event_symbol in event.symbols}
         matches_symbol = bool(symbol and symbol in event_symbols)
-        if matches_symbol or any(term in text for term in terms):
+        topic_score = _news_topic_score(text, normalized_topic_terms)
+        matches_topic = topic_score > 0 and _matches_market_context(text, market_terms)
+        if matches_symbol or any(term in text for term in terms) or matches_topic:
             row = asdict(event)
-            row["_topic_score"] = _news_topic_score(text, normalized_topic_terms)
+            row["_topic_score"] = topic_score
             rows.append(row)
     selected = sorted(rows, key=_news_relevance_sort_key, reverse=True)[:5]
     for row in selected:
@@ -612,6 +617,33 @@ def _news_timestamp_sort_key(row: dict[str, object]) -> str:
 
 def _news_topic_score(text: str, topic_terms: list[str]) -> int:
     return sum(1 for term in topic_terms if term in text)
+
+
+def _market_context_terms(market: str) -> list[str]:
+    normalized = market.strip().upper()
+    if normalized == "HK":
+        return ["hong kong", "hang seng", "港股", "香港", ".hk"]
+    if normalized == "CN":
+        return [
+            "china",
+            "chinese",
+            "a-share",
+            "a shares",
+            "a股",
+            "中国",
+            "沪深",
+            "上证",
+            "深证",
+            ".sh",
+            ".sz",
+        ]
+    return []
+
+
+def _matches_market_context(text: str, market_terms: list[str]) -> bool:
+    if not market_terms:
+        return True
+    return any(term in text for term in market_terms)
 
 
 def _research_topic_terms(item: ResearchQueueItem) -> list[str]:

@@ -466,13 +466,16 @@ def test_dashboard_pending_evidence_action_lists_review_queue(
                 primary_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
                 evidence_text="QQQ tech rebound headline",
                 raw_evidence="新闻待判定: QQQ tech rebound headline 命中主题但方向未明。",
+                suggested_verdict="support",
+                suggested_verdict_label="支持证据",
+                suggested_reason="系统检测到反弹语义，建议先按支持证据处理。",
                 artifact_path=str(
                     tmp_path / "research" / "research-verification-test.json"
                 ),
                 review_command=(
                     'lychee research evidence-review --symbol QQQ --text '
                     '"QQQ tech rebound headline" '
-                    '--verdict "<support|reverse|irrelevant>" --note "..."'
+                    '--verdict support --note "系统检测到反弹语义，建议先按支持证据处理。"'
                 ),
             )
         ]
@@ -499,7 +502,9 @@ def test_dashboard_pending_evidence_action_lists_review_queue(
             assert "Invesco QQQ Trust (QQQ) [US]" in text
             assert "美股科技股现在是独立主线" in text
             assert "QQQ tech rebound headline" in text
+            assert "系统建议: 支持证据" in text
             assert "lychee research evidence-review --symbol QQQ" in text
+            assert "--verdict support" in text
             assert "待判定证据队列不是买卖建议" in text
 
     asyncio.run(run_case())
@@ -519,11 +524,14 @@ def test_dashboard_pending_evidence_queue_can_record_direction(
             primary_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
             evidence_text="QQQ tech rebound headline",
             raw_evidence="新闻待判定: QQQ tech rebound headline 命中主题但方向未明。",
+            suggested_verdict="support",
+            suggested_verdict_label="支持证据",
+            suggested_reason="系统检测到反弹语义，建议先按支持证据处理。",
             artifact_path=str(tmp_path / "research" / "research-verification-test.json"),
             review_command=(
                 'lychee research evidence-review --symbol QQQ --text '
                 '"QQQ tech rebound headline" '
-                '--verdict "<support|reverse|irrelevant>" --note "..."'
+                '--verdict support --note "系统检测到反弹语义，建议先按支持证据处理。"'
             ),
         )
 
@@ -599,11 +607,12 @@ def test_dashboard_pending_evidence_queue_can_record_direction(
             detail_text = str(app.query_one("#action-status", Static).content)
             assert "待判定证据详情" in detail_text
             assert "QQQ tech rebound headline" in detail_text
+            assert "系统建议: 支持证据" in detail_text
 
             action_menu = app.query_one("#pending-evidence-action-menu", OptionList)
             support_index = _option_index(
                 action_menu,
-                "标为支持证据",
+                "按系统建议记录: 标为支持证据",
             )
             await pilot.press(*(["down"] * support_index))
             await pilot.press("enter")
@@ -661,11 +670,14 @@ def test_dashboard_pending_evidence_queue_can_rerun_verification_after_recording
             primary_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
             evidence_text="QQQ tech rebound headline",
             raw_evidence="新闻待判定: QQQ tech rebound headline 命中主题但方向未明。",
+            suggested_verdict="support",
+            suggested_verdict_label="支持证据",
+            suggested_reason="系统检测到反弹语义，建议先按支持证据处理。",
             artifact_path=str(tmp_path / "research" / "research-verification-test.json"),
             review_command=(
                 'lychee research evidence-review --symbol QQQ --text '
                 '"QQQ tech rebound headline" '
-                '--verdict "<support|reverse|irrelevant>" --note "..."'
+                '--verdict support --note "系统检测到反弹语义，建议先按支持证据处理。"'
             ),
         )
 
@@ -786,7 +798,10 @@ def test_dashboard_pending_evidence_queue_can_rerun_verification_after_recording
             await pilot.pause()
 
             action_menu = app.query_one("#pending-evidence-action-menu", OptionList)
-            support_index = _option_index(action_menu, "标为支持证据")
+            support_index = _option_index(
+                action_menu,
+                "按系统建议记录: 标为支持证据",
+            )
             await pilot.press(*(["down"] * support_index))
             await pilot.press("enter")
             await pilot.pause()

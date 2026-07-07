@@ -57,6 +57,7 @@ from lychee_alphadesk.core.research_memo import (
     generate_research_memo,
 )
 from lychee_alphadesk.core.workbench import (
+    RESEARCH_EVIDENCE_REVIEW_VERDICTS,
     RESEARCH_REVIEW_VERDICTS,
     PendingEvidenceReviewItem,
     ResearchEvidenceReviewResult,
@@ -73,6 +74,7 @@ from lychee_alphadesk.core.workbench import (
     run_research_task,
     run_workbench_check,
     select_research_candidate_index,
+    suggest_pending_evidence_review,
     verify_research_task,
 )
 from lychee_alphadesk.tui.app import run_tui
@@ -958,6 +960,7 @@ def research_pending_evidence(
     table.add_column("名称", overflow="fold")
     table.add_column("代码")
     table.add_column("市场")
+    table.add_column("系统建议")
     table.add_column("证据文本", overflow="fold")
     for item in items:
         table.add_row(
@@ -965,6 +968,7 @@ def research_pending_evidence(
             item.display_name,
             item.symbol or "-",
             item.market,
+            item.suggested_verdict_label,
             item.evidence_text,
         )
     console.print(table)
@@ -976,6 +980,10 @@ def research_pending_evidence(
         )
         console.print(f"  要回答的问题: {item.primary_question}", soft_wrap=True)
         console.print(f"  待判定证据: {item.evidence_text}", soft_wrap=True)
+        console.print(
+            f"  系统建议: {item.suggested_verdict_label} | {item.suggested_reason}",
+            soft_wrap=True,
+        )
         console.print(f"  下钻核验: {item.artifact_path}", soft_wrap=True)
         console.print(f"  复核命令: {item.review_command}", soft_wrap=True)
     console.print("边界: 待判定证据队列不是买卖建议。", soft_wrap=True)
@@ -1418,11 +1426,20 @@ def _print_pending_evidence_review_commands(
         soft_wrap=True,
     )
     for evidence_text in pending_items:
+        verdict, reason = suggest_pending_evidence_review(
+            evidence_text,
+            primary_question=result.decision_board.primary_question,
+        )
+        verdict_label = RESEARCH_EVIDENCE_REVIEW_VERDICTS[verdict]
+        console.print(
+            f"- 系统建议: {verdict_label} | {reason}",
+            soft_wrap=True,
+        )
         console.print(
             "- 复核命令: "
             f"lychee research evidence-review {selector} "
             f"--text {_quote_cli_value(evidence_text)} "
-            '--verdict "<support|reverse|irrelevant>" --note "..."',
+            f"--verdict {verdict} --note {_quote_cli_value(reason)}",
             soft_wrap=True,
         )
     console.print(

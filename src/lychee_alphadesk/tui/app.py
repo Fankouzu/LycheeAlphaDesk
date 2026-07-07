@@ -360,7 +360,9 @@ class AlphaDeskApp(App[None]):
             OptionList(
                 *[
                     Option(label, id=f"pending_evidence_review:{verdict}:{index}")
-                    for verdict, label in _pending_evidence_review_menu_options()
+                    for verdict, label in _pending_evidence_review_menu_options(
+                        item.suggested_verdict
+                    )
                 ],
                 Option("返回待判定证据队列", id="pending_evidence"),
                 id="pending-evidence-action-menu",
@@ -1162,6 +1164,10 @@ def _pending_evidence_queue_text(
                 ),
                 f"  要回答的问题: {item.primary_question}",
                 f"  待判定证据: {item.evidence_text}",
+                (
+                    f"  系统建议: {item.suggested_verdict_label} | "
+                    f"{item.suggested_reason}"
+                ),
                 f"  复核命令: {item.review_command}",
                 f"  下钻核验: {item.artifact_path}",
             ]
@@ -1173,7 +1179,7 @@ def _pending_evidence_queue_text(
 def _pending_evidence_item_label(item: PendingEvidenceReviewItem) -> str:
     return (
         f"{item.display_name} ({item.symbol or '-'}) [{item.market}] | "
-        f"{item.evidence_text}"
+        f"{item.suggested_verdict_label} | {item.evidence_text}"
     )
 
 
@@ -1184,20 +1190,32 @@ def _pending_evidence_detail_text(item: PendingEvidenceReviewItem) -> str:
             f"研究任务: {item.display_name} ({item.symbol or '-'}) [{item.market}]",
             f"要回答的问题: {item.primary_question}",
             f"待判定证据: {item.evidence_text}",
+            f"系统建议: {item.suggested_verdict_label}",
+            f"建议理由: {item.suggested_reason}",
             f"原始证据行: {item.raw_evidence}",
             f"下钻核验: {item.artifact_path}",
-            "请选择这条证据对研究问题的方向。",
+            "可直接按系统建议记录，也可以手动覆盖方向。",
             "边界: 待判定证据详情不是买卖建议。",
         ]
     )
 
 
-def _pending_evidence_review_menu_options() -> list[tuple[str, str]]:
-    return [
+def _pending_evidence_review_menu_options(
+    suggested_verdict: str | None = None,
+) -> list[tuple[str, str]]:
+    options = [
         ("support", "标为支持证据"),
         ("reverse", "标为风险/反向待查"),
         ("irrelevant", "标为无关/排除"),
     ]
+    if suggested_verdict is None:
+        return options
+    labels = dict(options)
+    if suggested_verdict not in labels:
+        return options
+    return [
+        (suggested_verdict, f"按系统建议记录: {labels[suggested_verdict]}")
+    ] + [(verdict, label) for verdict, label in options if verdict != suggested_verdict]
 
 
 def _pending_evidence_review_recorded_summary(

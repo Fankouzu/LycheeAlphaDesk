@@ -1243,9 +1243,11 @@ def test_research_verify_prints_pending_evidence_review_commands(
     assert result.exit_code == 0
     assert "待判定证据处理" in result.stdout
     assert "lychee research pending-evidence --symbol STX" in result.stdout
+    assert "系统建议: 无关/排除" in result.stdout
     assert "lychee research evidence-review --symbol STX" in result.stdout
     assert '"STX hard drive demand update for AI storage"' in result.stdout
-    assert '--verdict "<support|reverse|irrelevant>" --note "..."' in result.stdout
+    assert "--verdict irrelevant" in result.stdout
+    assert "<support|reverse|irrelevant>" not in result.stdout
     assert "分类后重新运行: lychee research verify --symbol STX" in result.stdout
     assert "待判定证据处理不是买卖建议" in result.stdout
 
@@ -1350,6 +1352,9 @@ def test_research_pending_evidence_command_lists_unreviewed_queue(
     assert "reviewed QQQ headline" not in result.stdout
     assert "stale QQQ headline" not in result.stdout
     assert "lychee research evidence-review --symbol QQQ" in result.stdout
+    assert "系统建议" in result.stdout
+    assert "--verdict support" in result.stdout
+    assert "<support|reverse|irrelevant>" not in result.stdout
     assert "待判定证据队列不是买卖建议" in result.stdout
 
 

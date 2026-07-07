@@ -205,6 +205,9 @@ class PendingEvidenceReviewItem:
     primary_question: str
     evidence_text: str
     raw_evidence: str
+    suggested_verdict: str
+    suggested_verdict_label: str
+    suggested_reason: str
     artifact_path: str
     review_command: str
 
@@ -446,6 +449,10 @@ def list_pending_evidence_reviews(
             seen.add(normalized)
             if _reviewed_evidence_verdict(normalized, evidence_reviews):
                 continue
+            suggestion = suggest_pending_evidence_review(
+                evidence_text,
+                primary_question=primary_question,
+            )
             items.append(
                 PendingEvidenceReviewItem(
                     created_at=_string_value(payload.get("created_at")),
@@ -455,11 +462,18 @@ def list_pending_evidence_reviews(
                     primary_question=primary_question,
                     evidence_text=evidence_text,
                     raw_evidence=raw_evidence,
+                    suggested_verdict=suggestion[0],
+                    suggested_verdict_label=RESEARCH_EVIDENCE_REVIEW_VERDICTS[
+                        suggestion[0]
+                    ],
+                    suggested_reason=suggestion[1],
                     artifact_path=str(artifact_path),
                     review_command=_pending_evidence_review_command(
                         symbol=symbol,
                         display_name=display_name,
                         evidence_text=evidence_text,
+                        verdict=suggestion[0],
+                        note=suggestion[1],
                     ),
                 )
             )
@@ -1351,6 +1365,8 @@ def _pending_evidence_review_command(
     symbol: str | None,
     display_name: str,
     evidence_text: str,
+    verdict: str,
+    note: str,
 ) -> str:
     selector = (
         f"--symbol {symbol}"
@@ -1360,8 +1376,40 @@ def _pending_evidence_review_command(
     return (
         f"lychee research evidence-review {selector} "
         f"--text {_quote_cli_value(evidence_text)} "
-        '--verdict "<support|reverse|irrelevant>" --note "..."'
+        f"--verdict {verdict} --note {_quote_cli_value(note)}"
     )
+
+
+def suggest_pending_evidence_review(
+    evidence_text: str,
+    *,
+    primary_question: str | None = None,
+) -> tuple[str, str]:
+    text = evidence_text.lower()
+    question = (primary_question or "").lower()
+    if _looks_like_benchmark_comparison(text, question):
+        return "support", "新闻在对比主题入口和宽基基准，适合先作为回答研究问题的支持证据。"
+    direction = _news_evidence_direction(text)
+    if direction == "reverse":
+        return "reverse", "系统检测到压力、波动或走弱语义，建议先按风险/反向待查处理。"
+    if direction == "support":
+        return "support", "系统检测到上涨、改善或反弹语义，建议先按支持证据处理。"
+    return "irrelevant", "系统暂未识别明确方向，建议先按无关/排除处理，确认相关时再覆盖。"
+
+
+def _looks_like_benchmark_comparison(text: str, question: str) -> bool:
+    if not question:
+        return False
+    benchmark_question = any(
+        term in question
+        for term in ["大盘", "宽基", "broad market", "benchmark", "s&p", "sp 500"]
+    )
+    if not benchmark_question:
+        return False
+    has_theme_entry = any(term in text for term in ["qqq", "nasdaq", "纳斯达克"])
+    has_benchmark = any(term in text for term in ["voo", "spy", "s&p", "sp 500"])
+    has_comparison = any(term in text for term in [" vs", "vs.", "versus", "对比"])
+    return has_theme_entry and has_benchmark and has_comparison
 
 
 def _quote_cli_value(value: str) -> str:
@@ -1761,6 +1809,10 @@ _POSITIVE_EVIDENCE_TERMS = {
     "higher",
     "robust",
     "record",
+    "rebound",
+    "rebounds",
+    "outperform",
+    "outperforms",
     "上升",
     "上涨",
     "增长",
@@ -1796,6 +1848,8 @@ _NEGATIVE_EVIDENCE_TERMS = {
     "misses",
     "risk",
     "risks",
+    "volatility",
+    "volatile",
     "lower",
     "loss",
     "losses",

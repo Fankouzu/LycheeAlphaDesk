@@ -18,6 +18,7 @@ from lychee_alphadesk.core.workbench import (
     render_research_task_detail,
     run_research_task,
     run_workbench_check,
+    suggest_pending_evidence_review,
     verify_research_task,
 )
 
@@ -76,6 +77,16 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
         payload["candidates"][0]["next_command"]
         == 'lychee research run --name "恒生指数压力观察" --force'
     )
+
+
+def test_pending_evidence_suggestion_uses_research_question_context() -> None:
+    verdict, reason = suggest_pending_evidence_review(
+        "QQQ vs. VOO: Should the Nasdaq-100 or the S&P 500 Be Your Core Holding?",
+        primary_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+    )
+
+    assert verdict == "support"
+    assert "宽基" in reason
 
 
 def test_workbench_check_marks_blocked_when_research_gaps_remain(

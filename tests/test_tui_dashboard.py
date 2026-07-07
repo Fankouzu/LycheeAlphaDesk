@@ -1297,6 +1297,33 @@ def test_dashboard_research_task_can_open_fund_metadata_guide(
             assert "先查这些资料" in text
             assert "香港交易所 ETF 页面" in text
             assert "lychee data set fund --symbol 3456.HK" in text
+            followup_menu = app.query_one("#research-detail-action-menu", OptionList)
+            import_index = _option_index(followup_menu, "导入已填写模板")
+            guide = json.loads(guide_path.read_text("utf-8"))
+            guide["template"].update(
+                {
+                    "tracking_index": "HKEX Tech 100 Index",
+                    "expense_ratio": "0.99%",
+                    "holdings_summary": "前十大成分覆盖港股科技龙头",
+                    "source_url": "https://example.com/3456",
+                    "as_of": "2026-07-07",
+                }
+            )
+            guide_path.write_text(json.dumps(guide, ensure_ascii=False), encoding="utf-8")
+
+            for _ in range(import_index):
+                await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            cache_path = tmp_path / "data" / "fund-metadata.json"
+            assert cache_path.exists()
+            cache = json.loads(cache_path.read_text("utf-8"))
+            assert cache["rows"][0]["symbol"] == "3456.HK"
+            assert cache["rows"][0]["tracking_index"] == "HKEX Tech 100 Index"
+            imported_text = str(app.query_one("#action-status", Static).content)
+            assert "基金资料已导入" in imported_text
+            assert "3456.HK" in imported_text
 
     asyncio.run(run_case())
 

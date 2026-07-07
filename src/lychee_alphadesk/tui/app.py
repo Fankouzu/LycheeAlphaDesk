@@ -25,6 +25,7 @@ from lychee_alphadesk.core.live_data import (
     pull_news_events,
     pull_sec_filings,
     run_cached_data_health,
+    write_fund_metadata_cache_from_file,
     write_fund_metadata_guide,
 )
 from lychee_alphadesk.core.llm import LLMProviderError
@@ -108,6 +109,7 @@ class AlphaDeskApp(App[None]):
         self.pending_evidence_items: list[PendingEvidenceReviewItem] = []
         self.pending_evidence_review_items: list[str] = []
         self.last_pending_evidence_review: ResearchEvidenceReviewResult | None = None
+        self.current_fund_metadata_guide_path: Path | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -585,6 +587,9 @@ class AlphaDeskApp(App[None]):
         if action == "fund_metadata_guide":
             await self._show_fund_metadata_guide(candidate)
             return
+        if action == "import_fund_metadata":
+            await self._import_fund_metadata_guide(candidate)
+            return
         if action in {"refresh_market", "refresh_news", "refresh_topic_news"} and not symbols:
             await self._replace_action_panel(
                 Static(
@@ -730,6 +735,7 @@ class AlphaDeskApp(App[None]):
                 display_name=candidate.display_name,
                 market=candidate.market,
             )
+            self.current_fund_metadata_guide_path = guide.output_path
         except ValueError as error:
             await self._replace_action_panel(
                 Static(f"操作失败: {error}", id="action-status")
@@ -738,6 +744,48 @@ class AlphaDeskApp(App[None]):
             return
         await self._replace_action_panel(
             Static(_fund_metadata_guide_text(guide), id="action-status"),
+            OptionList(
+                Option("导入已填写模板", id="research_detail:import_fund_metadata"),
+                Option("重新下钻核验", id="research_detail:verify_research"),
+                Option("返回研究任务列表", id="research_detail:back_tasks"),
+                id="research-detail-action-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#research-detail-action-menu", OptionList))
+
+    async def _import_fund_metadata_guide(self, candidate: CandidateCheck) -> None:
+        guide_path = self.current_fund_metadata_guide_path
+        if guide_path is None:
+            await self._replace_action_panel(
+                Static(
+                    "还没有基金资料模板。请先生成基金资料补齐向导。",
+                    id="action-status",
+                )
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static("正在导入已填写基金资料模板，请稍候...", id="action-status")
+        )
+        try:
+            result = await asyncio.to_thread(
+                write_fund_metadata_cache_from_file,
+                output_dir=self.output_dir,
+                guide_path=guide_path,
+            )
+        except ValueError as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._refresh_research_state()
+        await self._replace_action_panel(
+            Static(
+                _fund_metadata_imported_text(candidate, result.output_path),
+                id="action-status",
+            ),
             OptionList(
                 Option("重新下钻核验", id="research_detail:verify_research"),
                 Option("返回研究任务列表", id="research_detail:back_tasks"),
@@ -1463,6 +1511,18 @@ def _fund_metadata_guide_text(guide: FundMetadataGuide) -> str:
         "边界: 向导只生成模板，不会猜测基金资料，也不是投资建议。",
     ]
     return "\n".join(lines)
+
+
+def _fund_metadata_imported_text(candidate: CandidateCheck, output_path: Path) -> str:
+    return "\n".join(
+        [
+            "基金资料已导入",
+            f"标的: {candidate.display_name} ({candidate.symbol}) [{candidate.market}]",
+            f"缓存: {output_path}",
+            "下一步: 重新下钻核验，确认基金资料是否解除阻塞。",
+            "边界: 基金资料导入不是买卖建议。",
+        ]
+    )
 
 
 def _research_evidence_review_recorded_text(

@@ -856,7 +856,7 @@ def test_research_verify_reports_evidence_change_from_previous_snapshot(
     )
 
 
-def test_research_verify_flags_off_topic_news_as_risk(
+def test_research_verify_quarantines_off_topic_news(
     tmp_path: Path,
 ) -> None:
     _write_cli_research_seed(tmp_path)
@@ -925,6 +925,7 @@ def test_research_verify_flags_off_topic_news_as_risk(
     assert result.exit_code == 0
     assert "主题相关性核验" in result.stdout
     assert "未命中研究主题关键词" in result.stdout
+    assert "离题/已过滤" in result.stdout
     assert "执行命令: lychee research run --symbol STX --force" in result.stdout
     assert (
         "执行命令: lychee research review --symbol STX "
@@ -949,8 +950,10 @@ def test_research_verify_flags_off_topic_news_as_risk(
     ]
     support_text = "\n".join(payload["evidence_board"]["support"])
     risk_text = "\n".join(payload["evidence_board"]["risk"])
+    off_topic_text = "\n".join(payload["evidence_board"]["off_topic"])
     assert "Luxury handbags gain popularity" not in support_text
-    assert "Luxury handbags gain popularity" in risk_text
+    assert "Luxury handbags gain popularity" not in risk_text
+    assert "Luxury handbags gain popularity" in off_topic_text
 
 
 def test_research_verify_flags_reverse_news_as_risk(
@@ -1384,6 +1387,27 @@ def test_research_pending_evidence_command_filters_by_symbol(
     assert "QQQ tech rebound headline" not in result.stdout
 
 
+def test_research_pending_evidence_empty_message_mentions_filtered_noise(
+    tmp_path: Path,
+) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "pending-evidence",
+            "--symbol",
+            "2800.HK",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "暂无待判定证据" in result.stdout
+    assert "没有需要人工分类的新闻" in result.stdout
+    assert "离题/已过滤" in result.stdout
+
+
 def test_research_review_command_records_non_advisory_verdict(
     tmp_path: Path,
 ) -> None:
@@ -1477,7 +1501,12 @@ def test_research_review_command_records_non_advisory_verdict(
     assert payload["verdict_label"] == "继续研究"
     assert payload["note"] == "证据完整，下一步做一致性人工复核。"
     assert payload["verification"]["candidate"]["symbol"] == "STX"
-    assert payload["evidence_counts"] == {"support": 4, "risk": 1, "missing": 0}
+    assert payload["evidence_counts"] == {
+        "support": 4,
+        "risk": 1,
+        "off_topic": 0,
+        "missing": 0,
+    }
     with sqlite3.connect(tmp_path / "research.sqlite3") as connection:
         row = connection.execute(
             """

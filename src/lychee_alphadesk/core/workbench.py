@@ -142,6 +142,7 @@ class ResearchEvidenceChange:
     support_delta: int
     risk_delta: int
     missing_delta: int
+    off_topic_delta: int = 0
     added: dict[str, list[str]] = field(
         default_factory=lambda: _empty_evidence_change_items()
     )
@@ -569,6 +570,7 @@ def record_research_review(
     evidence_counts = {
         "support": len(verification.evidence_board["support"]),
         "risk": len(verification.evidence_board["risk"]),
+        "off_topic": len(verification.evidence_board.get("off_topic", [])),
         "missing": len(verification.evidence_board["missing"]),
     }
     cleaned_note = note.strip() or "未填写复核备注。"
@@ -842,6 +844,7 @@ def build_research_evidence_board(
     filings = _dict_list(local_data.get("filings"))
     support: list[str] = []
     risk: list[str] = []
+    off_topic: list[str] = []
     missing: list[str] = []
     for price in prices[:3]:
         support.append(_price_line(price).removeprefix("行情: "))
@@ -865,7 +868,7 @@ def build_research_evidence_board(
         risk.append(f"新闻待判定: {headline} 命中主题但方向未明。")
     for row in topic_relevance.unmatched_rows[:3]:
         headline = _string_value(row.get("headline")) or "未命名新闻证据"
-        risk.append(f"新闻待查: {headline} 未命中研究主题关键词。")
+        off_topic.append(f"新闻待查: {headline} 未命中研究主题关键词。")
     for row in filings[:2]:
         form = _string_value(row.get("form")) or "公告"
         date = _string_value(row.get("date"))
@@ -884,6 +887,7 @@ def build_research_evidence_board(
     return {
         "support": support,
         "risk": risk,
+        "off_topic": off_topic,
         "missing": missing,
     }
 
@@ -1192,11 +1196,13 @@ def build_research_evidence_change(
     has_item_changes = _has_evidence_item_changes(added, removed)
     support_delta = current_counts["support"] - previous_counts["support"]
     risk_delta = current_counts["risk"] - previous_counts["risk"]
+    off_topic_delta = current_counts["off_topic"] - previous_counts["off_topic"]
     missing_delta = current_counts["missing"] - previous_counts["missing"]
     status, status_label = _evidence_change_status(
         support_delta,
         risk_delta,
         missing_delta,
+        off_topic_delta,
         has_item_changes,
     )
     return ResearchEvidenceChange(
@@ -1206,11 +1212,13 @@ def build_research_evidence_change(
             support_delta,
             risk_delta,
             missing_delta,
+            off_topic_delta,
             has_item_changes,
         ),
         support_delta=support_delta,
         risk_delta=risk_delta,
         missing_delta=missing_delta,
+        off_topic_delta=off_topic_delta,
         added=added,
         removed=removed,
         previous_artifact_path=str(previous),
@@ -1226,6 +1234,7 @@ def _first_research_evidence_change() -> ResearchEvidenceChange:
         support_delta=0,
         risk_delta=0,
         missing_delta=0,
+        off_topic_delta=0,
         added=_empty_evidence_change_items(),
         removed=_empty_evidence_change_items(),
     )
@@ -1239,6 +1248,8 @@ def research_evidence_change_detail_groups(
         ("已移除支持证据", change.removed["support"]),
         ("新增风险/反向待查", change.added["risk"]),
         ("已移除风险/反向待查", change.removed["risk"]),
+        ("新增离题/已过滤", change.added.get("off_topic", [])),
+        ("已移除离题/已过滤", change.removed.get("off_topic", [])),
         ("新增待补证据", change.added["missing"]),
         ("已补掉待补证据", change.removed["missing"]),
     ]
@@ -1370,6 +1381,7 @@ def _evidence_board_counts(board: Mapping[str, object]) -> dict[str, int]:
     return {
         "support": len(_text_list(board.get("support"))),
         "risk": len(_text_list(board.get("risk"))),
+        "off_topic": len(_text_list(board.get("off_topic"))),
         "missing": len(_text_list(board.get("missing"))),
     }
 
@@ -1378,6 +1390,7 @@ def _empty_evidence_change_items() -> dict[str, list[str]]:
     return {
         "support": [],
         "risk": [],
+        "off_topic": [],
         "missing": [],
     }
 
@@ -1388,7 +1401,7 @@ def _evidence_board_diff(
 ) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     added = _empty_evidence_change_items()
     removed = _empty_evidence_change_items()
-    for key in ("support", "risk", "missing"):
+    for key in ("support", "risk", "off_topic", "missing"):
         previous_items = _dedupe_text_list(_text_list(previous_board.get(key)))
         current_items = _dedupe_text_list(_text_list(current_board.get(key)))
         previous_set = set(previous_items)
@@ -1413,9 +1426,15 @@ def _evidence_change_status(
     support_delta: int,
     risk_delta: int,
     missing_delta: int,
+    off_topic_delta: int,
     has_item_changes: bool,
 ) -> tuple[str, str]:
-    if support_delta == 0 and risk_delta == 0 and missing_delta == 0:
+    if (
+        support_delta == 0
+        and risk_delta == 0
+        and missing_delta == 0
+        and off_topic_delta == 0
+    ):
         if has_item_changes:
             return "replaced", "证据内容已替换"
         return "unchanged", "证据未变化"
@@ -1431,6 +1450,7 @@ def _evidence_change_summary(
     support_delta: int,
     risk_delta: int,
     missing_delta: int,
+    off_topic_delta: int,
     has_item_changes: bool,
 ) -> str:
     if (
@@ -1438,11 +1458,13 @@ def _evidence_change_summary(
         and support_delta == 0
         and risk_delta == 0
         and missing_delta == 0
+        and off_topic_delta == 0
     ):
         return "证据数量无变化，但具体内容有替换，需要重新核验。"
     parts = [
         _delta_phrase("支持证据", support_delta),
         _delta_phrase("风险/反向待查", risk_delta),
+        _delta_phrase("离题/已过滤", off_topic_delta),
         _delta_phrase("待补证据", missing_delta),
     ]
     return "；".join(parts) + "。"
@@ -1454,7 +1476,7 @@ def _has_evidence_item_changes(
 ) -> bool:
     return any(
         added.get(key) or removed.get(key)
-        for key in ("support", "risk", "missing")
+        for key in ("support", "risk", "off_topic", "missing")
     )
 
 

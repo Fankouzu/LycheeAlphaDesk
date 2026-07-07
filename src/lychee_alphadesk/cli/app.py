@@ -946,7 +946,12 @@ def research_pending_evidence(
     items = list_pending_evidence_reviews(output_dir=output_dir, limit=limit)
     items = _filter_pending_evidence_items(items, symbol=symbol, name=name)
     if not items:
-        console.print("暂无待判定证据。请先运行 `lychee research verify`。")
+        console.print(
+            "暂无待判定证据。若刚运行过 `lychee research verify`，"
+            "说明当前没有需要人工分类的新闻；可查看证据板的“离题/已过滤”，"
+            "或重新下钻核验。",
+            soft_wrap=True,
+        )
         return
     table = Table(title="Lychee AlphaDesk 待判定证据队列")
     table.add_column("时间")
@@ -1383,6 +1388,10 @@ def _print_research_verification(result: ResearchVerificationResult) -> None:
     console.print("证据板")
     _print_evidence_board_column("支持证据", result.evidence_board["support"])
     _print_evidence_board_column("风险/反向待查", result.evidence_board["risk"])
+    _print_evidence_board_column(
+        "离题/已过滤",
+        result.evidence_board.get("off_topic", []),
+    )
     _print_evidence_board_column("待补证据", result.evidence_board["missing"])
     _print_research_evidence_change(result)
     _print_research_decision_board(result)
@@ -1525,6 +1534,7 @@ def _print_research_review(result: ResearchReviewResult) -> None:
         "证据数量: "
         f"支持 {result.evidence_counts['support']} | "
         f"风险/反向待查 {result.evidence_counts['risk']} | "
+        f"离题/已过滤 {result.evidence_counts.get('off_topic', 0)} | "
         f"待补 {result.evidence_counts['missing']}",
         soft_wrap=True,
     )
@@ -1536,6 +1546,10 @@ def _print_research_review(result: ResearchReviewResult) -> None:
     _print_evidence_board_column(
         "风险/反向待查",
         result.verification.evidence_board["risk"],
+    )
+    _print_evidence_board_column(
+        "离题/已过滤",
+        result.verification.evidence_board.get("off_topic", []),
     )
     _print_evidence_board_column(
         "待补证据",

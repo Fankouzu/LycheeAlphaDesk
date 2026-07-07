@@ -1652,7 +1652,7 @@ def test_dashboard_research_verification_can_record_review_verdict(
             verdict=verdict,
             verdict_label=verdict_label,
             note=f"TUI 快速复核: {verdict_label}",
-            evidence_counts={"support": 1, "risk": 1, "missing": 0},
+            evidence_counts={"support": 1, "risk": 1, "off_topic": 0, "missing": 0},
             verification=verification,
             artifact_path=tmp_path / "research" / "research-review-test.json",
             db_path=tmp_path / "research.sqlite3",

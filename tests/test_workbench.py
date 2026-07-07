@@ -518,9 +518,10 @@ def test_verify_research_task_keeps_cross_market_ai_discovery_out_of_pending(
     )
 
     risk_text = "\n".join(result.evidence_board["risk"])
+    off_topic_text = "\n".join(result.evidence_board["off_topic"])
     assert "新闻待判定: AWS Summit Hong Kong highlights enterprise AI agents" in risk_text
     assert "新闻待判定: US AI capex cools for Nasdaq giants" not in risk_text
-    assert "新闻待查: US AI capex cools for Nasdaq giants" in risk_text
+    assert "新闻待查: US AI capex cools for Nasdaq giants" in off_topic_text
 
 
 def test_evidence_change_marks_content_replacement_as_changed(tmp_path: Path) -> None:

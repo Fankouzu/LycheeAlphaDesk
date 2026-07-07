@@ -1303,6 +1303,10 @@ def _research_verification_text(result: ResearchVerificationResult) -> str:
             "证据板",
             *_evidence_board_lines("支持证据", result.evidence_board["support"]),
             *_evidence_board_lines("风险/反向待查", result.evidence_board["risk"]),
+            *_evidence_board_lines(
+                "离题/已过滤",
+                result.evidence_board.get("off_topic", []),
+            ),
             *_evidence_board_lines("待补证据", result.evidence_board["missing"]),
             "",
             "证据变化",
@@ -1362,6 +1366,7 @@ def _research_review_recorded_text(result: ResearchReviewResult) -> str:
             "证据数量: "
             f"支持 {counts['support']} | "
             f"风险/反向待查 {counts['risk']} | "
+            f"离题/已过滤 {counts.get('off_topic', 0)} | "
             f"待补 {counts['missing']}"
         ),
     ]

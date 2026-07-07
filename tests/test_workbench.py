@@ -523,6 +523,90 @@ def test_workbench_check_remembers_exhausted_topic_news_run(tmp_path: Path) -> N
     assert "lychee research run --symbol STX --force" not in repeated_check.beginner_brief
 
 
+def test_research_run_routes_refreshed_mixed_news_to_verification(
+    tmp_path: Path,
+) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(
+        tmp_path,
+        include_stock_price=True,
+        include_filings=True,
+        news_headline="Generic market article",
+        news_summary="Broad market commentary without the storage theme.",
+    )
+
+    def fake_news_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        data_dir = output_dir / "data"
+        data_dir.mkdir(exist_ok=True)
+        output_path = data_dir / "news-events.json"
+        query = str(kwargs.get("query") or "")
+        if query:
+            rows = [
+                {
+                    "timestamp": "2026-07-05T09:30:00+00:00",
+                    "headline": "STX hard drive demand falls as cloud buyers cut orders",
+                    "summary": "Weak AI infrastructure spending pressures storage demand.",
+                    "symbols": ["STX"],
+                    "source_url": "https://example.com/stx-reverse",
+                },
+                {
+                    "timestamp": "2026-07-05T09:31:00+00:00",
+                    "headline": "STX storage demand debate continues",
+                    "summary": "Analysts debate whether data center storage demand is changing.",
+                    "symbols": ["STX"],
+                    "source_url": "https://example.com/stx-neutral",
+                },
+            ]
+        else:
+            rows = [
+                {
+                    "timestamp": "2026-07-05T09:00:00+00:00",
+                    "headline": "Generic STX market news",
+                    "summary": "Symbol-only news without storage demand direction.",
+                    "symbols": ["STX"],
+                    "source_url": "https://example.com/stx",
+                }
+            ]
+        output_path.write_text(
+            json.dumps({"provider": "newsapi", "rows": rows}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return PullResult("news", "newsapi", len(rows), output_path, [])
+
+    run_result = run_research_task(
+        output_dir=tmp_path,
+        symbol="STX",
+        force=True,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+        pull_market=_fake_market_pull,
+        pull_news=fake_news_pull,
+        pull_filings=_fake_filings_pull,
+    )
+
+    assert run_result.candidate.topic_news_review_ready is True
+    assert run_result.candidate.next_command == "lychee research verify --symbol STX"
+    assert "不要重复刷新" in run_result.assessment.next_decision
+    assert "主题新闻过滤: 本次拉取 2 条，2 条进入相关新闻。" in run_result.detail
+    assert "- 刷新主题新闻: lychee data pull news" not in run_result.detail
+
+    verify_result = verify_research_task(
+        output_dir=tmp_path,
+        symbol="STX",
+        now=datetime(2026, 7, 5, 11, 5, tzinfo=UTC),
+    )
+
+    assert not any(
+        "research run --symbol STX --force" in command
+        for command in verify_result.decision_board.next_commands
+    )
+    assert any(
+        "pending-evidence --symbol STX" in command
+        for command in verify_result.decision_board.next_commands
+    )
+
+
 def test_research_run_detail_shows_refreshed_proxy_prices(tmp_path: Path) -> None:
     _write_symbolless_seed(tmp_path)
     _write_live_caches(tmp_path)
@@ -651,6 +735,19 @@ def test_research_run_does_not_match_ai_inside_unrelated_words(
                         "rows": [
                             {
                                 "timestamp": "2026-07-05T09:30:00+00:00",
+                                "headline": (
+                                    "Hong Kong technology stocks rise as "
+                                    "AI ETF turnover improves"
+                                ),
+                                "summary": (
+                                    "Hong Kong technology shares gained as "
+                                    "market turnover improved."
+                                ),
+                                "symbols": ["MARKET"],
+                                "source_url": "https://example.com/hk-tech-stocks",
+                            },
+                            {
+                                "timestamp": "2026-07-05T09:30:30+00:00",
                                 "headline": "AWS Summit Hong Kong highlights enterprise AI agents",
                                 "summary": (
                                     "Hong Kong technology teams are deploying "
@@ -685,7 +782,7 @@ def test_research_run_does_not_match_ai_inside_unrelated_words(
                 ),
                 encoding="utf-8",
             )
-            return PullResult("news", "newsapi", 3, output_path, [])
+            return PullResult("news", "newsapi", 4, output_path, [])
         return PullResult("news", "newsapi", 0, output_path, [])
 
     result = run_research_task(
@@ -697,10 +794,12 @@ def test_research_run_does_not_match_ai_inside_unrelated_words(
         pull_news=fake_news_pull,
     )
 
-    assert "AWS Summit Hong Kong highlights enterprise AI agents" in result.detail
-    assert "Domino's China expands Mainland stores" not in result.detail
-    assert "Dubai tops Asian crypto hubs" not in result.detail
-    assert "主题新闻过滤: 本次拉取 3 条，1 条进入相关新闻。" in result.detail
+    assert "Hong Kong technology stocks rise as AI ETF turnover improves" in result.detail
+    related_section = result.detail.split("相关新闻", 1)[1].split("离题/已过滤", 1)[0]
+    assert "AWS Summit Hong Kong highlights enterprise AI agents" not in related_section
+    assert "Domino's China expands Mainland stores" not in related_section
+    assert "Dubai tops Asian crypto hubs" not in related_section
+    assert "主题新闻过滤: 本次拉取 4 条，1 条进入相关新闻。" in result.detail
 
 
 def test_verify_research_task_keeps_cross_market_ai_discovery_out_of_pending(
@@ -723,13 +822,16 @@ def test_verify_research_task_keeps_cross_market_ai_discovery_out_of_pending(
                     },
                     {
                         "timestamp": "2026-07-05T09:30:00+00:00",
-                        "headline": "AWS Summit Hong Kong highlights enterprise AI agents",
+                        "headline": (
+                            "Hong Kong technology stocks rise as "
+                            "AI ETF turnover improves"
+                        ),
                         "summary": (
-                            "Hong Kong technology teams are deploying "
-                            "agentic AI tools."
+                            "Hong Kong technology shares gained as "
+                            "market turnover improved."
                         ),
                         "symbols": ["MARKET"],
-                        "source_url": "https://example.com/aws-hk-ai",
+                        "source_url": "https://example.com/hk-tech-stocks",
                     },
                 ],
             },
@@ -744,9 +846,14 @@ def test_verify_research_task_keeps_cross_market_ai_discovery_out_of_pending(
         now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
     )
 
+    support_text = "\n".join(result.evidence_board["support"])
     risk_text = "\n".join(result.evidence_board["risk"])
     off_topic_text = "\n".join(result.evidence_board["off_topic"])
-    assert "新闻待判定: AWS Summit Hong Kong highlights enterprise AI agents" in risk_text
+    assert (
+        "新闻: Hong Kong technology stocks rise as AI ETF turnover improves"
+        in support_text
+    )
+    assert "Hong Kong technology stocks rise as AI ETF turnover improves" not in risk_text
     assert "新闻待判定: US AI capex cools for Nasdaq giants" not in risk_text
     assert "新闻待查: US AI capex cools for Nasdaq giants" in off_topic_text
 

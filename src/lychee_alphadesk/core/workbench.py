@@ -59,6 +59,7 @@ class CandidateCheck:
     evidence_quality: str = ""
     next_command: str = ""
     topic_news_exhausted: bool = False
+    topic_news_review_ready: bool = False
 
 
 @dataclass(frozen=True)
@@ -702,6 +703,12 @@ def run_research_task(
     )
     if _actions_exhausted_topic_news(actions, refreshed_candidate, refreshed_packet):
         refreshed_candidate = _mark_topic_news_exhausted(refreshed_candidate)
+    elif _actions_refreshed_topic_news_for_review(
+        actions,
+        refreshed_candidate,
+        refreshed_packet,
+    ):
+        refreshed_candidate = _mark_topic_news_review_ready(refreshed_candidate)
     action_status = _research_run_action_status(
         actions,
         related_news_count=_packet_related_news_count(
@@ -1194,10 +1201,14 @@ def _decision_board_next_commands(
     selector = _research_selector(candidate.symbol, candidate.display_name)
     commands: list[str] = []
     should_refresh = suggested_verdict in {"needs_more_evidence", "blocked"}
-    if suggested_verdict == "needs_more_evidence" and candidate.topic_news_exhausted:
+    if suggested_verdict == "needs_more_evidence" and (
+        candidate.topic_news_exhausted or candidate.topic_news_review_ready
+    ):
         should_refresh = False
     if should_refresh:
         commands.append(f"lychee research run {selector} --force")
+    if suggested_verdict == "needs_more_evidence" and candidate.topic_news_review_ready:
+        commands.append(f"lychee research pending-evidence {selector}")
     if suggested_verdict == "continue_research":
         commands.append(f"lychee research memo {selector}")
     note = _quote_cli_value("证据仍需补强，继续研究流程复核。")
@@ -2074,7 +2085,7 @@ def _detail_related_news(
 
 
 def _matches_financial_context_for_asset(text: str, asset_type: str) -> bool:
-    if asset_type.strip().lower() not in {"etf", "fund", "index"}:
+    if asset_type.strip().lower() not in {"etf", "fund", "index", "sector"}:
         return True
     return _text_matches_any_topic_term(text, _FINANCIAL_MARKET_CONTEXT_TERMS)
 
@@ -2172,6 +2183,15 @@ def build_research_assessment(
             consistency_label="待复核",
             evidence_reading="主题新闻已刷新，但过滤后没有形成可用相关新闻，不能继续把刷新当作下一步。",
             next_decision="不要重复刷新同一主题新闻；先下钻核验证据板，处理待判定/反向证据，必要时更换数据源。",
+        )
+    if candidate.topic_news_review_ready:
+        return ResearchAssessment(
+            stage="evidence_review",
+            stage_label="证据待分类",
+            consistency="topic_news_review_ready",
+            consistency_label="待分类",
+            evidence_reading="主题新闻已刷新并形成可用相关新闻，下一步要拆分支持、反向和待判定证据。",
+            next_decision="不要重复刷新同一主题新闻；先下钻核验证据板，处理支持、反向和待判定证据。",
         )
     if candidate.evidence_quality in {"missing", "needs_review", "mixed"}:
         return ResearchAssessment(
@@ -2386,7 +2406,7 @@ _TOPIC_QUERY_ALIASES = {
 
 
 def _needs_topic_news_refresh(candidate: CandidateCheck) -> bool:
-    if candidate.topic_news_exhausted:
+    if candidate.topic_news_exhausted or candidate.topic_news_review_ready:
         return False
     return candidate.evidence_quality in {"missing", "needs_review", "mixed"}
 
@@ -2921,6 +2941,12 @@ def _candidate_checks(
             packet,
         ):
             candidate_check = _mark_topic_news_exhausted(candidate_check)
+        elif output_dir is not None and _latest_research_run_refreshed_topic_news(
+            output_dir,
+            candidate_check,
+            packet,
+        ):
+            candidate_check = _mark_topic_news_review_ready(candidate_check)
         checks.append(candidate_check)
     return checks
 
@@ -2930,6 +2956,24 @@ def _actions_exhausted_topic_news(
     candidate: CandidateCheck,
     packet: ResearchPacket | None,
 ) -> bool:
+    return _has_successful_topic_news_refresh(actions) and (
+        _packet_related_news_count(candidate, packet) == 0
+    )
+
+
+def _actions_refreshed_topic_news_for_review(
+    actions: list[ResearchRunAction],
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> bool:
+    if candidate.evidence_quality not in {"missing", "needs_review", "mixed"}:
+        return False
+    return _has_successful_topic_news_refresh(actions) and (
+        _packet_related_news_count(candidate, packet) > 0
+    )
+
+
+def _has_successful_topic_news_refresh(actions: list[ResearchRunAction]) -> bool:
     topic_refreshes = [
         action
         for action in actions
@@ -2937,7 +2981,7 @@ def _actions_exhausted_topic_news(
         and action.status != "failed"
         and action.count > 0
     ]
-    return bool(topic_refreshes) and _packet_related_news_count(candidate, packet) == 0
+    return bool(topic_refreshes)
 
 
 def _latest_research_run_exhausted_topic_news(
@@ -2974,6 +3018,44 @@ def _latest_research_run_exhausted_topic_news(
     return False
 
 
+def _latest_research_run_refreshed_topic_news(
+    output_dir: Path,
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> bool:
+    research_dir = output_dir / "research"
+    if not research_dir.exists():
+        return False
+    for path in sorted(research_dir.glob("research-run-*.json"), reverse=True):
+        payload = _read_json_dict(path)
+        payload_candidate = _dict_value(payload.get("candidate"))
+        if not _verification_candidate_matches(payload_candidate, candidate):
+            continue
+        if payload_candidate.get("topic_news_exhausted") is True:
+            return False
+        assessment = _dict_value(payload.get("assessment"))
+        if _string_value(assessment.get("consistency")) == "topic_news_exhausted":
+            return False
+        if payload_candidate.get("topic_news_review_ready") is True:
+            return True
+        if _string_value(assessment.get("consistency")) == "topic_news_review_ready":
+            return True
+        actions = [
+            ResearchRunAction(
+                action_type=_string_value(row.get("action_type")),
+                status=_string_value(row.get("status")),
+                symbols=_text_list(row.get("symbols")),
+                count=_int_value(row.get("count")),
+                output_path=None,
+                message=_string_value(row.get("message")),
+                warnings=_text_list(row.get("warnings")),
+            )
+            for row in _dict_list(payload.get("actions"))
+        ]
+        return _actions_refreshed_topic_news_for_review(actions, candidate, packet)
+    return False
+
+
 def _mark_topic_news_exhausted(candidate: CandidateCheck) -> CandidateCheck:
     selector = _research_selector(candidate.symbol, candidate.display_name)
     return replace(
@@ -2984,6 +3066,20 @@ def _mark_topic_news_exhausted(candidate: CandidateCheck) -> CandidateCheck:
         next_step=(
             "主题新闻已刷新但没有可用材料；先下钻核验证据板，"
             "处理待判定/反向证据，必要时更换数据源。"
+        ),
+        next_command=f"lychee research verify {selector}",
+    )
+
+
+def _mark_topic_news_review_ready(candidate: CandidateCheck) -> CandidateCheck:
+    selector = _research_selector(candidate.symbol, candidate.display_name)
+    return replace(
+        candidate,
+        topic_news_review_ready=True,
+        priority="P2 证据待分类",
+        ranking_reason="主题新闻已刷新并形成相关新闻，下一步是下钻核验证据方向，不再重复刷新。",
+        next_step=(
+            "主题新闻已刷新；先下钻核验证据板，处理支持、反向和待判定证据。"
         ),
         next_command=f"lychee research verify {selector}",
     )

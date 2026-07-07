@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -2490,14 +2490,15 @@ def test_data_freshness_command_lists_cache_entries(tmp_path: Path) -> None:
     artifact_path = tmp_path / "data" / "market-prices.json"
     artifact_path.parent.mkdir()
     artifact_path.write_text('{"provider": "alpha_vantage", "rows": []}', encoding="utf-8")
+    now = datetime.now(UTC)
     record_cache_entry(
         output_dir=tmp_path,
         layer="market",
         cache_key="market:alpha_vantage:AAPL,TSLA",
         provider="alpha_vantage",
         artifact_path=artifact_path,
-        created_at=datetime(2026, 7, 6, 14, 0, tzinfo=UTC),
-        expires_at=datetime(2026, 7, 7, 13, 30, tzinfo=UTC),
+        created_at=now - timedelta(minutes=5),
+        expires_at=now + timedelta(hours=1),
         ttl_seconds=900,
         row_count=2,
         market="US",

@@ -816,7 +816,7 @@ def build_research_verification_checks(
             ResearchVerificationCheck(
                 name="代理标的核验",
                 status="warn",
-                detail="代理标的需要人工核对成分、费用、流动性和可交易性。",
+                detail=_proxy_mapping_check_detail(packet_payload),
             )
         )
     checks.append(
@@ -845,6 +845,7 @@ def build_research_evidence_board(
     missing: list[str] = []
     for price in prices[:3]:
         support.append(_price_line(price).removeprefix("行情: "))
+    support.extend(_proxy_mapping_support_lines(packet_payload))
     topic_relevance = _news_topic_relevance(
         candidate,
         packet,
@@ -877,12 +878,6 @@ def build_research_evidence_board(
             missing.append(f"{check.name}: {check.detail}")
         elif check.status == "warn":
             risk.append(f"{check.name}: {check.detail}")
-    if candidate.proxy_symbols:
-        risk.append(
-            "代理标的: "
-            + ", ".join(candidate.proxy_symbols)
-            + " 需要人工核对成分、费用、流动性和可交易性。"
-        )
     return {
         "support": support,
         "risk": risk,
@@ -907,6 +902,27 @@ def _verification_price_rows(
             latest_price = {**latest_price, "symbol": symbol}
         prices.append(latest_price)
     return prices
+
+
+def _proxy_mapping_support_lines(packet_payload: dict[str, object]) -> list[str]:
+    lines: list[str] = []
+    for row in _symbol_mapping_rows(packet_payload):
+        symbol = _string_value(row.get("symbol")) or "-"
+        display_name = _string_value(row.get("display_name")) or "-"
+        confidence = _string_value(row.get("confidence")) or "-"
+        reason = _string_value(row.get("reason"))
+        line = f"代理映射: {symbol} {display_name} | 置信度 {confidence}"
+        if reason:
+            line += f" | {reason}"
+        lines.append(line)
+    return lines
+
+
+def _proxy_mapping_check_detail(packet_payload: dict[str, object]) -> str:
+    lines = _proxy_mapping_support_lines(packet_payload)
+    if not lines:
+        return "代理标的需要人工核对成分、费用、流动性和可交易性。"
+    return "；".join(lines) + "；仍需核对成分、费用、流动性和是否可交易。"
 
 
 def _price_check_detail(prices: list[dict[str, object]]) -> str:

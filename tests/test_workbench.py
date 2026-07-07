@@ -114,9 +114,22 @@ def test_verify_research_task_uses_proxy_prices_for_symbolless_themes(
     assert volume_check.status == "pass"
     assert "成交量 1000000" in volume_check.detail
     assert any("2800.HK 18.50 HKD" in item for item in result.evidence_board["support"])
+    assert any(
+        "代理映射: 2800.HK 盈富基金" in item
+        and "置信度 medium" in item
+        and "恒生指数压力主题" in item
+        for item in result.evidence_board["support"]
+    )
     assert not any(
         "行情核验: 缺少本地行情" in item
         for item in result.evidence_board["missing"]
+    )
+    proxy_check = next(check for check in result.checks if check.name == "代理标的核验")
+    assert "2800.HK 盈富基金" in proxy_check.detail
+    assert "置信度 medium" in proxy_check.detail
+    assert not any(
+        item.startswith("代理标的: ")
+        for item in result.evidence_board["risk"]
     )
 
 

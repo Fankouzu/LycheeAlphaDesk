@@ -11,6 +11,7 @@ from lychee_alphadesk.core.live_data import (
     pull_news_events,
     pull_sec_filings,
     run_cached_data_health,
+    write_fund_metadata_cache,
 )
 from lychee_alphadesk.core.research_db import init_research_db
 
@@ -49,6 +50,41 @@ def test_pull_market_prices_writes_alpha_vantage_cache(tmp_path: Path) -> None:
         "volume": 51230000,
         "currency": "USD",
     }
+
+
+def test_write_fund_metadata_cache_preserves_source_backed_proxy_details(
+    tmp_path: Path,
+) -> None:
+    result = write_fund_metadata_cache(
+        output_dir=tmp_path,
+        symbol="2800.HK",
+        display_name="盈富基金",
+        market="HK",
+        tracking_index="Hang Seng Index",
+        expense_ratio="0.10%",
+        holdings_summary="跟踪恒生指数成分股",
+        source_url="https://example.com/2800",
+        as_of="2026-07-05",
+        provider="manual",
+    )
+
+    assert result.count == 1
+    assert result.output_path == tmp_path / "data" / "fund-metadata.json"
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["provider"] == "manual"
+    assert cache["rows"] == [
+        {
+            "symbol": "2800.HK",
+            "display_name": "盈富基金",
+            "market": "HK",
+            "tracking_index": "Hang Seng Index",
+            "expense_ratio": "0.10%",
+            "holdings_summary": "跟踪恒生指数成分股",
+            "source_url": "https://example.com/2800",
+            "as_of": "2026-07-05",
+            "provider": "manual",
+        }
+    ]
 
 
 def test_pull_market_prices_auto_uses_eastmoney_for_hk_symbols(

@@ -38,6 +38,7 @@ from lychee_alphadesk.core.live_data import (
     pull_news_events,
     pull_sec_filings,
     run_cached_data_health,
+    write_fund_metadata_cache,
 )
 from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
@@ -86,6 +87,7 @@ policy_app = typer.Typer(help="投资政策命令。")
 audit_app = typer.Typer(help="审计记录命令。")
 data_app = typer.Typer(help="行情、新闻、公告和预测数据命令。")
 data_pull_app = typer.Typer(help="拉取实时数据源数据到本地缓存。")
+data_set_app = typer.Typer(help="写入人工核验过的数据到本地缓存。")
 discover_app = typer.Typer(help="发现优先的市场研究命令。")
 research_app = typer.Typer(help="本地研究库和研究队列命令。")
 setup_app = typer.Typer(
@@ -1193,6 +1195,70 @@ def data_pull_filings(
     _print_pull_result(result_label="公告", count=result.count, result=result)
 
 
+@data_set_app.command("fund")
+def data_set_fund(
+    symbol: Annotated[
+        str,
+        typer.Option("--symbol", help="基金或 ETF 代码，例如 2800.HK、510300.SH。"),
+    ],
+    display_name: Annotated[
+        str,
+        typer.Option("--name", help="基金或 ETF 显示名称。"),
+    ],
+    source_url: Annotated[
+        str,
+        typer.Option("--source-url", help="资料来源 URL。"),
+    ],
+    market: Annotated[
+        str,
+        typer.Option("--market", help="市场，例如 US、HK、CN。"),
+    ] = "",
+    tracking_index: Annotated[
+        str,
+        typer.Option("--tracking-index", help="跟踪指数或基准。"),
+    ] = "",
+    expense_ratio: Annotated[
+        str,
+        typer.Option("--expense-ratio", help="费用率或管理费说明。"),
+    ] = "",
+    holdings_summary: Annotated[
+        str,
+        typer.Option("--holdings-summary", help="成分或持仓摘要。"),
+    ] = "",
+    as_of: Annotated[
+        str,
+        typer.Option("--as-of", help="资料日期 YYYY-MM-DD。"),
+    ] = "",
+    provider: Annotated[
+        str,
+        typer.Option("--provider", help="资料来源类型，默认 manual。"),
+    ] = "manual",
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """写入基金/ETF 元资料缓存，用于代理标的核验。"""
+    try:
+        result = write_fund_metadata_cache(
+            output_dir=output_dir,
+            symbol=symbol,
+            display_name=display_name,
+            market=market,
+            tracking_index=tracking_index,
+            expense_ratio=expense_ratio,
+            holdings_summary=holdings_summary,
+            source_url=source_url,
+            as_of=as_of,
+            provider=provider,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    console.print(f"基金资料已写入: {symbol.strip().upper()}")
+    _print_pull_result(result_label="基金资料", count=result.count, result=result)
+
+
 def _print_pull_result(*, result_label: str, count: int, result: PullResult) -> None:
     provider = result.provider
     output_path = result.output_path
@@ -1807,6 +1873,7 @@ app.add_typer(audit_app, name="audit")
 app.add_typer(discover_app, name="discover")
 app.add_typer(research_app, name="research")
 data_app.add_typer(data_pull_app, name="pull")
+data_app.add_typer(data_set_app, name="set")
 app.add_typer(data_app, name="data")
 setup_app.add_typer(llm_setup_app, name="llm")
 app.add_typer(setup_app, name="setup")

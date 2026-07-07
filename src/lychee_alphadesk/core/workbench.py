@@ -847,6 +847,7 @@ def build_research_evidence_board(
         support.append(_price_line(price).removeprefix("行情: "))
     support.extend(_proxy_mapping_support_lines(packet_payload))
     support.extend(_proxy_operability_support_lines(packet_payload))
+    support.extend(_proxy_fund_metadata_support_lines(packet_payload))
     missing.extend(_proxy_missing_data_lines(packet_payload))
     topic_relevance = _news_topic_relevance(
         candidate,
@@ -936,12 +937,56 @@ def _proxy_operability_support_lines(packet_payload: dict[str, object]) -> list[
     return lines
 
 
+def _proxy_fund_metadata_support_lines(packet_payload: dict[str, object]) -> list[str]:
+    lines: list[str] = []
+    for row in _symbol_mapping_rows(packet_payload):
+        symbol = _string_value(row.get("symbol"))
+        metadata = _dict_value(row.get("fund_metadata"))
+        if not symbol or not metadata:
+            continue
+        parts = [f"代理资料: {symbol}"]
+        display_name = _string_value(metadata.get("display_name"))
+        tracking_index = _string_value(metadata.get("tracking_index"))
+        expense_ratio = _string_value(metadata.get("expense_ratio"))
+        holdings_summary = _string_value(metadata.get("holdings_summary"))
+        source_url = _string_value(metadata.get("source_url"))
+        as_of = _string_value(metadata.get("as_of"))
+        if display_name:
+            parts.append(f"名称 {display_name}")
+        if tracking_index:
+            parts.append(f"跟踪指数 {tracking_index}")
+        if expense_ratio:
+            parts.append(f"费用 {expense_ratio}")
+        if holdings_summary:
+            parts.append(f"成分 {holdings_summary}")
+        if source_url:
+            parts.append(f"来源 {source_url}")
+        if as_of:
+            parts.append(f"截止 {as_of}")
+        lines.append(" | ".join(parts))
+    return lines
+
+
 def _proxy_missing_data_lines(packet_payload: dict[str, object]) -> list[str]:
     lines: list[str] = []
     for row in _symbol_mapping_rows(packet_payload):
         symbol = _string_value(row.get("symbol"))
-        if symbol:
+        metadata = _dict_value(row.get("fund_metadata"))
+        if symbol and not metadata:
             lines.append(f"代理资料: 缺少 {symbol} 成分/费用缓存")
+            continue
+        missing_parts: list[str] = []
+        if not (
+            _string_value(metadata.get("tracking_index"))
+            or _string_value(metadata.get("holdings_summary"))
+        ):
+            missing_parts.append("成分/跟踪指数")
+        if not _string_value(metadata.get("expense_ratio")):
+            missing_parts.append("费用")
+        if not _string_value(metadata.get("source_url")):
+            missing_parts.append("来源")
+        if symbol and missing_parts:
+            lines.append(f"代理资料: {symbol} 缺少{'、'.join(missing_parts)}缓存")
     return lines
 
 
@@ -949,6 +994,7 @@ def _proxy_mapping_check_detail(packet_payload: dict[str, object]) -> str:
     lines = [
         *_proxy_mapping_support_lines(packet_payload),
         *_proxy_operability_support_lines(packet_payload),
+        *_proxy_fund_metadata_support_lines(packet_payload),
         *_proxy_missing_data_lines(packet_payload),
     ]
     if not lines:
@@ -2828,7 +2874,7 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
 
 
 def _proxy_followup_line() -> str:
-    return "代理核验: 重点补成分/费用；可交易性和成交量看下钻核验证据。"
+    return "代理核验: 查看下钻核验证据中的成分/费用、可交易性和成交量；缺什么按待补证据处理。"
 
 
 def _signal_reading(

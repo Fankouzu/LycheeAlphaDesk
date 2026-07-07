@@ -7,10 +7,12 @@ from pathlib import Path
 
 from lychee_alphadesk.core.evidence import EvidenceItem, build_news_evidence_pack
 from lychee_alphadesk.core.live_data import (
+    FundMetadata,
     PullResult,
     build_cached_data_snapshot,
     pull_market_prices,
     pull_sec_filings,
+    read_fund_metadata_cache,
 )
 from lychee_alphadesk.core.research_db import (
     ResearchQueueItem,
@@ -97,6 +99,7 @@ def deepen_research_queue(
         return ResearchDeepenResult(created_at, [], None, db_path)
 
     snapshot = build_cached_data_snapshot(output_dir)
+    fund_metadata = read_fund_metadata_cache(output_dir)
     evidence_pack = build_news_evidence_pack(output_dir, limit=100)
     evidence_by_id = {item.id: item for item in evidence_pack}
 
@@ -108,6 +111,7 @@ def deepen_research_queue(
             prices=snapshot.prices,
             news_events=snapshot.news_events,
             filings=snapshot.filings,
+            fund_metadata=fund_metadata,
         )
         for item in queue
     ]
@@ -239,6 +243,7 @@ def _build_research_packet(
     prices: list[PriceRow],
     news_events: list[NewsEvent],
     filings: list[FilingSummary],
+    fund_metadata: list[FundMetadata],
 ) -> ResearchPacket:
     symbol = item.symbol.upper() if item.symbol else None
     evidence_items = [
@@ -250,7 +255,7 @@ def _build_research_packet(
         evidence_id for evidence_id in item.evidence if evidence_id not in evidence_by_id
     ]
     price = _latest_price(symbol, prices) if symbol else None
-    symbol_mapping = _symbol_mapping_rows(item, prices) if not symbol else []
+    symbol_mapping = _symbol_mapping_rows(item, prices, fund_metadata) if not symbol else []
     related_news = _related_news(
         symbol,
         item.display_name,
@@ -471,7 +476,8 @@ def _symbol_mapping_gap_action(
         count=len(symbols),
         output_path=None,
         warnings=[
-            "代理映射仅用于研究下钻；成分/费用需补资料，可交易性和成交量看下钻核验证据。"
+            "代理映射仅用于研究下钻；成分/费用看 fund-metadata 缓存，"
+            "缺失时需补资料，可交易性和成交量看下钻核验证据。"
         ],
         message="已生成可审计代理标的；代理行情由行情动作补齐。",
     )
@@ -565,17 +571,32 @@ def _latest_price(symbol: str | None, prices: list[PriceRow]) -> dict[str, objec
 def _symbol_mapping_rows(
     item: ResearchQueueItem,
     prices: list[PriceRow],
+    fund_metadata: list[FundMetadata],
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for proposal in suggest_symbol_mappings(item):
         row = _symbol_mapping_to_dict(proposal)
         row["latest_price"] = _latest_price(proposal.symbol, prices)
+        metadata = _fund_metadata(proposal.symbol, fund_metadata)
+        if metadata is not None:
+            row["fund_metadata"] = asdict(metadata)
         rows.append(row)
     return rows
 
 
 def _symbol_mapping_to_dict(proposal: SymbolMappingProposal) -> dict[str, object]:
     return asdict(proposal)
+
+
+def _fund_metadata(
+    symbol: str,
+    fund_metadata: list[FundMetadata],
+) -> FundMetadata | None:
+    normalized_symbol = symbol.upper()
+    for row in fund_metadata:
+        if row.symbol.upper() == normalized_symbol:
+            return row
+    return None
 
 
 def _related_news(

@@ -86,6 +86,43 @@ def test_data_health_command_shows_provider_quality() -> None:
     assert "通过" in result.stdout
 
 
+def test_data_set_fund_command_writes_proxy_metadata_cache(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "set",
+            "fund",
+            "--symbol",
+            "2800.HK",
+            "--name",
+            "盈富基金",
+            "--market",
+            "HK",
+            "--tracking-index",
+            "Hang Seng Index",
+            "--expense-ratio",
+            "0.10%",
+            "--holdings-summary",
+            "跟踪恒生指数成分股",
+            "--source-url",
+            "https://example.com/2800",
+            "--as-of",
+            "2026-07-05",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "基金资料已写入" in result.stdout
+    assert "2800.HK" in result.stdout
+    cache = json.loads((tmp_path / "data" / "fund-metadata.json").read_text("utf-8"))
+    assert cache["rows"][0]["symbol"] == "2800.HK"
+    assert cache["rows"][0]["tracking_index"] == "Hang Seng Index"
+    assert cache["rows"][0]["expense_ratio"] == "0.10%"
+
+
 def test_discover_today_requires_llm_configuration(
     monkeypatch, tmp_path: Path
 ) -> None:

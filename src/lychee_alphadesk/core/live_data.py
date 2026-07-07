@@ -56,6 +56,69 @@ class PullResult:
     refreshed: bool = True
 
 
+@dataclass(frozen=True)
+class FundMetadata:
+    symbol: str
+    display_name: str
+    market: str
+    tracking_index: str
+    expense_ratio: str
+    holdings_summary: str
+    source_url: str
+    as_of: str
+    provider: str
+
+
+def write_fund_metadata_cache(
+    *,
+    output_dir: Path,
+    symbol: str,
+    display_name: str,
+    market: str,
+    tracking_index: str = "",
+    expense_ratio: str = "",
+    holdings_summary: str = "",
+    source_url: str = "",
+    as_of: str = "",
+    provider: str = "manual",
+) -> PullResult:
+    normalized_symbol = symbol.strip().upper()
+    if not normalized_symbol:
+        raise ValueError("请提供基金或 ETF 代码。")
+    if not source_url.strip():
+        raise ValueError("请提供资料来源 URL，避免写入不可审计的基金资料。")
+
+    row = FundMetadata(
+        symbol=normalized_symbol,
+        display_name=display_name.strip() or normalized_symbol,
+        market=market.strip().upper() or _infer_symbol_market(normalized_symbol),
+        tracking_index=tracking_index.strip(),
+        expense_ratio=expense_ratio.strip(),
+        holdings_summary=holdings_summary.strip(),
+        source_url=source_url.strip(),
+        as_of=as_of.strip(),
+        provider=provider.strip() or "manual",
+    )
+    rows = _merge_symbol_cache_rows(
+        output_dir=output_dir,
+        filename="fund-metadata.json",
+        new_rows=[asdict(row)],
+    )
+    output_path = _write_cache(
+        output_dir=output_dir,
+        filename="fund-metadata.json",
+        provider=row.provider,
+        rows=rows,
+        warnings=[],
+    )
+    return PullResult("fund_metadata", row.provider, 1, output_path, [])
+
+
+def read_fund_metadata_cache(output_dir: Path) -> list[FundMetadata]:
+    cache = _read_cache(output_dir, "fund-metadata.json")
+    return [_fund_metadata_from_dict(row) for row in cache.rows]
+
+
 def pull_market_prices(
     *,
     symbols: list[str],
@@ -641,6 +704,15 @@ def _infer_symbol_currency(symbol: str) -> str:
     return "USD"
 
 
+def _infer_symbol_market(symbol: str) -> str:
+    normalized = symbol.upper()
+    if normalized.endswith(".HK"):
+        return "HK"
+    if normalized.endswith((".SH", ".SZ", ".SS")):
+        return "CN"
+    return "US"
+
+
 def _news_provider_candidates(
     config: AlphaDeskConfig,
     provider_id: str,
@@ -961,6 +1033,26 @@ def _merge_market_cache_rows(
     return preserved + new_rows
 
 
+def _merge_symbol_cache_rows(
+    *,
+    output_dir: Path,
+    filename: str,
+    new_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    existing = _read_cache(output_dir, filename).rows
+    new_symbols = {
+        symbol
+        for row in new_rows
+        if (symbol := _cache_row_symbol(row))
+    }
+    preserved = [
+        row
+        for row in existing
+        if (symbol := _cache_row_symbol(row)) and symbol not in new_symbols
+    ]
+    return preserved + new_rows
+
+
 def _merge_news_cache_rows(
     output_dir: Path,
     new_rows: list[dict[str, object]],
@@ -1025,6 +1117,20 @@ def _price_row_from_dict(row: dict[str, object]) -> PriceRow:
         close=float(str(row["close"])),
         volume=int(str(row["volume"])),
         currency=str(row["currency"]),
+    )
+
+
+def _fund_metadata_from_dict(row: dict[str, object]) -> FundMetadata:
+    return FundMetadata(
+        symbol=str(row.get("symbol") or "").upper(),
+        display_name=str(row.get("display_name") or ""),
+        market=str(row.get("market") or ""),
+        tracking_index=str(row.get("tracking_index") or ""),
+        expense_ratio=str(row.get("expense_ratio") or ""),
+        holdings_summary=str(row.get("holdings_summary") or ""),
+        source_url=str(row.get("source_url") or ""),
+        as_of=str(row.get("as_of") or ""),
+        provider=str(row.get("provider") or ""),
     )
 
 

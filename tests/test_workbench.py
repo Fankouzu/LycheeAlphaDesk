@@ -58,8 +58,9 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert "代理核验: 核对成分、费用、流动性和是否可交易。" not in (
         result.beginner_brief
     )
+    assert "代理核验: 重点补成分/费用" not in result.beginner_brief
     assert (
-        "代理核验: 重点补成分/费用；可交易性和成交量看下钻核验证据。"
+        "代理核验: 查看下钻核验证据中的成分/费用、可交易性和成交量；缺什么按待补证据处理。"
         in result.beginner_brief
     )
 
@@ -153,6 +154,37 @@ def test_verify_research_task_uses_proxy_prices_for_symbolless_themes(
         item.startswith("代理标的: ")
         for item in result.evidence_board["risk"]
     )
+
+
+def test_verify_research_task_uses_cached_proxy_fund_metadata(
+    tmp_path: Path,
+) -> None:
+    _write_symbolless_seed(tmp_path)
+    _write_live_caches(tmp_path, include_proxy_price=True)
+    _write_fund_metadata_cache(tmp_path)
+
+    result = verify_research_task(
+        output_dir=tmp_path,
+        name="恒生指数压力观察",
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    assert any(
+        "代理资料: 2800.HK" in item
+        and "跟踪指数 Hang Seng Index" in item
+        and "费用 0.10%" in item
+        and "来源 https://example.com/2800" in item
+        for item in result.evidence_board["support"]
+    )
+    assert not any(
+        "代理资料: 缺少 2800.HK 成分/费用缓存" in item
+        for item in result.evidence_board["missing"]
+    )
+    proxy_check = next(check for check in result.checks if check.name == "代理标的核验")
+    assert "代理资料: 2800.HK" in proxy_check.detail
+    assert "跟踪指数 Hang Seng Index" in proxy_check.detail
+    assert "费用 0.10%" in proxy_check.detail
+    assert "缺少 2800.HK 成分/费用缓存" not in proxy_check.detail
 
 
 def test_workbench_check_downgrades_reverse_only_evidence(
@@ -805,6 +837,33 @@ def _write_live_caches(
             ),
             encoding="utf-8",
         )
+
+
+def _write_fund_metadata_cache(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "fund-metadata.json").write_text(
+        json.dumps(
+            {
+                "provider": "manual",
+                "rows": [
+                    {
+                        "symbol": "2800.HK",
+                        "display_name": "盈富基金",
+                        "market": "HK",
+                        "tracking_index": "Hang Seng Index",
+                        "expense_ratio": "0.10%",
+                        "holdings_summary": "跟踪恒生指数成分股",
+                        "source_url": "https://example.com/2800",
+                        "as_of": "2026-07-05",
+                        "provider": "manual",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
 
 def _fake_market_pull(**kwargs: object) -> PullResult:

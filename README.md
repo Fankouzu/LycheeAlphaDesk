@@ -376,6 +376,7 @@ lychee data pull news
 lychee data pull news --symbols AAPL --provider auto
 lychee data pull news --symbols AAPL --provider auto --force
 lychee data pull filings --symbols AAPL,TSLA --limit 3
+lychee data set fund --symbol 2800.HK --name "Tracker Fund of Hong Kong" --source-url https://example.com/2800 --tracking-index "Hang Seng Index" --expense-ratio "0.10%"
 lychee data freshness
 lychee data health
 lychee data snapshot
@@ -387,6 +388,7 @@ Current live providers:
 - Market prices: Alpha Vantage daily time series; automatic gap filling can use Eastmoney daily bars for HK/China symbols and Yahoo chart as a cross-market fallback.
 - News: Marketaux, Finnhub, or NewsAPI, selected with `--provider`; without `--symbols` it pulls market-level news, and with `--symbols` it pulls symbol-level news. `auto` uses the first configured provider that fits the request type.
 - Filings: SEC EDGAR recent filings for US-listed symbols.
+- Fund/ETF metadata: `data set fund` writes source-backed tracking-index, expense-ratio, and holdings-summary metadata into `fund-metadata.json`. The workbench uses it as proxy-instrument support evidence and reports only still-missing fields; it does not invent fund fees or constituents.
 
 Market-price cache now uses trading-session-aware freshness. US, HK, and China A-share symbols are checked against regular market hours before refreshing. During open sessions the default freshness window is 15 minutes; HK/CN lunch breaks, post-close final caches, and weekends prefer the local cache; `--force` ignores freshness and session state. The first implementation includes regular sessions and weekends only; full holiday calendars should come from a future trading-calendar provider.
 

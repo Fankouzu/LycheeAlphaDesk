@@ -375,6 +375,7 @@ lychee data pull news
 lychee data pull news --symbols AAPL --provider auto
 lychee data pull news --symbols AAPL --provider auto --force
 lychee data pull filings --symbols AAPL,TSLA --limit 3
+lychee data set fund --symbol 2800.HK --name 盈富基金 --source-url https://example.com/2800 --tracking-index "Hang Seng Index" --expense-ratio "0.10%"
 lychee data freshness
 lychee data health
 lychee data snapshot
@@ -386,6 +387,7 @@ lychee
 - 行情：Alpha Vantage 日线行情；自动补缺口时可用 Eastmoney 覆盖港股/A 股日 K，并用 Yahoo chart 做跨市场兜底。
 - 新闻：Marketaux、Finnhub 或 NewsAPI，可用 `--provider` 指定；不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`auto` 会按请求类型使用第一个已配置且适用的 provider。
 - 公告：SEC EDGAR 美股近期 filings。
+- 基金/ETF 资料：`data set fund` 会把已人工核验且带来源 URL 的跟踪指数、费用率和成分摘要写入 `fund-metadata.json`。工作台会把这些资料放入代理标的支持证据，并只对仍缺失的字段报缺口；系统不会自动编造基金费用或成分。
 
 行情 cache 已接入交易时段感知保质期：美股、港股和 A 股会按常规交易时段判断是否需要刷新。交易中默认 15 分钟保质期；港股/A 股午休、收盘确认后、周末会优先使用缓存；`--force` 会忽略保质期和交易时段策略强制刷新。第一版只内置常规交易时段和周末判断，完整节假日日历后续接入交易日历 provider。
 

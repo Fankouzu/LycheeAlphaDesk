@@ -58,6 +58,7 @@ class CandidateCheck:
     ranking_reason: str = ""
     evidence_quality: str = ""
     next_command: str = ""
+    topic_news_exhausted: bool = False
 
 
 @dataclass(frozen=True)
@@ -290,7 +291,7 @@ def run_workbench_check(
         limit=limit,
         now=now,
     )
-    candidates = _candidate_checks(deepen_result.packets)
+    candidates = _candidate_checks(output_dir, deepen_result.packets)
     proxy_price_count, proxy_total = _proxy_price_coverage(deepen_result.packets)
     gates = _workbench_gates(candidates, proxy_price_count, proxy_total)
     result_status = "blocked" if any(gate.status == "fail" for gate in gates) else "ready"
@@ -699,9 +700,14 @@ def run_research_task(
         if refreshed_index < len(refreshed.deepen_result.packets)
         else None
     )
+    if _actions_exhausted_topic_news(actions, refreshed_candidate, refreshed_packet):
+        refreshed_candidate = _mark_topic_news_exhausted(refreshed_candidate)
     action_status = _research_run_action_status(
         actions,
-        related_news_count=_packet_related_news_count(refreshed_packet),
+        related_news_count=_packet_related_news_count(
+            refreshed_candidate,
+            refreshed_packet,
+        ),
     )
     detail = render_research_task_detail(
         refreshed_candidate,
@@ -742,7 +748,12 @@ def build_research_verification_checks(
     local_data = _dict_value(packet_payload.get("local_data"))
     prices = _verification_price_rows(packet_payload, local_data)
     evidence = _dict_list(packet_payload.get("evidence"))
-    related_news = _dict_list(local_data.get("related_news"))
+    raw_related_news = _dict_list(local_data.get("related_news"))
+    related_news, off_topic_news = _detail_related_news(
+        candidate,
+        packet,
+        raw_related_news,
+    )
     filings = _dict_list(local_data.get("filings"))
     data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
     asset_type = _asset_type(packet)
@@ -1069,16 +1080,22 @@ def build_research_decision_board(
             candidate=candidate,
         )
     if topic_relevance.matched_count == 0:
+        next_steps = [
+            "刷新主题新闻，并确认风险栏新闻是否真的回答研究问题。",
+            "如果仍无主题证据，先记录需要补证据，暂不生成研究备忘录。",
+        ]
+        if candidate.topic_news_exhausted:
+            next_steps = [
+                "主题新闻已刷新但没有留下可用证据，不要重复刷新同一查询。",
+                "记录需要更高质量数据源、调整研究问题，或暂时把线索放回观察池。",
+            ]
         return _research_decision_board(
             workflow_state="evidence_review",
             workflow_label="先复核主题相关性",
             primary_question=question,
             decision_rule="现有新闻或证据没有命中研究主题关键词，不能把市场噪音当成研究依据。",
             suggested_verdict="needs_more_evidence",
-            next_steps=[
-                "刷新主题新闻，并确认风险栏新闻是否真的回答研究问题。",
-                "如果仍无主题证据，先记录需要补证据，暂不生成研究备忘录。",
-            ],
+            next_steps=next_steps,
             candidate=candidate,
         )
     if topic_relevance.reverse_count:
@@ -1176,7 +1193,10 @@ def _decision_board_next_commands(
 ) -> list[str]:
     selector = _research_selector(candidate.symbol, candidate.display_name)
     commands: list[str] = []
-    if suggested_verdict in {"needs_more_evidence", "blocked"}:
+    should_refresh = suggested_verdict in {"needs_more_evidence", "blocked"}
+    if suggested_verdict == "needs_more_evidence" and candidate.topic_news_exhausted:
+        should_refresh = False
+    if should_refresh:
         commands.append(f"lychee research run {selector} --force")
     if suggested_verdict == "continue_research":
         commands.append(f"lychee research memo {selector}")
@@ -1607,6 +1627,7 @@ def _news_topic_relevance(
     ]
     terms = _topic_terms(candidate, packet)
     market_terms = _market_context_terms(candidate.market)
+    asset_type = _asset_type(packet)
     matched_rows: list[dict[str, object]] = []
     support_rows: list[dict[str, object]] = []
     reverse_rows: list[dict[str, object]] = []
@@ -1626,9 +1647,10 @@ def _news_topic_relevance(
         if reviewed_verdict == "irrelevant":
             unmatched_rows.append(row)
             continue
-        if _text_matches_any_topic_term(text, terms) and _matches_market_context(
-            text,
-            market_terms,
+        if (
+            _text_matches_any_topic_term(text, terms)
+            and _matches_market_context(text, market_terms)
+            and _matches_financial_context_for_asset(text, asset_type)
         ):
             matched_rows.append(row)
             direction = _news_evidence_direction(text)
@@ -1692,6 +1714,7 @@ def _topic_terms(
     terms: list[str] = []
     for value in raw_values:
         terms.extend(_extract_topic_terms(value))
+        terms.extend(_query_alias_terms(value))
     if (candidate.symbol or "").upper() == "QQQ":
         terms.extend(["qqq", "nasdaq", "nasdaq 100", "纳指", "科技"])
     return _dedupe_terms(terms)
@@ -1944,7 +1967,7 @@ def select_research_candidate_index(
 
 
 def beginner_research_brief(packets: list[ResearchPacket]) -> str:
-    candidates = _candidate_checks(packets)
+    candidates = _candidate_checks(None, packets)
     status = "blocked" if any(candidate.data_gaps for candidate in candidates) else "ready"
     return _beginner_brief(status, candidates)
 
@@ -1960,7 +1983,12 @@ def render_research_task_detail(
     prices = _verification_price_rows(packet_payload, local_data)
     price = prices[0] if prices else {}
     evidence = _dict_list(packet_payload.get("evidence"))
-    related_news = _dict_list(local_data.get("related_news"))
+    raw_related_news = _dict_list(local_data.get("related_news"))
+    related_news, off_topic_news = _detail_related_news(
+        candidate,
+        packet,
+        raw_related_news,
+    )
     filings = _dict_list(local_data.get("filings"))
     data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
     commands = research_action_commands(candidate, packet)
@@ -2002,6 +2030,9 @@ def render_research_task_detail(
         "相关新闻",
         *_headline_lines(related_news, empty="暂无匹配新闻。"),
         "",
+        "离题/已过滤",
+        *_headline_lines(off_topic_news, empty="无。"),
+        "",
         "公告/财报线索",
         *_filing_lines(filings),
         "",
@@ -2017,6 +2048,64 @@ def render_research_task_detail(
     lines.append("")
     lines.append("边界: 这是研究工作台快照，不是买卖建议。")
     return "\n".join(lines)
+
+
+def _detail_related_news(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+    related_news: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    terms = _topic_terms(candidate, packet)
+    market_terms = _market_context_terms(candidate.market)
+    asset_type = _asset_type(packet)
+    matched: list[dict[str, object]] = []
+    off_topic: list[dict[str, object]] = []
+    for row in related_news:
+        text = _news_text(row)
+        if (
+            _text_matches_any_topic_term(text, terms)
+            and _matches_market_context(text, market_terms)
+            and _matches_financial_context_for_asset(text, asset_type)
+        ):
+            matched.append(row)
+        else:
+            off_topic.append(row)
+    return matched, off_topic
+
+
+def _matches_financial_context_for_asset(text: str, asset_type: str) -> bool:
+    if asset_type.strip().lower() not in {"etf", "fund", "index"}:
+        return True
+    return _text_matches_any_topic_term(text, _FINANCIAL_MARKET_CONTEXT_TERMS)
+
+
+_FINANCIAL_MARKET_CONTEXT_TERMS = [
+    "stock",
+    "stocks",
+    "share",
+    "shares",
+    "market",
+    "markets",
+    "index",
+    "indices",
+    "etf",
+    "fund",
+    "exchange",
+    "turnover",
+    "liquidity",
+    "hang seng",
+    "hkex",
+    "港股",
+    "股票",
+    "股份",
+    "指数",
+    "基金",
+    "交易所",
+    "成交",
+    "流动性",
+    "恒生",
+    "大盘",
+]
 
 
 def _research_start_lines(candidate: CandidateCheck) -> list[str]:
@@ -2035,7 +2124,7 @@ def _research_start_lines(candidate: CandidateCheck) -> list[str]:
     lines.extend(
         [
             f"- 第一步: lychee research verify {selector}",
-            "- 看证据板: 支持证据 / 风险或反向待查 / 待补证据",
+            "- 看证据板: 支持证据 / 风险或反向待查 / 待补证据 / 离题或已过滤",
             (
                 f"- 记录判断: lychee research review {selector} "
                 '--verdict needs_more_evidence --note "写下还缺什么"'
@@ -2074,6 +2163,15 @@ def build_research_assessment(
             consistency_label="无法核验",
             evidence_reading="还有数据缺口，不能判断证据是否互相支持。",
             next_decision="先补齐数据缺口，再重新运行研究执行链。",
+        )
+    if candidate.topic_news_exhausted:
+        return ResearchAssessment(
+            stage="evidence_review",
+            stage_label="证据耗尽待复核",
+            consistency="topic_news_exhausted",
+            consistency_label="待复核",
+            evidence_reading="主题新闻已刷新，但过滤后没有形成可用相关新闻，不能继续把刷新当作下一步。",
+            next_decision="不要重复刷新同一主题新闻；先下钻核验证据板，处理待判定/反向证据，必要时更换数据源。",
         )
     if candidate.evidence_quality in {"missing", "needs_review", "mixed"}:
         return ResearchAssessment(
@@ -2277,6 +2375,7 @@ _TOPIC_QUERY_ALIASES = {
     "美股": ["US stocks"],
     "港股": ["Hong Kong stocks"],
     "恒生": ["Hang Seng"],
+    "流动性": ["liquidity", "turnover"],
     "A股": ["China A shares"],
     "半导体": ["semiconductor", "chip"],
     "利率": ["interest rates", "yields"],
@@ -2287,6 +2386,8 @@ _TOPIC_QUERY_ALIASES = {
 
 
 def _needs_topic_news_refresh(candidate: CandidateCheck) -> bool:
+    if candidate.topic_news_exhausted:
+        return False
     return candidate.evidence_quality in {"missing", "needs_review", "mixed"}
 
 
@@ -2465,11 +2566,19 @@ def _research_run_action_status(
     return "\n".join(lines)
 
 
-def _packet_related_news_count(packet: ResearchPacket | None) -> int:
+def _packet_related_news_count(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> int:
     if packet is None:
         return 0
     local_data = _dict_value(packet.packet.get("local_data"))
-    return len(_dict_list(local_data.get("related_news")))
+    related_news, _off_topic_news = _detail_related_news(
+        candidate,
+        packet,
+        _dict_list(local_data.get("related_news")),
+    )
+    return len(related_news)
 
 
 def _display_action_status(status: str) -> str:
@@ -2713,7 +2822,10 @@ def _research_run_action_to_dict(action: ResearchRunAction) -> dict[str, object]
     }
 
 
-def _candidate_checks(packets: list[ResearchPacket]) -> list[CandidateCheck]:
+def _candidate_checks(
+    output_dir: Path | None,
+    packets: list[ResearchPacket],
+) -> list[CandidateCheck]:
     checks: list[CandidateCheck] = []
     for packet in packets:
         payload = packet.packet
@@ -2769,43 +2881,112 @@ def _candidate_checks(packets: list[ResearchPacket]) -> list[CandidateCheck]:
             evidence_status="",
         )
         evidence_quality = _candidate_evidence_quality(base_candidate, packet)
-        checks.append(
-            replace(
-                base_candidate,
-                next_step=_next_step(next_actions, data_gaps, evidence_quality),
-                priority=_priority(
-                    status=status,
-                    symbol=packet.symbol,
-                    proxy_symbols=proxy_symbols,
-                    evidence_count=len(evidence_ids),
-                    gap_count=len(data_gaps),
-                    evidence_quality=evidence_quality,
-                ),
-                ranking_reason=_ranking_reason(
-                    status=status,
-                    symbol=packet.symbol,
-                    proxy_symbols=proxy_symbols,
-                    evidence_count=len(evidence_ids),
-                    gap_count=len(data_gaps),
-                    evidence_quality=evidence_quality,
-                ),
-                evidence_status=_evidence_status(
-                    evidence_count=len(evidence_ids),
-                    gap_count=len(data_gaps),
-                    proxy_symbols=proxy_symbols,
-                    evidence_quality=evidence_quality,
-                ),
-                evidence_quality=evidence_quality.status,
-                next_command=_next_command(
-                    status=status,
-                    symbol=packet.symbol,
-                    display_name=packet.display_name,
-                    data_gaps=data_gaps,
-                    evidence_quality=evidence_quality,
-                ),
-            )
+        candidate_check = replace(
+            base_candidate,
+            next_step=_next_step(next_actions, data_gaps, evidence_quality),
+            priority=_priority(
+                status=status,
+                symbol=packet.symbol,
+                proxy_symbols=proxy_symbols,
+                evidence_count=len(evidence_ids),
+                gap_count=len(data_gaps),
+                evidence_quality=evidence_quality,
+            ),
+            ranking_reason=_ranking_reason(
+                status=status,
+                symbol=packet.symbol,
+                proxy_symbols=proxy_symbols,
+                evidence_count=len(evidence_ids),
+                gap_count=len(data_gaps),
+                evidence_quality=evidence_quality,
+            ),
+            evidence_status=_evidence_status(
+                evidence_count=len(evidence_ids),
+                gap_count=len(data_gaps),
+                proxy_symbols=proxy_symbols,
+                evidence_quality=evidence_quality,
+            ),
+            evidence_quality=evidence_quality.status,
+            next_command=_next_command(
+                status=status,
+                symbol=packet.symbol,
+                display_name=packet.display_name,
+                data_gaps=data_gaps,
+                evidence_quality=evidence_quality,
+            ),
         )
+        if output_dir is not None and _latest_research_run_exhausted_topic_news(
+            output_dir,
+            candidate_check,
+            packet,
+        ):
+            candidate_check = _mark_topic_news_exhausted(candidate_check)
+        checks.append(candidate_check)
     return checks
+
+
+def _actions_exhausted_topic_news(
+    actions: list[ResearchRunAction],
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> bool:
+    topic_refreshes = [
+        action
+        for action in actions
+        if action.action_type == "refresh_topic_news"
+        and action.status != "failed"
+        and action.count > 0
+    ]
+    return bool(topic_refreshes) and _packet_related_news_count(candidate, packet) == 0
+
+
+def _latest_research_run_exhausted_topic_news(
+    output_dir: Path,
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> bool:
+    research_dir = output_dir / "research"
+    if not research_dir.exists():
+        return False
+    for path in sorted(research_dir.glob("research-run-*.json"), reverse=True):
+        payload = _read_json_dict(path)
+        payload_candidate = _dict_value(payload.get("candidate"))
+        if not _verification_candidate_matches(payload_candidate, candidate):
+            continue
+        if payload_candidate.get("topic_news_exhausted") is True:
+            return True
+        assessment = _dict_value(payload.get("assessment"))
+        if _string_value(assessment.get("consistency")) == "topic_news_exhausted":
+            return True
+        actions = [
+            ResearchRunAction(
+                action_type=_string_value(row.get("action_type")),
+                status=_string_value(row.get("status")),
+                symbols=_text_list(row.get("symbols")),
+                count=_int_value(row.get("count")),
+                output_path=None,
+                message=_string_value(row.get("message")),
+                warnings=_text_list(row.get("warnings")),
+            )
+            for row in _dict_list(payload.get("actions"))
+        ]
+        return _actions_exhausted_topic_news(actions, candidate, packet)
+    return False
+
+
+def _mark_topic_news_exhausted(candidate: CandidateCheck) -> CandidateCheck:
+    selector = _research_selector(candidate.symbol, candidate.display_name)
+    return replace(
+        candidate,
+        topic_news_exhausted=True,
+        priority="P2 证据耗尽待复核",
+        ranking_reason="主题新闻已刷新但没有可用相关新闻，避免重复刷新同一查询。",
+        next_step=(
+            "主题新闻已刷新但没有可用材料；先下钻核验证据板，"
+            "处理待判定/反向证据，必要时更换数据源。"
+        ),
+        next_command=f"lychee research verify {selector}",
+    )
 
 
 def _workbench_gates(
@@ -3382,6 +3563,10 @@ def _number_value(value: object) -> object:
     if isinstance(value, float):
         return f"{value:.2f}"
     return value
+
+
+def _int_value(value: object) -> int:
+    return value if isinstance(value, int) else 0
 
 
 def _safe_timestamp(value: str) -> str:

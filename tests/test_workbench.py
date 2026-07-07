@@ -13,6 +13,7 @@ from lychee_alphadesk.core.research import ResearchPacket
 from lychee_alphadesk.core.research_db import write_discovery_research_run
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
+    _packet_related_news_count,
     beginner_research_brief,
     build_research_evidence_change,
     render_research_task_detail,
@@ -87,6 +88,70 @@ def test_pending_evidence_suggestion_uses_research_question_context() -> None:
 
     assert verdict == "support"
     assert "宽基" in reason
+
+
+def test_research_task_detail_separates_off_topic_related_news() -> None:
+    candidate = CandidateCheck(
+        display_name="盈富基金",
+        market="HK",
+        symbol="2800.HK",
+        proxy_symbols=[],
+        evidence_count=2,
+        gap_count=0,
+        data_gaps=[],
+        status="ready",
+        explanation="",
+        beginner_question="港股变化是整个市场的问题，还是只集中在某个板块？",
+        why_it_matters="",
+        observation_entry="2800.HK",
+        what_to_check="把它和更宽的市场基准对比。",
+        next_step="复核主题新闻",
+        priority="P2",
+        evidence_status="证据质量待复核",
+    )
+    packet = ResearchPacket(
+        packet_id="research:test:detail-news",
+        candidate_id=1,
+        created_at="2026-07-05T10:00:00+00:00",
+        display_name="盈富基金",
+        symbol="2800.HK",
+        market="HK",
+        packet={
+            "candidate": {
+                "asset_type": "ETF",
+                "related_theme": "港股大盘与流动性观察",
+                "why_watch": "用于观察港股大盘和流动性。",
+            },
+            "evidence": [],
+            "local_data": {
+                "price": {},
+                "related_news": [
+                    {
+                        "headline": "Hong Kong stocks rise as Hang Seng liquidity improves",
+                        "summary": "Hong Kong shares gained as turnover improved.",
+                        "source_url": "https://example.com/hk-stocks",
+                    },
+                    {
+                        "headline": "SkillCloak hides malicious AI agent tools",
+                        "summary": "Security researchers disclosed an AI agent plugin issue.",
+                        "source_url": "https://example.com/skillcloak",
+                    },
+                ],
+                "filings": [],
+                "symbol_mapping": [],
+            },
+            "data_gaps": [],
+        },
+    )
+
+    detail = render_research_task_detail(candidate, packet)
+
+    related_section = detail.split("相关新闻", 1)[1].split("离题/已过滤", 1)[0]
+    assert "Hong Kong stocks rise as Hang Seng liquidity improves" in related_section
+    assert "SkillCloak hides malicious AI agent tools" not in related_section
+    assert "离题/已过滤" in detail
+    assert "SkillCloak hides malicious AI agent tools" in detail
+    assert _packet_related_news_count(candidate, packet) == 1
 
 
 def test_workbench_check_marks_blocked_when_research_gaps_remain(
@@ -305,6 +370,157 @@ def test_research_run_refreshes_topic_news_for_weak_evidence(
     assert result.assessment.stage == "ready_for_drilldown"
     assert "阶段: 可下钻研究" in result.detail
     assert "AI storage demand growth improves" in result.detail
+
+
+def test_research_run_stops_repeating_topic_refresh_after_exhausted_news(
+    tmp_path: Path,
+) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(
+        tmp_path,
+        include_stock_price=True,
+        include_filings=True,
+        news_headline="Generic market article",
+        news_summary="Broad market commentary without the storage theme.",
+    )
+
+    def fake_news_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        data_dir = output_dir / "data"
+        data_dir.mkdir(exist_ok=True)
+        output_path = data_dir / "news-events.json"
+        query = str(kwargs.get("query") or "")
+        if query:
+            rows = [
+                {
+                    "timestamp": "2026-07-05T09:30:00+00:00",
+                    "headline": "Luxury hotels expand summer travel discounts",
+                    "summary": "Travel operators promoted resort packages.",
+                    "symbols": ["MARKET"],
+                    "source_url": "https://example.com/hotels",
+                },
+                {
+                    "timestamp": "2026-07-05T09:31:00+00:00",
+                    "headline": "Restaurants launch new breakfast menus",
+                    "summary": "Food chains tested new meals in city stores.",
+                    "symbols": ["MARKET"],
+                    "source_url": "https://example.com/restaurants",
+                },
+            ]
+        else:
+            rows = [
+                {
+                    "timestamp": "2026-07-05T09:00:00+00:00",
+                    "headline": "Generic STX market news",
+                    "summary": "Symbol-only news without storage demand direction.",
+                    "symbols": ["STX"],
+                    "source_url": "https://example.com/stx",
+                }
+            ]
+        output_path.write_text(
+            json.dumps({"provider": "newsapi", "rows": rows}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return PullResult("news", "newsapi", len(rows), output_path, [])
+
+    result = run_research_task(
+        output_dir=tmp_path,
+        symbol="STX",
+        force=True,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+        pull_market=_fake_market_pull,
+        pull_news=fake_news_pull,
+        pull_filings=_fake_filings_pull,
+    )
+
+    assert result.candidate.topic_news_exhausted is True
+    assert result.candidate.next_command == "lychee research verify --symbol STX"
+    assert "不要重复刷新同一主题新闻" in result.assessment.next_decision
+    assert "下一步判断: 不要重复刷新同一主题新闻" in result.detail
+    assert "主题新闻过滤: 本次拉取 2 条，0 条进入相关新闻。" in result.detail
+    assert "- 刷新主题新闻: lychee data pull news" not in result.detail
+
+
+def test_workbench_check_remembers_exhausted_topic_news_run(tmp_path: Path) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(
+        tmp_path,
+        include_stock_price=True,
+        include_filings=True,
+        news_headline="Generic market article",
+        news_summary="Broad market commentary without the storage theme.",
+    )
+
+    def fake_news_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        data_dir = output_dir / "data"
+        data_dir.mkdir(exist_ok=True)
+        output_path = data_dir / "news-events.json"
+        query = str(kwargs.get("query") or "")
+        rows = [
+            {
+                "timestamp": "2026-07-05T09:30:00+00:00",
+                "headline": "Luxury hotels expand summer travel discounts",
+                "summary": "Travel operators promoted resort packages.",
+                "symbols": ["MARKET"],
+                "source_url": "https://example.com/hotels",
+            }
+        ]
+        if not query:
+            rows = [
+                {
+                    "timestamp": "2026-07-05T09:00:00+00:00",
+                    "headline": "Generic STX market news",
+                    "summary": "Symbol-only news without storage demand direction.",
+                    "symbols": ["STX"],
+                    "source_url": "https://example.com/stx",
+                }
+            ]
+        output_path.write_text(
+            json.dumps({"provider": "newsapi", "rows": rows}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return PullResult("news", "newsapi", len(rows), output_path, [])
+
+    run_research_task(
+        output_dir=tmp_path,
+        symbol="STX",
+        force=True,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+        pull_market=_fake_market_pull,
+        pull_news=fake_news_pull,
+        pull_filings=_fake_filings_pull,
+    )
+    result = run_workbench_check(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 5, tzinfo=UTC),
+    )
+    candidate = result.candidates[0]
+
+    assert candidate.topic_news_exhausted is True
+    assert candidate.next_command == "lychee research verify --symbol STX"
+    assert "主题新闻已刷新但没有可用材料" in candidate.next_step
+    assert "lychee research run --symbol STX --force" not in result.beginner_brief
+
+    run_research_task(
+        output_dir=tmp_path,
+        symbol="STX",
+        force=True,
+        now=datetime(2026, 7, 5, 11, 10, tzinfo=UTC),
+        pull_market=_fake_market_pull,
+        pull_news=fake_news_pull,
+        pull_filings=_fake_filings_pull,
+    )
+    repeated_check = run_workbench_check(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 15, tzinfo=UTC),
+    )
+
+    assert repeated_check.candidates[0].topic_news_exhausted is True
+    assert repeated_check.candidates[0].next_command == "lychee research verify --symbol STX"
+    assert "lychee research run --symbol STX --force" not in repeated_check.beginner_brief
 
 
 def test_research_run_detail_shows_refreshed_proxy_prices(tmp_path: Path) -> None:
@@ -533,6 +749,121 @@ def test_verify_research_task_keeps_cross_market_ai_discovery_out_of_pending(
     assert "新闻待判定: AWS Summit Hong Kong highlights enterprise AI agents" in risk_text
     assert "新闻待判定: US AI capex cools for Nasdaq giants" not in risk_text
     assert "新闻待查: US AI capex cools for Nasdaq giants" in off_topic_text
+
+
+def test_verify_research_task_filters_non_financial_technology_news_for_etf(
+    tmp_path: Path,
+) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["HK"],
+        sources=[DiscoverySource(provider="test-llm", market="HK", description="测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="港股中国科技与资金流观察",
+                markets=["HK"],
+                summary="观察港股科技和资金流是否影响宽基 ETF。",
+                evidence=["news_001"],
+                sectors=["ETF"],
+                risk_flags=["主题噪音"],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="盈富基金",
+                symbol="2800.HK",
+                market="HK",
+                asset_type="ETF",
+                related_theme="港股中国科技与资金流观察",
+                why_watch="可作为港股大盘情绪参照，区分科技主题与整体市场压力。",
+                evidence=["news_001"],
+                risk_flags=["ETF 只适合观察市场方向"],
+                next_actions=["对比恒生科技和恒生指数"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(report, tmp_path, tmp_path / "data" / "discovery-today.json")
+    _write_live_caches(tmp_path, include_proxy_price=True)
+    data_dir = tmp_path / "data"
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:30:00+00:00",
+                        "headline": "SkillCloak hides malicious AI agent tools",
+                        "summary": (
+                            "Researchers at the Hong Kong University of Science "
+                            "and Technology disclosed an AI plugin issue."
+                        ),
+                        "symbols": ["2800.HK"],
+                        "source_url": "https://example.com/skillcloak",
+                    },
+                    {
+                        "timestamp": "2026-07-05T09:31:00+00:00",
+                        "headline": "香港科技登陸歐洲",
+                        "summary": "香港創科公司參加法國巴黎科技展。",
+                        "symbols": ["2800.HK"],
+                        "source_url": "https://example.com/hk-tech-expo",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = verify_research_task(
+        output_dir=tmp_path,
+        symbol="2800.HK",
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    risk_text = "\n".join(result.evidence_board["risk"])
+    off_topic_text = "\n".join(result.evidence_board["off_topic"])
+    assert "SkillCloak hides malicious AI agent tools" not in risk_text
+    assert "香港科技登陸歐洲" not in risk_text
+    assert "新闻待查: SkillCloak hides malicious AI agent tools" in off_topic_text
+    assert "新闻待查: 香港科技登陸歐洲" in off_topic_text
+    research_dir = tmp_path / "research"
+    research_dir.mkdir(exist_ok=True)
+    (research_dir / "research-run-20260705-110100Z.json").write_text(
+        json.dumps(
+            {
+                "created_at": "2026-07-05T11:01:00+00:00",
+                "status": "completed",
+                "candidate": {
+                    "display_name": "盈富基金",
+                    "market": "HK",
+                    "symbol": "2800.HK",
+                    "proxy_symbols": [],
+                    "topic_news_exhausted": True,
+                },
+                "assessment": {"consistency": "topic_news_exhausted"},
+                "actions": [],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    result = verify_research_task(
+        output_dir=tmp_path,
+        symbol="2800.HK",
+        now=datetime(2026, 7, 5, 11, 5, tzinfo=UTC),
+    )
+    assert "刷新主题新闻" not in "\n".join(result.decision_board.next_steps)
+    assert not any(
+        "research run --symbol 2800.HK --force" in command
+        for command in result.decision_board.next_commands
+    )
 
 
 def test_evidence_change_marks_content_replacement_as_changed(tmp_path: Path) -> None:

@@ -58,6 +58,11 @@ from lychee_alphadesk.core.research_memo import (
     ResearchMemoResult,
     generate_research_memo,
 )
+from lychee_alphadesk.core.research_requests import (
+    ResearchDataRequest,
+    list_research_data_requests,
+    research_data_request_needs_manual_source,
+)
 from lychee_alphadesk.core.workbench import (
     RESEARCH_EVIDENCE_REVIEW_VERDICTS,
     RESEARCH_REVIEW_VERDICTS,
@@ -1102,6 +1107,35 @@ def research_memos(
     console.print("边界: 研究备忘录历史不是买卖建议。", soft_wrap=True)
 
 
+@research_app.command("data-requests")
+def research_data_requests(
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="按证券代码过滤数据请求，例如 QQQ、STX。"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="按任务名称过滤数据请求。"),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多扫描多少条最新研究备忘录。"),
+    ] = 20,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """查看 LLM 研究备忘录提出的下一批数据请求。"""
+    requests = list_research_data_requests(
+        output_dir,
+        symbol=symbol,
+        name=name,
+        limit=limit,
+    )
+    _print_research_data_requests(requests)
+
+
 @data_pull_app.command("market")
 def data_pull_market(
     symbols: Annotated[
@@ -1767,6 +1801,10 @@ def _print_research_memo_next_steps(result: ResearchMemoResult) -> None:
     verdict_label = RESEARCH_REVIEW_VERDICTS[verdict]
     note = _quote_cli_value(_research_memo_review_note(verdict))
     console.print("工作台下一步")
+    console.print(
+        f"- 查看数据请求队列: lychee research data-requests {selector}",
+        soft_wrap=True,
+    )
     console.print(f"- 工作台建议: {verdict_label}", soft_wrap=True)
     if verdict == "needs_more_evidence":
         console.print(
@@ -1802,6 +1840,49 @@ def _research_memo_review_note(verdict: str) -> str:
     if verdict == "blocked":
         return "备忘录生成后仍存在阻塞，先记录阻塞并补齐数据。"
     return "备忘录已生成，暂停观察并等待新证据。"
+
+
+def _print_research_data_requests(requests: list[ResearchDataRequest]) -> None:
+    if not requests:
+        console.print("暂无研究数据请求。请先运行 `lychee research memo`。")
+        return
+    table = Table(title="Lychee AlphaDesk 研究数据请求")
+    table.add_column("时间")
+    table.add_column("名称", overflow="fold")
+    table.add_column("代码")
+    table.add_column("市场")
+    table.add_column("置信度")
+    table.add_column("请求", overflow="fold")
+    table.add_column("命令数")
+    for item in requests:
+        table.add_row(
+            item.created_at,
+            item.display_name,
+            item.symbol or "-",
+            item.market,
+            item.confidence,
+            item.request_text,
+            str(len(item.suggested_commands)),
+        )
+    console.print(table)
+    console.print("数据请求明细")
+    for index, item in enumerate(requests, start=1):
+        console.print(
+            f"{index}. {item.display_name} ({item.symbol or '-'}) [{item.market}]",
+            soft_wrap=True,
+        )
+        console.print(f"   请求: {item.request_text}", soft_wrap=True)
+        if research_data_request_needs_manual_source(item):
+            console.print(
+                "   说明: 这类数据当前没有自动补数据命令，需要人工补来源或等待插件接入。",
+                soft_wrap=True,
+            )
+        console.print("   建议命令:")
+        for command in item.suggested_commands:
+            console.print(f"   - {command}", soft_wrap=True)
+        console.print(f"   来源备忘录: {item.memo_path}", soft_wrap=True)
+        console.print(f"   下钻核验: {item.verification_path}", soft_wrap=True)
+    console.print("边界: 数据请求队列只用于补证据，不是买卖建议。", soft_wrap=True)
 
 
 def _print_evidence_board_column(title: str, rows: list[str]) -> None:

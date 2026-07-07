@@ -44,6 +44,11 @@ from lychee_alphadesk.core.research_memo import (
     ResearchMemoResult,
     generate_research_memo,
 )
+from lychee_alphadesk.core.research_requests import (
+    ResearchDataRequest,
+    list_research_data_requests,
+    research_data_request_needs_manual_source,
+)
 from lychee_alphadesk.core.workbench import (
     RESEARCH_EVIDENCE_REVIEW_VERDICTS,
     RESEARCH_REVIEW_VERDICTS,
@@ -76,6 +81,7 @@ ActionId = Literal[
     "research_reviews",
     "research_evidence_reviews",
     "research_memos",
+    "research_data_requests",
     "pull_market",
     "pull_news",
     "pull_filings",
@@ -122,6 +128,7 @@ class AlphaDeskApp(App[None]):
             Option("研究复核历史", id="research_reviews"),
             Option("证据复核历史", id="research_evidence_reviews"),
             Option("研究备忘录历史", id="research_memos"),
+            Option("研究数据请求", id="research_data_requests"),
             Option("手动查看行情", id="pull_market"),
             Option("手动查看新闻", id="pull_news"),
             Option("手动查看美股公告", id="pull_filings"),
@@ -196,6 +203,8 @@ class AlphaDeskApp(App[None]):
             await self._show_research_evidence_review_history()
         elif action_id == "research_memos":
             await self._show_research_memo_history()
+        elif action_id == "research_data_requests":
+            await self._show_research_data_requests()
         elif action_id == "pull_market":
             await self._show_symbol_prompt(
                 "pull_market",
@@ -532,6 +541,17 @@ class AlphaDeskApp(App[None]):
         )
         await self._replace_action_panel(
             Static(_research_memo_history_text(records), id="action-status")
+        )
+        self.set_focus(self.query_one("#action-menu", OptionList))
+
+    async def _show_research_data_requests(self) -> None:
+        requests = await asyncio.to_thread(
+            list_research_data_requests,
+            output_dir=self.output_dir,
+            limit=20,
+        )
+        await self._replace_action_panel(
+            Static(_research_data_requests_text(requests), id="action-status")
         )
         self.set_focus(self.query_one("#action-menu", OptionList))
 
@@ -1385,6 +1405,40 @@ def _research_memo_history_text(records: list[ResearchMemoRecord]) -> str:
     return "\n".join(lines)
 
 
+def _research_data_requests_text(requests: list[ResearchDataRequest]) -> str:
+    if not requests:
+        return "\n".join(
+            [
+                "研究数据请求",
+                "暂无研究数据请求。先在研究任务面板中生成研究备忘录。",
+                "边界: 数据请求队列只用于补证据，不是买卖建议。",
+            ]
+        )
+    lines = ["研究数据请求"]
+    for index, item in enumerate(requests, start=1):
+        lines.extend(
+            [
+                (
+                    f"{index}. {item.display_name} ({item.symbol or '-'}) "
+                    f"[{item.market}] 置信度: {item.confidence}"
+                ),
+                f"  时间: {item.created_at}",
+                f"  请求: {item.request_text}",
+                *(
+                    ["  说明: 这类数据当前没有自动补数据命令，需要人工补来源或等待插件接入。"]
+                    if research_data_request_needs_manual_source(item)
+                    else []
+                ),
+                "  建议命令:",
+                *[f"  - {command}" for command in item.suggested_commands],
+                f"  来源备忘录: {item.memo_path}",
+                f"  下钻核验: {item.verification_path}",
+            ]
+        )
+    lines.append("边界: 数据请求队列只用于补证据，不是买卖建议。")
+    return "\n".join(lines)
+
+
 def _display_workbench_status(status: str) -> str:
     return {
         "ready": "可执行研究",
@@ -1632,6 +1686,7 @@ def _research_memo_followup_actions(
     return [
         (f"research_review:{verdict}", f"记录研究复核: {verdict_label}"),
         ("research_detail:verify_research", "重新下钻核验"),
+        ("research_data_requests", "查看研究数据请求"),
         ("research_memos", "查看研究备忘录历史"),
         ("research_detail:back_tasks", "返回研究任务列表"),
     ]

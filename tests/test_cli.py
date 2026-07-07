@@ -19,6 +19,7 @@ from lychee_alphadesk.core.live_data import PullResult
 from lychee_alphadesk.core.research_db import (
     write_discovery_research_run,
     write_research_evidence_review_record,
+    write_research_memo_record,
 )
 from lychee_alphadesk.core.research_memo import generate_research_memo
 
@@ -1856,6 +1857,9 @@ def test_research_memo_command_writes_llm_research_memo(
     assert "反方审查" in result.stdout
     assert "下一步研究动作" in result.stdout
     assert "工作台下一步" in result.stdout
+    assert "查看数据请求队列: lychee research data-requests --symbol STX" in (
+        result.stdout
+    )
     assert (
         "记录研究复核: lychee research review --symbol STX "
         "--verdict continue_research"
@@ -2186,6 +2190,62 @@ def test_research_memos_command_lists_memo_history(
     assert "支持 1 | 反方 1 | 待补 1 | 下一步 1" in result.stdout
     assert "research-memo-" in result.stdout
     assert "研究备忘录历史不是买卖建议" in result.stdout
+
+
+def test_research_data_requests_command_lists_actionable_requests(tmp_path: Path) -> None:
+    memo_path = tmp_path / "research" / "research-memo-test.json"
+    verification_path = tmp_path / "research" / "research-verification-test.json"
+    payload = {
+        "memo": {
+            "next_data_requests": [
+                "请补齐 QQQ 的基金资料：跟踪指数、费用率、成分摘要和资料来源 URL。",
+                "请提供 QQQ 与更宽市场基准的行情、成交量和相对强弱对比。",
+            ]
+        }
+    }
+    write_research_memo_record(
+        output_dir=tmp_path,
+        memo_id="research-memo:2026-07-05T10:02:00+00:00",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        confidence="low",
+        summary="QQQ 仍需补齐 ETF 资料和行情对比。",
+        support_count=1,
+        skeptic_count=1,
+        missing_count=2,
+        next_step_count=2,
+        memo_path=memo_path,
+        verification_path=verification_path,
+        payload=payload,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "data-requests",
+            "--symbol",
+            "QQQ",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Lychee AlphaDesk 研究数据请求" in result.stdout
+    assert "Invesco QQQ Trust" in result.stdout
+    assert "请补齐 QQQ 的基金资料" in result.stdout
+    assert "lychee data guide fund --symbol QQQ" in result.stdout
+    assert "lychee data set fund --from-file .alphadesk/data/fund-metadata-guide-QQQ.json" in (
+        result.stdout
+    )
+    assert "lychee data pull market --symbols QQQ --provider auto --force" in (
+        result.stdout
+    )
+    assert "lychee research verify --symbol QQQ" in result.stdout
+    assert "数据请求队列只用于补证据，不是买卖建议" in result.stdout
 
 
 def test_research_memo_command_rejects_investment_advice_language(

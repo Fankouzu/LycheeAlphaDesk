@@ -21,6 +21,7 @@ from lychee_alphadesk.core.research_db import (
     list_research_queue,
 )
 from lychee_alphadesk.core.research_memo import ResearchMemo, ResearchMemoResult
+from lychee_alphadesk.core.research_requests import ResearchDataRequest
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
     PendingEvidenceReviewItem,
@@ -394,6 +395,59 @@ def test_dashboard_research_memo_history_action_lists_records(
             assert "支持 1 | 反方 1 | 待补 1 | 下一步 1" in text
             assert "research-memo-test.json" in text
             assert "研究备忘录历史不是买卖建议" in text
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_research_data_requests_action_lists_actionable_requests(
+    monkeypatch, tmp_path: Path
+) -> None:
+    def fake_list_research_data_requests(**kwargs: object) -> list[ResearchDataRequest]:
+        assert kwargs["output_dir"] == tmp_path
+        return [
+            ResearchDataRequest(
+                request_id="research-memo:test:data-request:1",
+                created_at="2026-07-05T10:02:00+00:00",
+                display_name="Invesco QQQ Trust",
+                symbol="QQQ",
+                market="US",
+                confidence="low",
+                request_text="请补齐 QQQ 的基金资料：跟踪指数、费用率、成分摘要和来源 URL。",
+                suggested_commands=[
+                    "lychee data guide fund --symbol QQQ --name 'Invesco QQQ Trust' --market US",
+                    "lychee research verify --symbol QQQ",
+                ],
+                memo_path=str(tmp_path / "research" / "research-memo-test.json"),
+                verification_path=str(
+                    tmp_path / "research" / "research-verification-test.json"
+                ),
+            )
+        ]
+
+    monkeypatch.setattr(
+        tui_app,
+        "list_research_data_requests",
+        fake_list_research_data_requests,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            menu = app.query_one("#action-menu", OptionList)
+            request_index = _option_index(menu, "研究数据请求")
+            await pilot.press(*(["down"] * request_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            status = app.query_one("#action-status", Static)
+            text = str(status.content)
+            assert "研究数据请求" in text
+            assert "Invesco QQQ Trust" in text
+            assert "请补齐 QQQ 的基金资料" in text
+            assert "lychee data guide fund --symbol QQQ" in text
+            assert "lychee research verify --symbol QQQ" in text
+            assert "数据请求队列只用于补证据，不是买卖建议" in text
 
     asyncio.run(run_case())
 
@@ -1826,9 +1880,10 @@ def test_dashboard_research_task_action_generates_llm_memo(
                 str(next_menu.get_option_at_index(index).prompt)
                 for index in range(next_menu.option_count)
             ]
-            assert next_actions[:4] == [
+            assert next_actions[:5] == [
                 "记录研究复核: 继续研究",
                 "重新下钻核验",
+                "查看研究数据请求",
                 "查看研究备忘录历史",
                 "返回研究任务列表",
             ]

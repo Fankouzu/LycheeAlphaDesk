@@ -456,9 +456,7 @@ class AlphaDeskApp(App[None]):
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
         candidate = review.candidate
-        symbols = research_action_symbols(candidate)
-        symbol = symbols[0] if symbols else None
-        name = None if symbol else candidate.display_name
+        symbol, name = _research_selection(candidate)
         await self._replace_action_panel(
             Static("正在重新下钻核验，请稍候...", id="action-status")
         )
@@ -579,6 +577,9 @@ class AlphaDeskApp(App[None]):
             else None
         )
         symbols = research_action_symbols(candidate)
+        if action == "start_research":
+            await self._run_research_verification(candidate)
+            return
         if action in {"refresh_market", "refresh_news", "refresh_topic_news"} and not symbols:
             await self._replace_action_panel(
                 Static(
@@ -666,10 +667,11 @@ class AlphaDeskApp(App[None]):
             return
 
         refreshed = await self._refresh_research_state()
+        selected_symbol, selected_name = _research_selection(candidate)
         refreshed_index = select_research_candidate_index(
             refreshed,
-            symbol=symbols[0] if symbols else None,
-            name=None if symbols else candidate.display_name,
+            symbol=selected_symbol,
+            name=selected_name,
         )
         if refreshed_index is None:
             refreshed_index = selection
@@ -709,9 +711,7 @@ class AlphaDeskApp(App[None]):
                 id="action-status",
             )
         )
-        symbols = research_action_symbols(candidate)
-        symbol = symbols[0] if symbols else None
-        name = None if symbol else candidate.display_name
+        symbol, name = _research_selection(candidate)
         try:
             result = await asyncio.to_thread(
                 verify_research_task,
@@ -777,9 +777,7 @@ class AlphaDeskApp(App[None]):
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
         candidate = self.research_candidates[selection]
-        symbols = research_action_symbols(candidate)
-        symbol = symbols[0] if symbols else None
-        name = None if symbol else candidate.display_name
+        symbol, name = _research_selection(candidate)
         note = f"TUI 证据复核: {verdict_label}"
         await self._replace_action_panel(
             Static(
@@ -844,9 +842,7 @@ class AlphaDeskApp(App[None]):
                 id="action-status",
             )
         )
-        symbols = research_action_symbols(candidate)
-        symbol = symbols[0] if symbols else None
-        name = None if symbol else candidate.display_name
+        symbol, name = _research_selection(candidate)
         try:
             result = await asyncio.to_thread(
                 generate_research_memo,
@@ -891,9 +887,7 @@ class AlphaDeskApp(App[None]):
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
         candidate = self.research_candidates[selection]
-        symbols = research_action_symbols(candidate)
-        symbol = symbols[0] if symbols else None
-        name = None if symbol else candidate.display_name
+        symbol, name = _research_selection(candidate)
         note = f"TUI 快速复核: {verdict_label}"
         await self._replace_action_panel(
             Static(
@@ -1070,6 +1064,12 @@ def run_tui() -> None:
 
 def _display_status(status: str) -> str:
     return {"pass": "通过", "warning": "警告", "error": "错误"}.get(status, status)
+
+
+def _research_selection(candidate: CandidateCheck) -> tuple[str | None, str | None]:
+    if candidate.symbol:
+        return candidate.symbol, None
+    return None, candidate.display_name
 
 
 def _research_workbench_intro(result: WorkbenchCheckResult) -> str:

@@ -2510,6 +2510,7 @@ def research_detail_actions(
     packet: ResearchPacket | None,
 ) -> list[tuple[str, str]]:
     actions = [
+        ("start_research", "开始/继续研究"),
         ("refresh_market", "刷新行情"),
         ("refresh_news", "刷新新闻"),
     ]
@@ -2677,6 +2678,7 @@ def research_filing_symbols(
 
 def research_action_name(action: str) -> str:
     return {
+        "start_research": "开始/继续研究",
         "refresh_market": "刷新行情",
         "refresh_news": "刷新新闻",
         "refresh_topic_news": "刷新主题新闻",

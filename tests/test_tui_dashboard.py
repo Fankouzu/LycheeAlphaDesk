@@ -948,7 +948,9 @@ def test_dashboard_research_task_selection_opens_research_result_workbench(
             assert "对比 QQQ 与 SPY。" in text
             action_menu = app.query_one("#research-detail-action-menu", OptionList)
             first_action = str(action_menu.get_option_at_index(0).prompt)
-            assert "刷新行情" in first_action
+            second_action = str(action_menu.get_option_at_index(1).prompt)
+            assert "开始/继续研究" in first_action
+            assert "刷新行情" in second_action
             assert "lychee data pull market --symbols QQQ --provider auto --force" in text
             assert not app.query("#research-task-menu")
 
@@ -1044,6 +1046,8 @@ def test_dashboard_research_task_action_refreshes_market_data(
             await pilot.press("enter")
             await pilot.pause()
             await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("down")
             await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()
@@ -1174,10 +1178,8 @@ def test_dashboard_research_task_action_runs_drilldown_verification(
             await pilot.pause()
 
             action_menu = app.query_one("#research-detail-action-menu", OptionList)
-            verify_action = str(action_menu.get_option_at_index(2).prompt)
-            assert "下钻核验" in verify_action
-
-            await pilot.press("down", "down")
+            start_action = str(action_menu.get_option_at_index(0).prompt)
+            assert "开始/继续研究" in start_action
             await pilot.press("enter")
             await pilot.pause()
 
@@ -1197,6 +1199,137 @@ def test_dashboard_research_task_action_runs_drilldown_verification(
             assert "待补证据" in text
             assert "研究决策板" in text
             assert "建议记录: continue_research" in text
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_research_start_keeps_proxy_theme_selection(
+    monkeypatch, tmp_path: Path
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeWorkbenchResult:
+        status = "ready"
+        ready_count = 1
+        blocked_count = 0
+        candidates = [
+            CandidateCheck(
+                display_name="恒生指数压力观察",
+                market="HK",
+                symbol=None,
+                proxy_symbols=["2800.HK", "3033.HK"],
+                evidence_count=2,
+                gap_count=0,
+                data_gaps=[],
+                status="ready",
+                explanation="",
+                beginner_question="港股变化是整个市场的问题，还是只集中在某个板块？",
+                why_it_matters="",
+                observation_entry="2800.HK, 3033.HK",
+                what_to_check="代理 ETF/指数方向、成交量和相关新闻要互相支持。",
+                next_step="先下钻核验代理证据板。",
+                priority="P2 代理核验",
+                evidence_status="证据 2 条；缺口 0 个；代理已映射",
+            )
+        ]
+        deepen_result = ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[
+                ResearchPacket(
+                    packet_id="research:test:proxy",
+                    candidate_id=1,
+                    created_at="2026-07-05T10:00:00+00:00",
+                    display_name="恒生指数压力观察",
+                    symbol=None,
+                    market="HK",
+                    packet={
+                        "candidate": {"asset_type": "theme"},
+                        "evidence": [],
+                        "local_data": {
+                            "price": {},
+                            "related_news": [],
+                            "filings": [],
+                            "symbol_mapping": [
+                                {
+                                    "symbol": "2800.HK",
+                                    "name": "盈富基金",
+                                    "market": "HK",
+                                    "reason": "恒生指数压力主题代理。",
+                                }
+                            ],
+                        },
+                        "data_gaps": [],
+                    },
+                )
+            ],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        )
+        beginner_brief = "AlphaDesk 研究工作台"
+
+    def fake_verify_research_task(**kwargs: object) -> ResearchVerificationResult:
+        calls.append(kwargs)
+        candidate = FakeWorkbenchResult.candidates[0]
+        packet = FakeWorkbenchResult.deepen_result.packets[0]
+        return ResearchVerificationResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            status="pending_review",
+            status_label="待人工核验",
+            candidate=candidate,
+            packet=packet,
+            checks=[
+                ResearchVerificationCheck(
+                    name="代理标的核验",
+                    status="warning",
+                    detail="代理标的需要人工核验。",
+                )
+            ],
+            evidence_board={
+                "support": ["代理映射: 2800.HK 盈富基金"],
+                "risk": ["一致性核验: 待人工核验代理是否覆盖主题。"],
+                "missing": [],
+            },
+            decision_board=_fake_needs_more_evidence_decision_board(),
+            conclusion="一致性结论: 待人工核验。",
+            next_actions=["核对代理成分、费用和流动性。"],
+            artifact_path=tmp_path / "research" / "research-verification-proxy.json",
+            workbench_result=FakeWorkbenchResult(),
+        )
+
+    monkeypatch.setattr(
+        tui_app,
+        "run_workbench_check",
+        lambda **kwargs: FakeWorkbenchResult(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app,
+        "verify_research_task",
+        fake_verify_research_task,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert calls == [
+                {
+                    "output_dir": tmp_path,
+                    "symbol": None,
+                    "name": "恒生指数压力观察",
+                }
+            ]
+            detail = app.query_one("#action-status", Static)
+            assert "下钻核验结果" in str(detail.content)
 
     asyncio.run(run_case())
 
@@ -1534,10 +1667,10 @@ def test_dashboard_research_task_action_generates_llm_memo(
             await pilot.pause()
 
             action_menu = app.query_one("#research-detail-action-menu", OptionList)
-            memo_action = str(action_menu.get_option_at_index(3).prompt)
+            memo_action = str(action_menu.get_option_at_index(4).prompt)
             assert "研究备忘录" in memo_action
 
-            await pilot.press("down", "down", "down")
+            await pilot.press("down", "down", "down", "down")
             await pilot.press("enter")
             await pilot.pause()
 
@@ -1701,7 +1834,6 @@ def test_dashboard_research_verification_can_record_review_verdict(
             await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()
-            await pilot.press("down", "down")
             await pilot.press("enter")
             await pilot.pause()
 
@@ -1856,9 +1988,9 @@ def test_dashboard_refresh_topic_news_keeps_current_research_task(
             await pilot.pause()
 
             action_menu = app.query_one("#research-detail-action-menu", OptionList)
-            assert str(action_menu.get_option_at_index(2).prompt) == "刷新主题新闻"
+            assert str(action_menu.get_option_at_index(3).prompt) == "刷新主题新闻"
 
-            await pilot.press("down", "down")
+            await pilot.press("down", "down", "down")
             await pilot.press("enter")
             await pilot.pause()
 

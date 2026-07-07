@@ -131,6 +131,7 @@ class ResearchDecisionBoard:
     suggested_verdict: str
     suggested_verdict_label: str
     next_steps: list[str]
+    next_commands: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -951,6 +952,7 @@ def build_research_decision_board(
             decision_rule="至少一个必要核验失败，先补齐阻塞项再继续研究。",
             suggested_verdict="blocked",
             next_steps=[f"先处理{check.name}: {check.detail}" for check in failed[:3]],
+            candidate=candidate,
         )
     if topic_relevance.matched_count == 0:
         return _research_decision_board(
@@ -963,6 +965,7 @@ def build_research_decision_board(
                 "刷新主题新闻，并确认风险栏新闻是否真的回答研究问题。",
                 "如果仍无主题证据，先记录需要补证据，暂不生成研究备忘录。",
             ],
+            candidate=candidate,
         )
     if topic_relevance.reverse_count:
         return _research_decision_board(
@@ -975,6 +978,7 @@ def build_research_decision_board(
                 "把反向证据逐条标注为真实反向、短期噪音或仍待判定。",
                 "补充同主题行情、成交量或公告证据，检查反向证据是否被数据确认。",
             ],
+            candidate=candidate,
         )
     if topic_relevance.neutral_count:
         return _research_decision_board(
@@ -987,6 +991,7 @@ def build_research_decision_board(
                 "把新闻待判定逐条归类为支持、反向或无关。",
                 "只保留能回答研究问题的证据，再进入人工一致性复核。",
             ],
+            candidate=candidate,
         )
     if candidate.proxy_symbols:
         return _research_decision_board(
@@ -999,6 +1004,7 @@ def build_research_decision_board(
                 "核对代理标的的成分、费用、成交额和是否可交易。",
                 "代理通过后再把代理行情和主题新闻放到同一证据板复核。",
             ],
+            candidate=candidate,
         )
     if not evidence_board.get("support"):
         return _research_decision_board(
@@ -1011,6 +1017,7 @@ def build_research_decision_board(
                 "补充行情、成交量、主题新闻或公告/财报证据。",
                 "支持栏出现可核验证据后再运行下钻核验。",
             ],
+            candidate=candidate,
         )
     return _research_decision_board(
         workflow_state="ready_for_review",
@@ -1023,6 +1030,7 @@ def build_research_decision_board(
             "对照支持证据与风险栏，确认它们是否回答同一个研究问题。",
             "下一步可生成研究备忘录，但仍不能得出买卖结论。",
         ],
+        candidate=candidate,
     )
 
 
@@ -1034,6 +1042,7 @@ def _research_decision_board(
     decision_rule: str,
     suggested_verdict: str,
     next_steps: list[str],
+    candidate: CandidateCheck,
 ) -> ResearchDecisionBoard:
     return ResearchDecisionBoard(
         workflow_state=workflow_state,
@@ -1043,7 +1052,30 @@ def _research_decision_board(
         suggested_verdict=suggested_verdict,
         suggested_verdict_label=RESEARCH_REVIEW_VERDICTS[suggested_verdict],
         next_steps=next_steps,
+        next_commands=_decision_board_next_commands(candidate, suggested_verdict),
     )
+
+
+def _decision_board_next_commands(
+    candidate: CandidateCheck,
+    suggested_verdict: str,
+) -> list[str]:
+    selector = _research_selector(candidate.symbol, candidate.display_name)
+    commands: list[str] = []
+    if suggested_verdict in {"needs_more_evidence", "blocked"}:
+        commands.append(f"lychee research run {selector} --force")
+    if suggested_verdict == "continue_research":
+        commands.append(f"lychee research memo {selector}")
+    note = _quote_cli_value("证据仍需补强，继续研究流程复核。")
+    if suggested_verdict == "continue_research":
+        note = _quote_cli_value("证据通过下钻核验，进入人工一致性复核。")
+    elif suggested_verdict == "blocked":
+        note = _quote_cli_value("存在阻塞，先记录阻塞并补齐数据。")
+    commands.append(
+        f"lychee research review {selector} "
+        f"--verdict {suggested_verdict} --note {note}"
+    )
+    return commands
 
 
 def build_research_evidence_change(

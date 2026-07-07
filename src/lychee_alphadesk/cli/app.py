@@ -1422,6 +1422,8 @@ def _print_research_decision_board(result: ResearchVerificationResult) -> None:
     console.print("工作台下一步")
     for step in board.next_steps:
         console.print(f"- {step}", soft_wrap=True)
+    for command in board.next_commands:
+        console.print(f"- 执行命令: {command}", soft_wrap=True)
 
 
 def _print_research_evidence_change(result: ResearchVerificationResult) -> None:

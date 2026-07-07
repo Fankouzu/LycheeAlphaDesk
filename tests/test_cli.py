@@ -887,6 +887,11 @@ def test_research_verify_flags_off_topic_news_as_risk(
     assert result.exit_code == 0
     assert "主题相关性核验" in result.stdout
     assert "未命中研究主题关键词" in result.stdout
+    assert "执行命令: lychee research run --symbol STX --force" in result.stdout
+    assert (
+        "执行命令: lychee research review --symbol STX "
+        "--verdict needs_more_evidence"
+    ) in result.stdout
     artifacts = list((tmp_path / "research").glob("research-verification-*.json"))
     assert artifacts
     payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
@@ -897,6 +902,13 @@ def test_research_verify_flags_off_topic_news_as_risk(
     assert payload["decision_board"]["workflow_state"] == "evidence_review"
     assert payload["decision_board"]["suggested_verdict"] == "needs_more_evidence"
     assert "主题关键词" in payload["decision_board"]["decision_rule"]
+    assert payload["decision_board"]["next_commands"] == [
+        "lychee research run --symbol STX --force",
+        (
+            "lychee research review --symbol STX "
+            '--verdict needs_more_evidence --note "证据仍需补强，继续研究流程复核。"'
+        ),
+    ]
     support_text = "\n".join(payload["evidence_board"]["support"])
     risk_text = "\n".join(payload["evidence_board"]["risk"])
     assert "Luxury handbags gain popularity" not in support_text

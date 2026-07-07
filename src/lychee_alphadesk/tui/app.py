@@ -1326,6 +1326,7 @@ def _research_verification_text(result: ResearchVerificationResult) -> str:
             ),
             "工作台下一步",
             *[f"- {step}" for step in result.decision_board.next_steps],
+            *[f"- 执行命令: {command}" for command in result.decision_board.next_commands],
             "",
             result.conclusion,
             "下一步",

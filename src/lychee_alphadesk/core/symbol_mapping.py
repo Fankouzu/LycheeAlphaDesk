@@ -56,7 +56,7 @@ def suggest_symbol_mappings(item: ResearchQueueItem) -> list[SymbolMappingPropos
                     asset_type="ETF",
                     proxy_type="tradable_sector_proxy",
                     confidence="low",
-                    reason="用于把港股科技板块主题映射到可交易 ETF 代理观察，需核对成分和流动性。",
+                    reason="用于把港股科技板块主题映射到可交易 ETF 代理观察，成分/费用需补资料。",
                     evidence_ids=evidence_ids,
                 )
             )
@@ -72,7 +72,10 @@ def suggest_symbol_mappings(item: ResearchQueueItem) -> list[SymbolMappingPropos
                         asset_type="ETF",
                         proxy_type="tradable_theme_proxy",
                         confidence="low",
-                        reason="用于把 AI 主题映射到 A 股人工智能 ETF 代理观察，需继续核对成分股。",
+                        reason=(
+                            "用于把 AI 主题映射到 A 股人工智能 ETF 代理观察，"
+                            "成分/费用需补资料。"
+                        ),
                         evidence_ids=evidence_ids,
                     ),
                     SymbolMappingProposal(

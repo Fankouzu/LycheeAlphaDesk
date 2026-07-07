@@ -55,6 +55,13 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert "系统替你问的问题" not in result.beginner_brief
     assert "触发原因:" not in result.beginner_brief
     assert "。；" not in result.beginner_brief
+    assert "代理核验: 核对成分、费用、流动性和是否可交易。" not in (
+        result.beginner_brief
+    )
+    assert (
+        "代理核验: 重点补成分/费用；可交易性和成交量看下钻核验证据。"
+        in result.beginner_brief
+    )
 
     payload = json.loads(result.artifact_path.read_text(encoding="utf-8"))
     assert payload["status"] == "ready"
@@ -120,13 +127,28 @@ def test_verify_research_task_uses_proxy_prices_for_symbolless_themes(
         and "恒生指数压力主题" in item
         for item in result.evidence_board["support"]
     )
+    assert any(
+        "可交易性: 2800.HK 为 HK ETF 代理" in item
+        for item in result.evidence_board["support"]
+    )
+    assert any(
+        "流动性: 2800.HK 成交量 1000000" in item
+        for item in result.evidence_board["support"]
+    )
     assert not any(
         "行情核验: 缺少本地行情" in item
+        for item in result.evidence_board["missing"]
+    )
+    assert any(
+        "代理资料: 缺少 2800.HK 成分/费用缓存" in item
         for item in result.evidence_board["missing"]
     )
     proxy_check = next(check for check in result.checks if check.name == "代理标的核验")
     assert "2800.HK 盈富基金" in proxy_check.detail
     assert "置信度 medium" in proxy_check.detail
+    assert "可交易性: 2800.HK 为 HK ETF 代理" in proxy_check.detail
+    assert "流动性: 2800.HK 成交量 1000000" in proxy_check.detail
+    assert "缺少 2800.HK 成分/费用缓存" in proxy_check.detail
     assert not any(
         item.startswith("代理标的: ")
         for item in result.evidence_board["risk"]

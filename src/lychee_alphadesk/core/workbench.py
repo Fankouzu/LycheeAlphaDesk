@@ -846,6 +846,8 @@ def build_research_evidence_board(
     for price in prices[:3]:
         support.append(_price_line(price).removeprefix("行情: "))
     support.extend(_proxy_mapping_support_lines(packet_payload))
+    support.extend(_proxy_operability_support_lines(packet_payload))
+    missing.extend(_proxy_missing_data_lines(packet_payload))
     topic_relevance = _news_topic_relevance(
         candidate,
         packet,
@@ -918,11 +920,40 @@ def _proxy_mapping_support_lines(packet_payload: dict[str, object]) -> list[str]
     return lines
 
 
+def _proxy_operability_support_lines(packet_payload: dict[str, object]) -> list[str]:
+    lines: list[str] = []
+    for row in _symbol_mapping_rows(packet_payload):
+        symbol = _string_value(row.get("symbol"))
+        if not symbol:
+            continue
+        market = (_string_value(row.get("market")) or "-").upper()
+        asset_type = (_string_value(row.get("asset_type")) or "证券").upper()
+        lines.append(f"可交易性: {symbol} 为 {market} {asset_type} 代理")
+        latest_price = _dict_value(row.get("latest_price"))
+        volume = latest_price.get("volume")
+        if isinstance(volume, int | float) and volume > 0:
+            lines.append(f"流动性: {symbol} 成交量 {volume}")
+    return lines
+
+
+def _proxy_missing_data_lines(packet_payload: dict[str, object]) -> list[str]:
+    lines: list[str] = []
+    for row in _symbol_mapping_rows(packet_payload):
+        symbol = _string_value(row.get("symbol"))
+        if symbol:
+            lines.append(f"代理资料: 缺少 {symbol} 成分/费用缓存")
+    return lines
+
+
 def _proxy_mapping_check_detail(packet_payload: dict[str, object]) -> str:
-    lines = _proxy_mapping_support_lines(packet_payload)
+    lines = [
+        *_proxy_mapping_support_lines(packet_payload),
+        *_proxy_operability_support_lines(packet_payload),
+        *_proxy_missing_data_lines(packet_payload),
+    ]
     if not lines:
         return "代理标的需要人工核对成分、费用、流动性和可交易性。"
-    return "；".join(lines) + "；仍需核对成分、费用、流动性和是否可交易。"
+    return "；".join(lines)
 
 
 def _price_check_detail(prices: list[dict[str, object]]) -> str:
@@ -1020,7 +1051,7 @@ def build_research_decision_board(
             decision_rule="当前任务依赖代理标的，必须先确认代理是否覆盖原主题。",
             suggested_verdict="needs_more_evidence",
             next_steps=[
-                "核对代理标的的成分、费用、成交额和是否可交易。",
+                "补代理标的成分/费用资料，并查看下钻核验里的可交易性和成交量。",
                 "代理通过后再把代理行情和主题新闻放到同一证据板复核。",
             ],
             candidate=candidate,
@@ -1856,7 +1887,7 @@ def render_research_task_detail(
         f"下一步动作: {candidate.next_step}",
     ]
     if candidate.proxy_symbols:
-        lines.append("代理核验: 核对成分、费用、流动性和是否可交易。")
+        lines.append(_proxy_followup_line())
     lines.extend(["", "可执行动作"])
     if action_status:
         lines.append(action_status)
@@ -1938,7 +1969,7 @@ def build_research_assessment(
             consistency="pending_proxy_review",
             consistency_label="待核验",
             evidence_reading="这条线索通过代理标的观察，必须先确认代理是否覆盖主题。",
-            next_decision="核对代理成分、流动性、费用和可交易性，再决定是否下钻。",
+            next_decision="先补代理成分/费用资料，再结合下钻核验里的可交易性和成交量决定是否继续。",
         )
     has_news = bool(evidence or related_news)
     filings_required = candidate.market.upper() == "US" and asset_type == "stock"
@@ -2761,7 +2792,7 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
             if candidate.next_command:
                 lines.append(f"  执行命令: {candidate.next_command}")
             if candidate.proxy_symbols:
-                lines.append("  代理核验: 核对成分、费用、流动性和是否可交易。")
+                lines.append(f"  {_proxy_followup_line()}")
     else:
         lines.append("- 无可执行任务。")
 
@@ -2794,6 +2825,10 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
     else:
         lines.append("- 无。")
     return "\n".join(lines)
+
+
+def _proxy_followup_line() -> str:
+    return "代理核验: 重点补成分/费用；可交易性和成交量看下钻核验证据。"
 
 
 def _signal_reading(

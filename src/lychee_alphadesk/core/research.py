@@ -471,7 +471,7 @@ def _symbol_mapping_gap_action(
         count=len(symbols),
         output_path=None,
         warnings=[
-            "代理映射仅用于研究下钻，需人工核对成分、流动性和是否可交易。"
+            "代理映射仅用于研究下钻；成分/费用需补资料，可交易性和成交量看下钻核验证据。"
         ],
         message="已生成可审计代理标的；代理行情由行情动作补齐。",
     )

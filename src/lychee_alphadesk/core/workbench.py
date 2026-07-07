@@ -1795,6 +1795,7 @@ def _news_topic_relevance(
             _text_matches_any_topic_term(text, terms)
             and _matches_market_context(text, market_terms)
             and _matches_financial_context_for_asset(text, asset_type)
+            and _matches_direct_fund_context(candidate, packet, text, asset_type)
         ):
             matched_rows.append(row)
             direction = _news_evidence_direction(text)
@@ -2210,6 +2211,7 @@ def _detail_related_news(
             _text_matches_any_topic_term(text, terms)
             and _matches_market_context(text, market_terms)
             and _matches_financial_context_for_asset(text, asset_type)
+            and _matches_direct_fund_context(candidate, packet, text, asset_type)
         ):
             matched.append(row)
         else:
@@ -2221,6 +2223,120 @@ def _matches_financial_context_for_asset(text: str, asset_type: str) -> bool:
     if asset_type.strip().lower() not in {"etf", "fund", "index", "sector"}:
         return True
     return _text_matches_any_topic_term(text, _FINANCIAL_MARKET_CONTEXT_TERMS)
+
+
+def _matches_direct_fund_context(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+    text: str,
+    asset_type: str,
+) -> bool:
+    if asset_type.strip().lower() not in {"etf", "fund"} or not candidate.symbol:
+        return True
+    identity_phrases = _direct_fund_identity_phrases(candidate, packet)
+    normalized_text = _normalized_identity_text(text)
+    if any(phrase and phrase in normalized_text for phrase in identity_phrases):
+        return True
+    return _matches_direct_fund_theme_context(candidate, packet, text)
+
+
+def _direct_fund_identity_phrases(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> list[str]:
+    packet_payload = packet.packet if packet is not None else {}
+    local_data = _dict_value(packet_payload.get("local_data"))
+    metadata = _dict_value(local_data.get("fund_metadata"))
+    raw_values = [
+        candidate.symbol or "",
+        _symbol_without_suffix(candidate.symbol),
+        candidate.display_name,
+        _string_value(metadata.get("display_name")),
+        _string_value(metadata.get("tracking_index")),
+    ]
+    phrases: list[str] = []
+    for value in raw_values:
+        phrases.extend(_identity_phrases(value))
+    return _dedupe_terms(phrases)
+
+
+def _identity_phrases(value: str | None) -> list[str]:
+    normalized = _normalized_identity_text(value or "")
+    if not normalized:
+        return []
+    phrases = [normalized]
+    tokens = [
+        token
+        for token in normalized.split()
+        if token not in _DIRECT_FUND_GENERIC_IDENTITY_TOKENS
+    ]
+    for size in range(2, min(len(tokens), 5) + 1):
+        phrases.extend(
+            " ".join(tokens[index : index + size])
+            for index in range(len(tokens) - size + 1)
+        )
+    return phrases
+
+
+def _matches_direct_fund_theme_context(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+    text: str,
+) -> bool:
+    terms = _direct_fund_theme_terms(candidate, packet)
+    return _text_matches_any_topic_term(text, terms)
+
+
+def _direct_fund_theme_terms(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> list[str]:
+    terms = _topic_terms(candidate, packet)
+    return [
+        term
+        for term in terms
+        if term.lower() not in _DIRECT_FUND_GENERIC_CONTEXT_TERMS
+    ]
+
+
+def _symbol_without_suffix(symbol: str | None) -> str:
+    if not symbol or "." not in symbol:
+        return ""
+    return symbol.split(".", 1)[0]
+
+
+def _normalized_identity_text(value: str) -> str:
+    return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", " ", value.lower()).strip()
+
+
+_DIRECT_FUND_GENERIC_IDENTITY_TOKENS = {
+    "e",
+    "fund",
+    "etf",
+    "trust",
+    "index",
+}
+
+
+_DIRECT_FUND_GENERIC_CONTEXT_TERMS = {
+    "etf",
+    "fund",
+    "funds",
+    "index",
+    "indices",
+    "trust",
+    "market",
+    "markets",
+    "stock",
+    "stocks",
+    "share",
+    "shares",
+    "hong kong stocks",
+    "港股",
+    "基金",
+    "指数",
+    "观察",
+}
 
 
 _FINANCIAL_MARKET_CONTEXT_TERMS = [

@@ -302,8 +302,33 @@ def test_verify_research_task_requires_direct_etf_fund_metadata(
         disclaimer="非投资建议。",
     )
     write_discovery_research_run(report, tmp_path, tmp_path / "data" / "discovery-today.json")
-    _write_live_caches(tmp_path, news_headline="HKEX Tech ETF turnover improves")
     data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "Hong Kong pension fund increases gold ETFs",
+                        "summary": "A pension fund may increase gold ETF exposure.",
+                        "symbols": ["MARKET"],
+                        "source_url": "https://example.com/gold-etf",
+                    },
+                    {
+                        "timestamp": "2026-07-05T09:05:00+00:00",
+                        "headline": "3456.HK HKEX Tech 100 ETF turnover improves",
+                        "summary": "Hong Kong technology ETF turnover improved.",
+                        "symbols": ["3456.HK"],
+                        "source_url": "https://example.com/3456",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     (data_dir / "market-prices.json").write_text(
         json.dumps(
             {
@@ -335,6 +360,18 @@ def test_verify_research_task_requires_direct_etf_fund_metadata(
     assert any(
         "基金资料: 缺少 3456.HK 成分/费用缓存" in item
         for item in result.evidence_board["missing"]
+    )
+    assert any(
+        "新闻: 3456.HK HKEX Tech 100 ETF turnover improves" in item
+        for item in result.evidence_board["support"]
+    )
+    assert not any(
+        "Hong Kong pension fund increases gold ETFs" in item
+        for item in result.evidence_board["support"]
+    )
+    assert any(
+        "新闻待查: Hong Kong pension fund increases gold ETFs" in item
+        for item in result.evidence_board["off_topic"]
     )
     assert result.decision_board.workflow_state == "fund_metadata_review"
     assert any(
@@ -395,8 +432,33 @@ def test_verify_research_task_uses_direct_etf_fund_metadata(
         disclaimer="非投资建议。",
     )
     write_discovery_research_run(report, tmp_path, tmp_path / "data" / "discovery-today.json")
-    _write_live_caches(tmp_path, news_headline="HKEX Tech ETF turnover improves")
     data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "Hong Kong pension fund increases gold ETFs",
+                        "summary": "A pension fund may increase gold ETF exposure.",
+                        "symbols": ["MARKET"],
+                        "source_url": "https://example.com/gold-etf",
+                    },
+                    {
+                        "timestamp": "2026-07-05T09:05:00+00:00",
+                        "headline": "HKEX Tech 100 ETF turnover improves",
+                        "summary": "Hong Kong technology ETF turnover improved.",
+                        "symbols": ["3456.HK"],
+                        "source_url": "https://example.com/3456",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     (data_dir / "market-prices.json").write_text(
         json.dumps(
             {

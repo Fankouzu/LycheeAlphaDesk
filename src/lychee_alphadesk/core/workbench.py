@@ -1443,6 +1443,7 @@ def _news_topic_relevance(
         *_dict_list(local_data.get("related_news")),
     ]
     terms = _topic_terms(candidate, packet)
+    market_terms = _market_context_terms(candidate.market)
     matched_rows: list[dict[str, object]] = []
     support_rows: list[dict[str, object]] = []
     reverse_rows: list[dict[str, object]] = []
@@ -1462,7 +1463,10 @@ def _news_topic_relevance(
         if reviewed_verdict == "irrelevant":
             unmatched_rows.append(row)
             continue
-        if _text_matches_any_topic_term(text, terms):
+        if _text_matches_any_topic_term(text, terms) and _matches_market_context(
+            text,
+            market_terms,
+        ):
             matched_rows.append(row)
             direction = _news_evidence_direction(text)
             if direction == "reverse":
@@ -1712,12 +1716,39 @@ def _count_signal_terms(text: str, terms: set[str]) -> int:
 
 def _text_matches_any_topic_term(text: str, terms: list[str]) -> bool:
     for term in terms:
-        if re.fullmatch(r"[a-z0-9][a-z0-9.+-]*", term):
+        if re.fullmatch(r"[a-z0-9][a-z0-9 .+-]*", term):
             if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text):
                 return True
         elif term and term in text:
             return True
     return False
+
+
+def _market_context_terms(market: str) -> list[str]:
+    normalized = market.strip().upper()
+    if normalized == "HK":
+        return ["hong kong", "hang seng", "港股", "香港", ".hk"]
+    if normalized == "CN":
+        return [
+            "china",
+            "chinese",
+            "a-share",
+            "a shares",
+            "a股",
+            "中国",
+            "沪深",
+            "上证",
+            "深证",
+            ".sh",
+            ".sz",
+        ]
+    return []
+
+
+def _matches_market_context(text: str, market_terms: list[str]) -> bool:
+    if not market_terms:
+        return True
+    return any(term in text for term in market_terms)
 
 
 def select_research_candidate_index(

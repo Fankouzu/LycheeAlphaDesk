@@ -408,6 +408,53 @@ def test_research_run_does_not_match_ai_inside_unrelated_words(
     assert "主题新闻过滤: 本次拉取 3 条，1 条进入相关新闻。" in result.detail
 
 
+def test_verify_research_task_keeps_cross_market_ai_discovery_out_of_pending(
+    tmp_path: Path,
+) -> None:
+    _write_hk_tech_seed(tmp_path)
+    _write_live_caches(tmp_path, include_hk_tech_price=True)
+    data_dir = tmp_path / "data"
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T08:00:00+00:00",
+                        "headline": "US AI capex cools for Nasdaq giants",
+                        "summary": "US technology companies slowed AI infrastructure spending.",
+                        "symbols": ["QQQ"],
+                        "source_url": "https://example.com/us-ai",
+                    },
+                    {
+                        "timestamp": "2026-07-05T09:30:00+00:00",
+                        "headline": "AWS Summit Hong Kong highlights enterprise AI agents",
+                        "summary": (
+                            "Hong Kong technology teams are deploying "
+                            "agentic AI tools."
+                        ),
+                        "symbols": ["MARKET"],
+                        "source_url": "https://example.com/aws-hk-ai",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = verify_research_task(
+        output_dir=tmp_path,
+        name="港股科技板块观察",
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    risk_text = "\n".join(result.evidence_board["risk"])
+    assert "新闻待判定: AWS Summit Hong Kong highlights enterprise AI agents" in risk_text
+    assert "新闻待判定: US AI capex cools for Nasdaq giants" not in risk_text
+    assert "新闻待查: US AI capex cools for Nasdaq giants" in risk_text
+
+
 def test_evidence_change_marks_content_replacement_as_changed(tmp_path: Path) -> None:
     research_dir = tmp_path / "research"
     research_dir.mkdir(parents=True)

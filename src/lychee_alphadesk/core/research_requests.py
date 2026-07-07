@@ -56,6 +56,7 @@ class ProviderBacklogItem:
     plugin_type: str
     coverage_gap: str
     suggested_provider_examples: list[str]
+    suggested_commands: list[str]
     next_step: str
     memo_path: str
     verification_path: str
@@ -253,6 +254,7 @@ def list_provider_backlog_items(
                 plugin_type=gap.plugin_type,
                 coverage_gap=gap.coverage_gap,
                 suggested_provider_examples=gap.suggested_provider_examples,
+                suggested_commands=_provider_gap_commands(request, gap),
                 next_step=gap.next_step,
                 memo_path=request.memo_path,
                 verification_path=request.verification_path,
@@ -668,3 +670,18 @@ def _classify_provider_gap(request_text: str) -> _ProviderGap:
 
 def _has_any(text: str, keywords: tuple[str, ...]) -> bool:
     return any(keyword in text for keyword in keywords)
+
+
+def _provider_gap_commands(
+    request: ResearchDataRequest,
+    gap: _ProviderGap,
+) -> list[str]:
+    symbol = request.symbol or "<SYMBOL>"
+    return [
+        (
+            f"lychee data set metric --symbol {symbol} "
+            f"--domain {gap.plugin_type} "
+            '--name "<填入指标名称>" --value "<填入核验后的读数>" '
+            '--as-of YYYY-MM-DD --source-url "<资料来源URL>"'
+        )
+    ]

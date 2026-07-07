@@ -70,6 +70,18 @@ class FundMetadata:
 
 
 @dataclass(frozen=True)
+class ResearchMetric:
+    symbol: str
+    domain: str
+    name: str
+    value: str
+    as_of: str
+    source_url: str
+    note: str
+    provider: str
+
+
+@dataclass(frozen=True)
 class FundMetadataGuide:
     symbol: str
     display_name: str
@@ -220,6 +232,59 @@ def write_fund_metadata_cache(
         warnings=[],
     )
     return PullResult("fund_metadata", row.provider, 1, output_path, [])
+
+
+def write_research_metric_cache(
+    *,
+    output_dir: Path,
+    symbol: str,
+    domain: str,
+    name: str,
+    value: str,
+    as_of: str,
+    source_url: str,
+    note: str = "",
+    provider: str = "manual",
+) -> PullResult:
+    normalized_symbol = symbol.strip().upper()
+    normalized_domain = domain.strip().lower()
+    clean_name = name.strip()
+    clean_value = value.strip()
+    if not normalized_symbol:
+        raise ValueError("请提供研究指标对应的证券代码。")
+    if not normalized_domain:
+        raise ValueError("请提供研究指标领域，例如 market_breadth 或 volatility_metrics。")
+    if not clean_name:
+        raise ValueError("请提供研究指标名称。")
+    if not clean_value:
+        raise ValueError("请提供研究指标数值或读数。")
+    if not source_url.strip():
+        raise ValueError("请提供资料来源 URL，避免写入不可审计的研究指标。")
+
+    row = ResearchMetric(
+        symbol=normalized_symbol,
+        domain=normalized_domain,
+        name=clean_name,
+        value=clean_value,
+        as_of=as_of.strip(),
+        source_url=source_url.strip(),
+        note=note.strip(),
+        provider=provider.strip() or "manual",
+    )
+    rows = _merge_research_metric_cache_rows(output_dir, [asdict(row)])
+    output_path = _write_cache(
+        output_dir=output_dir,
+        filename="research-metrics.json",
+        provider=row.provider,
+        rows=rows,
+        warnings=[],
+    )
+    return PullResult("research_metric", row.provider, 1, output_path, [])
+
+
+def read_research_metric_cache(output_dir: Path) -> list[ResearchMetric]:
+    cache = _read_cache(output_dir, "research-metrics.json")
+    return [_research_metric_from_dict(row) for row in cache.rows]
 
 
 def _fund_metadata_guide_path(output_dir: Path, symbol: str) -> Path:
@@ -1203,6 +1268,31 @@ def _merge_symbol_cache_rows(
     return preserved + new_rows
 
 
+def _merge_research_metric_cache_rows(
+    output_dir: Path,
+    new_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    existing = _read_cache(output_dir, "research-metrics.json").rows
+    new_keys = {
+        key
+        for row in new_rows
+        if (key := _research_metric_cache_row_key(row))
+    }
+    preserved = [
+        row
+        for row in existing
+        if (key := _research_metric_cache_row_key(row)) and key not in new_keys
+    ]
+    return preserved + new_rows
+
+
+def _research_metric_cache_row_key(row: dict[str, object]) -> str:
+    symbol = str(row.get("symbol") or "").strip().upper()
+    domain = str(row.get("domain") or "").strip().lower()
+    name = str(row.get("name") or "").strip().casefold()
+    return f"{symbol}:{domain}:{name}" if symbol and domain and name else ""
+
+
 def _merge_news_cache_rows(
     output_dir: Path,
     new_rows: list[dict[str, object]],
@@ -1280,6 +1370,19 @@ def _fund_metadata_from_dict(row: dict[str, object]) -> FundMetadata:
         holdings_summary=str(row.get("holdings_summary") or ""),
         source_url=str(row.get("source_url") or ""),
         as_of=str(row.get("as_of") or ""),
+        provider=str(row.get("provider") or ""),
+    )
+
+
+def _research_metric_from_dict(row: dict[str, object]) -> ResearchMetric:
+    return ResearchMetric(
+        symbol=str(row.get("symbol") or "").upper(),
+        domain=str(row.get("domain") or ""),
+        name=str(row.get("name") or ""),
+        value=str(row.get("value") or ""),
+        as_of=str(row.get("as_of") or ""),
+        source_url=str(row.get("source_url") or ""),
+        note=str(row.get("note") or ""),
         provider=str(row.get("provider") or ""),
     )
 

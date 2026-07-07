@@ -41,6 +41,7 @@ from lychee_alphadesk.core.live_data import (
     write_fund_metadata_cache,
     write_fund_metadata_cache_from_file,
     write_fund_metadata_guide,
+    write_research_metric_cache,
 )
 from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
@@ -1401,6 +1402,68 @@ def data_set_fund(
     _print_pull_result(result_label="基金资料", count=result.count, result=result)
 
 
+@data_set_app.command("metric")
+def data_set_metric(
+    symbol: Annotated[
+        str,
+        typer.Option("--symbol", help="指标对应的证券代码，例如 QQQ、STX、0700.HK。"),
+    ],
+    domain: Annotated[
+        str,
+        typer.Option(
+            "--domain",
+            help="指标领域，例如 market_breadth、volatility_metrics、fund_flows。",
+        ),
+    ],
+    name: Annotated[
+        str,
+        typer.Option("--name", help="指标名称，例如 纳斯达克100上涨家数。"),
+    ],
+    value: Annotated[
+        str,
+        typer.Option("--value", help="核验后的指标读数，例如 63/100。"),
+    ],
+    source_url: Annotated[
+        str,
+        typer.Option("--source-url", help="资料来源 URL。"),
+    ],
+    as_of: Annotated[
+        str,
+        typer.Option("--as-of", help="指标日期 YYYY-MM-DD。"),
+    ] = "",
+    note: Annotated[
+        str,
+        typer.Option("--note", help="人工备注，说明指标如何使用。"),
+    ] = "",
+    provider: Annotated[
+        str,
+        typer.Option("--provider", help="资料来源类型，默认 manual。"),
+    ] = "manual",
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """写入人工核验过的研究指标缓存，用于补充工作台证据。"""
+    try:
+        result = write_research_metric_cache(
+            output_dir=output_dir,
+            symbol=symbol,
+            domain=domain,
+            name=name,
+            value=value,
+            as_of=as_of,
+            source_url=source_url,
+            note=note,
+            provider=provider,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    console.print(f"研究指标已写入: {symbol.strip().upper()} {domain.strip().lower()}")
+    _print_pull_result(result_label="研究指标", count=result.count, result=result)
+
+
 def _fund_symbol_from_result_path(path: Path) -> str:
     return (
         path.stem.removeprefix("fund-metadata-guide-").strip().upper()
@@ -2002,6 +2065,9 @@ def _print_provider_backlog(items: list[ProviderBacklogItem]) -> None:
         console.print("   候选来源形态:")
         for source in item.suggested_provider_examples:
             console.print(f"   - {source}", soft_wrap=True)
+        console.print("   建议命令:")
+        for command in item.suggested_commands:
+            console.print(f"   - {command}", soft_wrap=True)
         console.print(f"   下一步: {item.next_step}", soft_wrap=True)
         console.print(f"   来源备忘录: {item.memo_path}", soft_wrap=True)
         console.print(f"   下钻核验: {item.verification_path}", soft_wrap=True)

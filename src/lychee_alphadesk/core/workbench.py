@@ -762,6 +762,7 @@ def build_research_verification_checks(
         raw_related_news,
     )
     filings = _dict_list(local_data.get("filings"))
+    research_metrics = _dict_list(local_data.get("research_metrics"))
     data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
     asset_type = _asset_type(packet)
     checks: list[ResearchVerificationCheck] = []
@@ -845,6 +846,14 @@ def build_research_verification_checks(
                 detail="当前任务不要求 SEC 公告/财报核验。",
             )
         )
+    if research_metrics:
+        checks.append(
+            ResearchVerificationCheck(
+                name="研究指标核验",
+                status="pass",
+                detail=_research_metric_check_detail(research_metrics),
+            )
+        )
     if _requires_direct_fund_metadata(candidate, packet):
         has_metadata = _direct_fund_metadata_is_complete(candidate, packet_payload)
         checks.append(
@@ -883,6 +892,7 @@ def build_research_evidence_board(
     local_data = _dict_value(packet_payload.get("local_data"))
     prices = _verification_price_rows(packet_payload, local_data)
     filings = _dict_list(local_data.get("filings"))
+    research_metrics = _dict_list(local_data.get("research_metrics"))
     support: list[str] = []
     risk: list[str] = []
     off_topic: list[str] = []
@@ -895,6 +905,7 @@ def build_research_evidence_board(
     support.extend(_proxy_mapping_support_lines(packet_payload))
     support.extend(_proxy_operability_support_lines(packet_payload))
     support.extend(_proxy_fund_metadata_support_lines(packet_payload))
+    support.extend(_research_metric_support_lines(research_metrics))
     missing.extend(_proxy_missing_data_lines(packet_payload))
     topic_relevance = _news_topic_relevance(
         candidate,
@@ -1048,6 +1059,41 @@ def _proxy_fund_metadata_support_lines(packet_payload: dict[str, object]) -> lis
             continue
         lines.append(_fund_metadata_line("代理资料", symbol, metadata))
     return lines
+
+
+def _research_metric_check_detail(rows: list[dict[str, object]]) -> str:
+    return "；".join(_research_metric_line(row) for row in rows[:3])
+
+
+def _research_metric_support_lines(rows: list[dict[str, object]]) -> list[str]:
+    return [f"研究指标: {_research_metric_line(row)}" for row in rows[:3]]
+
+
+def _research_metric_line(row: dict[str, object]) -> str:
+    symbol = _string_value(row.get("symbol")) or "-"
+    domain = _research_metric_domain_label(_string_value(row.get("domain")))
+    name = _string_value(row.get("name")) or "未命名指标"
+    value = _string_value(row.get("value")) or "-"
+    parts = [f"{symbol} {domain} {name} = {value}"]
+    as_of = _string_value(row.get("as_of"))
+    source_url = _string_value(row.get("source_url"))
+    note = _string_value(row.get("note"))
+    if as_of:
+        parts.append(f"日期 {as_of}")
+    if source_url:
+        parts.append(f"来源 {source_url}")
+    if note:
+        parts.append(note)
+    return " | ".join(parts)
+
+
+def _research_metric_domain_label(domain: str) -> str:
+    return {
+        "market_breadth": "市场广度",
+        "volatility_metrics": "波动率指标",
+        "fund_flows": "资金流",
+        "sector_performance": "行业表现",
+    }.get(domain.strip().lower(), domain or "研究指标")
 
 
 def _proxy_missing_data_lines(packet_payload: dict[str, object]) -> list[str]:
@@ -2145,6 +2191,7 @@ def render_research_task_detail(
         raw_related_news,
     )
     filings = _dict_list(local_data.get("filings"))
+    research_metrics = _dict_list(local_data.get("research_metrics"))
     data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
     commands = research_action_commands(candidate, packet)
     assessment = build_research_assessment(candidate, packet)
@@ -2165,8 +2212,19 @@ def render_research_task_detail(
         f"- 下一步判断: {assessment.next_decision}",
         "",
         "信号读数: "
-        + _signal_reading(candidate, price, evidence, related_news, filings, data_gaps),
+        + _signal_reading(
+            candidate,
+            price,
+            evidence,
+            related_news,
+            filings,
+            research_metrics,
+            data_gaps,
+        ),
         *_price_lines(prices),
+        "",
+        "研究指标",
+        *_research_metric_lines(research_metrics),
         "",
         "证据矩阵",
         *_evidence_matrix_lines(
@@ -2176,6 +2234,7 @@ def render_research_task_detail(
             evidence=evidence,
             related_news=related_news,
             filings=filings,
+            research_metrics=research_metrics,
             data_gaps=data_gaps,
         ),
         "",
@@ -3534,6 +3593,7 @@ def _signal_reading(
     evidence: list[dict[str, object]],
     related_news: list[dict[str, object]],
     filings: list[dict[str, object]],
+    research_metrics: list[dict[str, object]],
     data_gaps: list[str],
 ) -> str:
     if data_gaps:
@@ -3544,6 +3604,8 @@ def _signal_reading(
         return "证据不足: 缺少可观察行情，暂时只能保留在线索池。"
     if not evidence and not related_news and not filings:
         return "只具备行情: 还没有新闻、公告或财报佐证。"
+    if price and (evidence or related_news) and research_metrics:
+        return "证据增强: 已有行情、消息和补充研究指标，下一步检查它们是否同向。"
     if price and (evidence or related_news):
         return "初步可研究: 已有行情和消息证据，下一步检查它们是否同向。"
     if candidate.proxy_symbols:
@@ -3567,6 +3629,7 @@ def _evidence_matrix_lines(
     evidence: list[dict[str, object]],
     related_news: list[dict[str, object]],
     filings: list[dict[str, object]],
+    research_metrics: list[dict[str, object]],
     data_gaps: list[str],
 ) -> list[str]:
     asset_type = _asset_type(packet)
@@ -3581,6 +3644,7 @@ def _evidence_matrix_lines(
         f"- Discovery 证据: {len(evidence)} 条",
         f"- 相关新闻: {len(related_news)} 条",
         f"- 公告/财报: {filing_status}",
+        f"- 研究指标: {len(research_metrics)} 条",
         f"- 代理标的: {proxy_status}",
         f"- 数据缺口: {_gap_summary(data_gaps)}",
     ]
@@ -3613,6 +3677,12 @@ def _price_lines(prices: list[dict[str, object]]) -> list[str]:
     if not prices:
         return [_price_line({})]
     return [_price_line(price) for price in prices[:3]]
+
+
+def _research_metric_lines(rows: list[dict[str, object]]) -> list[str]:
+    if not rows:
+        return ["- 暂无补充研究指标。"]
+    return [f"- {_research_metric_line(row)}" for row in rows[:3]]
 
 
 def _headline_lines(rows: list[dict[str, object]], *, empty: str) -> list[str]:

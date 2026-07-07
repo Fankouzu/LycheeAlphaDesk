@@ -364,7 +364,15 @@ List data-provider gaps extracted from manual-source research requests:
 lychee research provider-backlog
 ```
 
-`research provider-backlog` turns unsupported data requests into an auditable provider/plugin backlog. For example, market breadth requests such as index constituent advancers, equal-weight comparisons, sector breadth, volatility metrics, or fund-flow requests are classified by data domain, plugin type, current coverage gap, candidate source shape, source memo, and linked verification artifact. The TUI home screen exposes the same view as `数据源缺口队列`. This keeps AlphaDesk from stopping at "find a manual source yourself"; unsupported requests become explicit provider work items. It is a data-capability planning queue, not a buy/sell list.
+`research provider-backlog` turns unsupported data requests into an auditable provider/plugin backlog. For example, market breadth requests such as index constituent advancers, equal-weight comparisons, sector breadth, volatility metrics, or fund-flow requests are classified by data domain, plugin type, current coverage gap, candidate source shape, suggested local metric command, source memo, and linked verification artifact. The TUI home screen exposes the same view as `数据源缺口队列`. This keeps AlphaDesk from stopping at "find a manual source yourself"; unsupported requests become explicit provider work items. It is a data-capability planning queue, not a buy/sell list.
+
+Write a verified local research metric when a provider gap can be filled from an audited source:
+
+```bash
+lychee data set metric --symbol QQQ --domain market_breadth --name "Nasdaq 100 advancers" --value "63/100" --as-of 2026-07-07 --source-url https://example.com/breadth
+```
+
+`data set metric` writes `research-metrics.json` for source-backed indicators such as market breadth, volatility metrics, fund flows, and sector performance. The research workbench loads these metrics into verification checks, the evidence board, and the `研究任务面板` as supplemental evidence. It requires a source URL and does not invent values.
 
 Record a research review:
 
@@ -395,6 +403,7 @@ lychee data pull filings --symbols AAPL,TSLA --limit 3
 lychee data guide fund --symbol 2800.HK --name "Tracker Fund of Hong Kong" --market HK
 lychee data set fund --from-file .alphadesk/data/fund-metadata-guide-2800.HK.json
 lychee data set fund --symbol 2800.HK --name "Tracker Fund of Hong Kong" --source-url https://example.com/2800 --tracking-index "Hang Seng Index" --expense-ratio "0.10%"
+lychee data set metric --symbol QQQ --domain market_breadth --name "Nasdaq 100 advancers" --value "63/100" --source-url https://example.com/breadth
 lychee data freshness
 lychee data health
 lychee data snapshot
@@ -407,6 +416,7 @@ Current live providers:
 - News: Marketaux, Finnhub, or NewsAPI, selected with `--provider`; without `--symbols` it pulls market-level news, and with `--symbols` it pulls symbol-level news. `auto` uses the first configured provider that fits the request type.
 - Filings: SEC EDGAR recent filings for US-listed symbols.
 - Fund/ETF metadata: `data guide fund` creates a local beginner-friendly checklist and JSON template for tracking index, expense ratio, holdings summary, and source URL. After the template is filled from verified sources, `data set fund --from-file ...` imports it into `fund-metadata.json`; direct `data set fund --symbol ...` remains available for automation. The workbench uses source-backed metadata as proxy-instrument support evidence and reports only still-missing fields; it does not invent fund fees or constituents.
+- Research metrics: `data set metric` writes source-backed local indicators such as `market_breadth`, `volatility_metrics`, `fund_flows`, and `sector_performance` into `research-metrics.json`. The workbench uses them as supplemental evidence in verification checks, evidence boards, and task detail panels.
 
 Market-price cache now uses trading-session-aware freshness. US, HK, and China A-share symbols are checked against regular market hours before refreshing. During open sessions the default freshness window is 15 minutes; HK/CN lunch breaks, post-close final caches, and weekends prefer the local cache; `--force` ignores freshness and session state. The first implementation includes regular sessions and weekends only; full holiday calendars should come from a future trading-calendar provider.
 

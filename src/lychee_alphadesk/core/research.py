@@ -9,10 +9,12 @@ from lychee_alphadesk.core.evidence import EvidenceItem, build_news_evidence_pac
 from lychee_alphadesk.core.live_data import (
     FundMetadata,
     PullResult,
+    ResearchMetric,
     build_cached_data_snapshot,
     pull_market_prices,
     pull_sec_filings,
     read_fund_metadata_cache,
+    read_research_metric_cache,
 )
 from lychee_alphadesk.core.research_db import (
     ResearchQueueItem,
@@ -100,6 +102,7 @@ def deepen_research_queue(
 
     snapshot = build_cached_data_snapshot(output_dir)
     fund_metadata = read_fund_metadata_cache(output_dir)
+    research_metrics = read_research_metric_cache(output_dir)
     evidence_pack = build_news_evidence_pack(output_dir, limit=100)
     evidence_by_id = {item.id: item for item in evidence_pack}
 
@@ -112,6 +115,7 @@ def deepen_research_queue(
             news_events=snapshot.news_events,
             filings=snapshot.filings,
             fund_metadata=fund_metadata,
+            research_metrics=research_metrics,
         )
         for item in queue
     ]
@@ -244,6 +248,7 @@ def _build_research_packet(
     news_events: list[NewsEvent],
     filings: list[FilingSummary],
     fund_metadata: list[FundMetadata],
+    research_metrics: list[ResearchMetric],
 ) -> ResearchPacket:
     symbol = item.symbol.upper() if item.symbol else None
     evidence_items = [
@@ -268,6 +273,7 @@ def _build_research_packet(
         topic_terms=_research_topic_terms(item),
     )
     related_filings = _related_filings(symbol, item.display_name, filings)
+    related_metrics = _related_research_metrics(symbol, research_metrics)
     data_gaps = _data_gaps(
         item=item,
         symbol=symbol,
@@ -299,6 +305,7 @@ def _build_research_packet(
             "symbol_mapping": symbol_mapping,
             "related_news": related_news,
             "filings": related_filings,
+            "research_metrics": related_metrics,
         },
         "risk_flags": item.risk_flags,
         "data_gaps": data_gaps,
@@ -606,6 +613,20 @@ def _fund_metadata(
         if row.symbol.upper() == normalized_symbol:
             return row
     return None
+
+
+def _related_research_metrics(
+    symbol: str | None,
+    research_metrics: list[ResearchMetric],
+) -> list[dict[str, object]]:
+    if not symbol:
+        return []
+    normalized_symbol = symbol.upper()
+    return [
+        asdict(row)
+        for row in research_metrics
+        if row.symbol.upper() == normalized_symbol
+    ]
 
 
 def _related_news(

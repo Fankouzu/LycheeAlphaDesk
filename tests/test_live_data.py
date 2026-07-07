@@ -10,8 +10,10 @@ from lychee_alphadesk.core.live_data import (
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
+    read_research_metric_cache,
     run_cached_data_health,
     write_fund_metadata_cache,
+    write_research_metric_cache,
 )
 from lychee_alphadesk.core.research_db import init_research_db
 
@@ -85,6 +87,37 @@ def test_write_fund_metadata_cache_preserves_source_backed_proxy_details(
             "provider": "manual",
         }
     ]
+
+
+def test_write_research_metric_cache_preserves_source_backed_metric(
+    tmp_path: Path,
+) -> None:
+    result = write_research_metric_cache(
+        output_dir=tmp_path,
+        symbol="QQQ",
+        domain="market_breadth",
+        name="纳斯达克100上涨家数",
+        value="63/100",
+        as_of="2026-07-07",
+        source_url="https://example.com/nasdaq100-breadth",
+        note="上涨家数高于下跌家数，需结合等权指数核验。",
+    )
+
+    assert result.domain == "research_metric"
+    assert result.provider == "manual"
+    assert result.count == 1
+    assert result.output_path == tmp_path / "data" / "research-metrics.json"
+
+    rows = read_research_metric_cache(tmp_path)
+
+    assert len(rows) == 1
+    metric = rows[0]
+    assert metric.symbol == "QQQ"
+    assert metric.domain == "market_breadth"
+    assert metric.name == "纳斯达克100上涨家数"
+    assert metric.value == "63/100"
+    assert metric.source_url == "https://example.com/nasdaq100-breadth"
+    assert metric.note == "上涨家数高于下跌家数，需结合等权指数核验。"
 
 
 def test_pull_market_prices_auto_uses_eastmoney_for_hk_symbols(

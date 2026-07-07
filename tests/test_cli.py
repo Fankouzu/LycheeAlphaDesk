@@ -129,6 +129,45 @@ def test_data_set_fund_command_writes_proxy_metadata_cache(tmp_path: Path) -> No
     assert cache["rows"][0]["expense_ratio"] == "0.10%"
 
 
+def test_data_set_metric_command_writes_source_backed_research_metric(
+    tmp_path: Path,
+) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "set",
+            "metric",
+            "--symbol",
+            "QQQ",
+            "--domain",
+            "market_breadth",
+            "--name",
+            "纳斯达克100上涨家数",
+            "--value",
+            "63/100",
+            "--as-of",
+            "2026-07-07",
+            "--source-url",
+            "https://example.com/nasdaq100-breadth",
+            "--note",
+            "用于观察科技反弹扩散度。",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "研究指标已写入" in result.stdout
+    assert "QQQ" in result.stdout
+    cache = json.loads((tmp_path / "data" / "research-metrics.json").read_text("utf-8"))
+    assert cache["rows"][0]["symbol"] == "QQQ"
+    assert cache["rows"][0]["domain"] == "market_breadth"
+    assert cache["rows"][0]["name"] == "纳斯达克100上涨家数"
+    assert cache["rows"][0]["value"] == "63/100"
+    assert cache["rows"][0]["source_url"] == "https://example.com/nasdaq100-breadth"
+
+
 def test_data_guide_fund_command_writes_beginner_metadata_template(
     tmp_path: Path,
 ) -> None:
@@ -2300,6 +2339,7 @@ def test_research_provider_backlog_command_lists_manual_provider_gaps(
     assert "市场广度" in result.stdout
     assert "market_breadth" in result.stdout
     assert "指数成分数据源" in result.stdout
+    assert "lychee data set metric --symbol QQQ --domain market_breadth" in result.stdout
     assert "接入可审计的市场广度 provider" in result.stdout
     assert "数据源缺口队列只用于规划补数据能力，不是买卖建议" in result.stdout
 

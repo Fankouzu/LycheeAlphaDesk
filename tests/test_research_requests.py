@@ -208,6 +208,11 @@ def test_provider_backlog_items_classify_manual_data_requests(tmp_path: Path) ->
         "等权指数或市场广度数据源",
         "行业/子行业表现数据源",
     ]
+    assert item.suggested_commands == [
+        "lychee data set metric --symbol QQQ --domain market_breadth "
+        '--name "<填入指标名称>" --value "<填入核验后的读数>" '
+        '--as-of YYYY-MM-DD --source-url "<资料来源URL>"'
+    ]
     assert item.next_step == "接入可审计的市场广度 provider 后，再重新运行研究数据请求。"
     assert item.memo_path.endswith("research-memo-test.json")
     assert item.verification_path.endswith("research-verification-test.json")

@@ -8,7 +8,7 @@ from lychee_alphadesk.core.discovery import (
     DiscoverySource,
     DiscoveryTheme,
 )
-from lychee_alphadesk.core.live_data import PullResult
+from lychee_alphadesk.core.live_data import PullResult, write_research_metric_cache
 from lychee_alphadesk.core.research import ResearchPacket
 from lychee_alphadesk.core.research_db import write_discovery_research_run
 from lychee_alphadesk.core.workbench import (
@@ -230,6 +230,41 @@ def test_verify_research_task_uses_proxy_prices_for_symbolless_themes(
         item.startswith("代理标的: ")
         for item in result.evidence_board["risk"]
     )
+
+
+def test_verify_research_task_uses_source_backed_research_metrics(
+    tmp_path: Path,
+) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(tmp_path, include_stock_price=True, include_filings=True)
+    write_research_metric_cache(
+        output_dir=tmp_path,
+        symbol="STX",
+        domain="market_breadth",
+        name="AI 存储链扩散指标",
+        value="7/10 上涨",
+        as_of="2026-07-07",
+        source_url="https://example.com/storage-breadth",
+        note="用于观察是否从单一股票扩散到供应链。",
+    )
+
+    result = verify_research_task(
+        output_dir=tmp_path,
+        symbol="STX",
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    metric_check = next(check for check in result.checks if check.name == "研究指标核验")
+    assert metric_check.status == "pass"
+    assert "AI 存储链扩散指标" in metric_check.detail
+    assert any(
+        "研究指标: STX 市场广度 AI 存储链扩散指标 = 7/10 上涨" in item
+        and "来源 https://example.com/storage-breadth" in item
+        for item in result.evidence_board["support"]
+    )
+    detail = render_research_task_detail(result.candidate, result.packet)
+    assert "研究指标" in detail
+    assert "AI 存储链扩散指标 = 7/10 上涨" in detail
 
 
 def test_verify_research_task_uses_cached_proxy_fund_metadata(

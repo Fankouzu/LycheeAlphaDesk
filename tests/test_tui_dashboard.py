@@ -525,6 +525,11 @@ def test_dashboard_provider_backlog_action_lists_provider_gaps(
             "指数成分数据源",
             "等权指数或市场广度数据源",
         ],
+        suggested_commands=[
+            "lychee data set metric --symbol QQQ --domain market_breadth "
+            '--name "<填入指标名称>" --value "<填入核验后的读数>" '
+            '--as-of YYYY-MM-DD --source-url "<资料来源URL>"'
+        ],
         next_step="接入可审计的市场广度 provider 后，再重新运行研究数据请求。",
         memo_path=str(tmp_path / "research" / "research-memo-test.json"),
         verification_path=str(tmp_path / "research" / "research-verification-test.json"),
@@ -556,6 +561,7 @@ def test_dashboard_provider_backlog_action_lists_provider_gaps(
             assert "市场广度" in text
             assert "market_breadth" in text
             assert "指数成分数据源" in text
+            assert "lychee data set metric --symbol QQQ --domain market_breadth" in text
             assert "接入可审计的市场广度 provider" in text
             assert "数据源缺口队列只用于规划补数据能力，不是买卖建议" in text
 

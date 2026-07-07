@@ -1543,6 +1543,8 @@ def _provider_backlog_text(items: list[ProviderBacklogItem]) -> str:
                 f"  当前缺口: {item.coverage_gap}",
                 "  候选来源形态:",
                 *[f"  - {source}" for source in item.suggested_provider_examples],
+                "  建议命令:",
+                *[f"  - {command}" for command in item.suggested_commands],
                 f"  下一步: {item.next_step}",
                 f"  来源备忘录: {item.memo_path}",
                 f"  下钻核验: {item.verification_path}",

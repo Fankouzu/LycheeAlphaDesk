@@ -260,6 +260,7 @@ def _build_research_packet(
         symbol,
         item.display_name,
         item.market,
+        item.asset_type,
         news_events,
         topic_terms=_research_topic_terms(item),
     )
@@ -603,6 +604,7 @@ def _related_news(
     symbol: str | None,
     display_name: str,
     market: str,
+    asset_type: str,
     news_events: list[NewsEvent],
     *,
     topic_terms: list[str] | None = None,
@@ -616,7 +618,11 @@ def _related_news(
         event_symbols = {event_symbol.upper() for event_symbol in event.symbols}
         matches_symbol = bool(symbol and symbol in event_symbols)
         topic_score = _news_topic_score(text, normalized_topic_terms)
-        matches_topic = topic_score > 0 and _matches_market_context(text, market_terms)
+        matches_topic = (
+            topic_score > 0
+            and _matches_market_context(text, market_terms)
+            and _matches_asset_context(text, asset_type)
+        )
         if matches_symbol or any(term in text for term in terms) or matches_topic:
             row = asdict(event)
             row["_topic_score"] = topic_score
@@ -674,6 +680,43 @@ def _matches_market_context(text: str, market_terms: list[str]) -> bool:
     if not market_terms:
         return True
     return any(term in text for term in market_terms)
+
+
+def _matches_asset_context(text: str, asset_type: str) -> bool:
+    if asset_type.strip().lower() not in {"etf", "fund", "index"}:
+        return True
+    return any(_topic_term_matches(text, term) for term in _FINANCIAL_MARKET_TERMS)
+
+
+_FINANCIAL_MARKET_TERMS = [
+    "stock",
+    "stocks",
+    "share",
+    "shares",
+    "equity",
+    "equities",
+    "market",
+    "markets",
+    "index",
+    "indices",
+    "etf",
+    "fund",
+    "exchange",
+    "listed",
+    "turnover",
+    "liquidity",
+    "hang seng",
+    "hkex",
+    "港股",
+    "股票",
+    "股份",
+    "指数",
+    "基金",
+    "交易所",
+    "成交",
+    "流动性",
+    "恒生",
+]
 
 
 def _research_topic_terms(item: ResearchQueueItem) -> list[str]:

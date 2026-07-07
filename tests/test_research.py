@@ -243,6 +243,48 @@ def test_deepen_research_queue_prioritizes_topic_related_news(
     assert len(related_news) == 5
 
 
+def test_deepen_research_queue_rejects_broad_hk_technology_news_for_index_theme(
+    tmp_path: Path,
+) -> None:
+    _write_hk_technology_index_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    rows = [
+        {
+            "timestamp": "2026-07-05T08:00:00+00:00",
+            "headline": "Hong Kong technology researchers publish AI security study",
+            "summary": (
+                "Researchers at a Hong Kong university studied AI coding agent "
+                "plugins for software supply-chain security."
+            ),
+            "symbols": ["2800.HK", "3033.HK"],
+            "source_url": "https://example.com/hk-ai-security",
+        },
+        {
+            "timestamp": "2026-07-05T09:00:00+00:00",
+            "headline": "Hong Kong stocks rise as Hang Seng liquidity improves",
+            "summary": "Hang Seng turnover improved as Hong Kong shares gained.",
+            "symbols": ["MARKET"],
+            "source_url": "https://example.com/hk-stocks",
+        },
+    ]
+    (data_dir / "news-events.json").write_text(
+        json.dumps({"provider": "newsapi", "rows": rows}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    _write_market_cache(tmp_path, ["2800.HK", "3033.HK"])
+
+    result = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    related_news = result.packets[0].packet["local_data"]["related_news"]
+    headlines = [row["headline"] for row in related_news]
+    assert "Hong Kong stocks rise as Hang Seng liquidity improves" in headlines
+    assert "Hong Kong technology researchers publish AI security study" not in headlines
+
+
 def test_fill_research_data_gaps_pulls_proxy_mapping_prices_without_mutating_candidate(
     tmp_path: Path,
 ) -> None:
@@ -422,6 +464,49 @@ def _write_symbolless_mapping_seed(tmp_path: Path) -> None:
                 asset_type="index",
                 related_theme="港股压力观察",
                 why_watch="用于观察港股大盘压力。",
+                evidence=["news_001"],
+                risk_flags=["指数不能直接交易"],
+                next_actions=["映射到可交易 ETF"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(
+        report,
+        tmp_path,
+        tmp_path / "data" / "discovery-today.json",
+    )
+
+
+def _write_hk_technology_index_seed(tmp_path: Path) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["HK"],
+        sources=[DiscoverySource("test-llm", "HK", "测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="港股科技与流动性观察",
+                markets=["HK"],
+                summary="港股科技板块和恒生指数流动性需要一起观察。",
+                evidence=["news_001"],
+                sectors=["Technology", "Index"],
+                risk_flags=["市场噪音"],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="恒生指数压力观察",
+                symbol=None,
+                market="HK",
+                asset_type="index",
+                related_theme="港股科技与流动性观察",
+                why_watch="用于观察港股科技和大盘流动性。",
                 evidence=["news_001"],
                 risk_flags=["指数不能直接交易"],
                 next_actions=["映射到可交易 ETF"],

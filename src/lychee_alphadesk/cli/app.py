@@ -56,6 +56,7 @@ from lychee_alphadesk.core.research_memo import (
     generate_research_memo,
 )
 from lychee_alphadesk.core.workbench import (
+    RESEARCH_REVIEW_VERDICTS,
     PendingEvidenceReviewItem,
     ResearchEvidenceReviewResult,
     ResearchReviewResult,
@@ -1578,12 +1579,30 @@ def _print_research_memo(result: ResearchMemoResult) -> None:
 
 def _print_research_memo_next_steps(result: ResearchMemoResult) -> None:
     selector = _research_selector(result.candidate.symbol, result.candidate.display_name)
-    note = _quote_cli_value("备忘录已生成，继续人工一致性复核。")
+    suggested_verdict = result.verification.decision_board.suggested_verdict
+    verdict = (
+        suggested_verdict
+        if suggested_verdict in RESEARCH_REVIEW_VERDICTS
+        else "needs_more_evidence"
+    )
+    verdict_label = RESEARCH_REVIEW_VERDICTS[verdict]
+    note = _quote_cli_value(_research_memo_review_note(verdict))
     console.print("工作台下一步")
+    console.print(f"- 工作台建议: {verdict_label}", soft_wrap=True)
+    if verdict == "needs_more_evidence":
+        console.print(
+            f"- 刷新并补强证据: lychee research run {selector} --force",
+            soft_wrap=True,
+        )
+    elif verdict == "blocked":
+        console.print(
+            f"- 查看阻塞任务详情: lychee research detail {selector}",
+            soft_wrap=True,
+        )
     console.print(
         "- 记录研究复核: "
         f"lychee research review {selector} "
-        f"--verdict continue_research --note {note}",
+        f"--verdict {verdict} --note {note}",
         soft_wrap=True,
     )
     console.print(
@@ -1594,6 +1613,16 @@ def _print_research_memo_next_steps(result: ResearchMemoResult) -> None:
         f"- 查看研究备忘录历史: lychee research memos {selector}",
         soft_wrap=True,
     )
+
+
+def _research_memo_review_note(verdict: str) -> str:
+    if verdict == "continue_research":
+        return "备忘录已生成，继续人工一致性复核。"
+    if verdict == "needs_more_evidence":
+        return "备忘录显示证据仍需补强，继续刷新和复核。"
+    if verdict == "blocked":
+        return "备忘录生成后仍存在阻塞，先记录阻塞并补齐数据。"
+    return "备忘录已生成，暂停观察并等待新证据。"
 
 
 def _print_evidence_board_column(title: str, rows: list[str]) -> None:

@@ -20,6 +20,7 @@ from lychee_alphadesk.core.research_db import (
     write_discovery_research_run,
     write_research_evidence_review_record,
 )
+from lychee_alphadesk.core.research_memo import generate_research_memo
 
 runner = CliRunner()
 
@@ -1722,6 +1723,219 @@ def test_research_memo_command_writes_llm_research_memo(
         str(artifacts[0]),
         payload["verification_path"],
     )
+
+
+def test_research_memo_next_steps_follow_decision_board_for_weak_evidence(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))  # type: ignore[attr-defined]
+    set_openai_compatible_llm(
+        "https://llm.example.com/v1",
+        "sk-demo-secret",
+        "demo-model",
+    )
+    _write_cli_symbolless_mapping_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "Generic global market article",
+                        "summary": "Broad commentary without Hong Kong index evidence.",
+                        "symbols": ["MARKET"],
+                        "source_url": "https://example.com/generic",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "auto",
+                "rows": [
+                    {
+                        "symbol": "2800.HK",
+                        "date": "2026-07-05",
+                        "close": 18.5,
+                        "volume": 1000000,
+                        "currency": "HKD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_request_chat_json(config: object, **kwargs: object) -> dict[str, object]:
+        prompt = str(kwargs["messages"])
+        assert "suggested_verdict" in prompt
+        assert "needs_more_evidence" in prompt
+        return {
+            "summary": "港股压力观察已有代理行情，但主题新闻证据不足。",
+            "evidence_reading": "可交易性和成交量可观察，主题证据仍需补强。",
+            "support_points": ["2800.HK 已有本地行情和成交量。"],
+            "skeptic_review": ["现有新闻不能回答港股压力研究问题。"],
+            "missing_evidence": ["缺少直接命中港股压力主题的新闻。"],
+            "next_research_steps": ["刷新主题新闻后重新下钻核验。"],
+            "confidence": "low",
+        }
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        "lychee_alphadesk.core.research_memo.request_chat_json",
+        fake_request_chat_json,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "memo",
+            "--name",
+            "恒生指数压力观察",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "--verdict needs_more_evidence" in result.stdout
+    assert "--verdict continue_research" not in result.stdout
+    assert "刷新并补强证据: lychee research run --name \"恒生指数压力观察\" --force" in (
+        result.stdout
+    )
+    artifact = next((tmp_path / "research").glob("research-memo-*.json"))
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    assert payload["verification"]["decision_board"]["suggested_verdict"] == (
+        "needs_more_evidence"
+    )
+
+
+def test_research_memo_artifacts_do_not_overwrite_with_same_second(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))  # type: ignore[attr-defined]
+    set_openai_compatible_llm(
+        "https://llm.example.com/v1",
+        "sk-demo-secret",
+        "demo-model",
+    )
+    _write_cli_research_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "AI storage demand rises",
+                        "summary": "Cloud infrastructure demand may affect hard drives.",
+                        "symbols": ["STX"],
+                        "source_url": "https://example.com/storage",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "alpha_vantage",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-05",
+                        "close": 120.0,
+                        "volume": 4560000,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "filings.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "date": "2026-07-04",
+                        "company": "Seagate",
+                        "form": "8-K",
+                        "summary": "STX 在 2026-07-04 提交了 8-K。",
+                        "source_url": "https://example.com/8k",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_post_json(
+        url: str,
+        headers: dict[str, str],
+        body: dict[str, object],
+    ) -> object:
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "summary": "STX 研究备忘录。",
+                                "evidence_reading": "已有行情、新闻和公告材料。",
+                                "support_points": ["已有 STX 行情。"],
+                                "skeptic_review": ["仍需核对周期风险。"],
+                                "missing_evidence": ["缺少同行对比。"],
+                                "next_research_steps": ["继续补同行数据。"],
+                                "confidence": "medium",
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+            ]
+        }
+
+    now = datetime(2026, 7, 5, 11, 0, tzinfo=UTC)
+    first = generate_research_memo(
+        output_dir=tmp_path,
+        symbol="STX",
+        now=now,
+        post_json=fake_post_json,
+    )
+    second = generate_research_memo(
+        output_dir=tmp_path,
+        symbol="STX",
+        now=now,
+        post_json=fake_post_json,
+    )
+
+    assert first.artifact_path != second.artifact_path
+    assert first.artifact_path.exists()
+    assert second.artifact_path.exists()
+    assert len(list((tmp_path / "research").glob("research-memo-*.json"))) == 2
+    with sqlite3.connect(tmp_path / "research.sqlite3") as connection:
+        memo_rows = connection.execute(
+            "SELECT memo_path FROM research_memos ORDER BY memo_path"
+        ).fetchall()
+    assert memo_rows == [(str(first.artifact_path),), (str(second.artifact_path),)]
 
 
 def test_research_memos_command_lists_memo_history(

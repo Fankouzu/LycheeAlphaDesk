@@ -73,7 +73,7 @@ def generate_research_memo(
     )
     db_path = write_research_memo_record(
         output_dir=output_dir,
-        memo_id=f"research-memo:{created_at}",
+        memo_id=f"research-memo:{artifact_path.stem.removeprefix('research-memo-')}",
         created_at=created_at,
         display_name=verification.candidate.display_name,
         symbol=verification.candidate.symbol,
@@ -116,6 +116,9 @@ def _build_research_memo_messages(
         "verification_label": verification.status_label,
         "checks": [asdict(check) for check in verification.checks],
         "证据板": verification.evidence_board,
+        "decision_board": asdict(verification.decision_board),
+        "evidence_change": asdict(verification.evidence_change),
+        "conclusion": verification.conclusion,
         "verification_next_actions": verification.next_actions,
     }
     system_prompt = (
@@ -227,12 +230,24 @@ def _write_research_memo_artifact(
 ) -> Path:
     research_dir = output_dir / "research"
     research_dir.mkdir(parents=True, exist_ok=True)
-    output_path = research_dir / f"research-memo-{_safe_timestamp(created_at)}.json"
+    output_path = _unique_research_memo_path(research_dir, created_at)
     output_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     return output_path
+
+
+def _unique_research_memo_path(research_dir: Path, created_at: str) -> Path:
+    timestamp = _safe_timestamp(created_at)
+    output_path = research_dir / f"research-memo-{timestamp}.json"
+    if not output_path.exists():
+        return output_path
+    for index in range(1, 1000):
+        candidate = research_dir / f"research-memo-{timestamp}~{index:02d}.json"
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError("无法生成唯一研究备忘录文件名。")
 
 
 def _research_memo_payload(
@@ -251,6 +266,8 @@ def _research_memo_payload(
             "status_label": verification.status_label,
             "checks": [asdict(check) for check in verification.checks],
             "evidence_board": verification.evidence_board,
+            "decision_board": asdict(verification.decision_board),
+            "evidence_change": asdict(verification.evidence_change),
             "conclusion": verification.conclusion,
             "next_actions": verification.next_actions,
         },

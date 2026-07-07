@@ -2253,6 +2253,57 @@ def test_research_data_requests_command_lists_actionable_requests(tmp_path: Path
     assert "数据请求队列只用于补证据，不是买卖建议" in result.stdout
 
 
+def test_research_provider_backlog_command_lists_manual_provider_gaps(
+    tmp_path: Path,
+) -> None:
+    memo_path = tmp_path / "research" / "research-memo-test.json"
+    verification_path = tmp_path / "research" / "research-verification-test.json"
+    write_research_memo_record(
+        output_dir=tmp_path,
+        memo_id="research-memo:2026-07-05T10:02:00+00:00",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        confidence="low",
+        summary="QQQ 仍需补齐广度数据。",
+        support_count=1,
+        skeptic_count=1,
+        missing_count=1,
+        next_step_count=1,
+        memo_path=memo_path,
+        verification_path=verification_path,
+        payload={
+            "memo": {
+                "next_data_requests": [
+                    "请补充纳斯达克 100 成分股上涨家数和等权指数对比。"
+                ]
+            }
+        },
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "provider-backlog",
+            "--symbol",
+            "QQQ",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Lychee AlphaDesk 数据源缺口队列" in result.stdout
+    assert "Invesco QQQ Trust" in result.stdout
+    assert "市场广度" in result.stdout
+    assert "market_breadth" in result.stdout
+    assert "指数成分数据源" in result.stdout
+    assert "接入可审计的市场广度 provider" in result.stdout
+    assert "数据源缺口队列只用于规划补数据能力，不是买卖建议" in result.stdout
+
+
 def test_research_run_data_request_command_executes_supported_actions(
     monkeypatch: object,
     tmp_path: Path,

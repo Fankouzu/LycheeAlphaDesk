@@ -22,6 +22,7 @@ from lychee_alphadesk.core.research_db import (
 )
 from lychee_alphadesk.core.research_memo import ResearchMemo, ResearchMemoResult
 from lychee_alphadesk.core.research_requests import (
+    ProviderBacklogItem,
     ResearchDataRequest,
     ResearchDataRequestExecution,
     ResearchDataRequestFulfillment,
@@ -502,6 +503,61 @@ def test_dashboard_research_data_requests_action_lists_actionable_requests(
             assert "基金资料模板: 已完成" in result_text
             assert "下钻核验: 跳过" in result_text
             assert "数据请求执行只补证据，不是买卖建议" in result_text
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_provider_backlog_action_lists_provider_gaps(
+    monkeypatch, tmp_path: Path
+) -> None:
+    backlog_item = ProviderBacklogItem(
+        request_id="research-memo:test:data-request:1",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        confidence="low",
+        request_text="请补充纳斯达克 100 成分股上涨家数和等权指数对比。",
+        data_domain="市场广度",
+        plugin_type="market_breadth",
+        coverage_gap="当前 provider 只能补行情、新闻、公告和基金资料，缺少市场广度数据。",
+        suggested_provider_examples=[
+            "指数成分数据源",
+            "等权指数或市场广度数据源",
+        ],
+        next_step="接入可审计的市场广度 provider 后，再重新运行研究数据请求。",
+        memo_path=str(tmp_path / "research" / "research-memo-test.json"),
+        verification_path=str(tmp_path / "research" / "research-verification-test.json"),
+    )
+
+    def fake_list_provider_backlog_items(**kwargs: object) -> list[ProviderBacklogItem]:
+        assert kwargs["output_dir"] == tmp_path
+        return [backlog_item]
+
+    monkeypatch.setattr(
+        tui_app,
+        "list_provider_backlog_items",
+        fake_list_provider_backlog_items,
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            menu = app.query_one("#action-menu", OptionList)
+            backlog_index = _option_index(menu, "数据源缺口队列")
+            await pilot.press(*(["down"] * backlog_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            text = str(app.query_one("#action-status", Static).content)
+            assert "数据源缺口队列" in text
+            assert "Invesco QQQ Trust" in text
+            assert "市场广度" in text
+            assert "market_breadth" in text
+            assert "指数成分数据源" in text
+            assert "接入可审计的市场广度 provider" in text
+            assert "数据源缺口队列只用于规划补数据能力，不是买卖建议" in text
 
     asyncio.run(run_case())
 

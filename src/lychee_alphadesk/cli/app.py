@@ -59,9 +59,11 @@ from lychee_alphadesk.core.research_memo import (
     generate_research_memo,
 )
 from lychee_alphadesk.core.research_requests import (
+    ProviderBacklogItem,
     ResearchDataRequest,
     ResearchDataRequestFulfillment,
     fulfill_research_data_request,
+    list_provider_backlog_items,
     list_research_data_requests,
     research_data_request_needs_manual_source,
 )
@@ -1138,6 +1140,35 @@ def research_data_requests(
     _print_research_data_requests(requests)
 
 
+@research_app.command("provider-backlog")
+def research_provider_backlog(
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="按证券代码过滤数据源缺口，例如 QQQ、STX。"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="按任务名称过滤数据源缺口。"),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多扫描多少条最新研究备忘录。"),
+    ] = 20,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """查看当前 provider 还不能自动满足的数据能力缺口。"""
+    backlog = list_provider_backlog_items(
+        output_dir,
+        symbol=symbol,
+        name=name,
+        limit=limit,
+    )
+    _print_provider_backlog(backlog)
+
+
 @research_app.command("run-data-request")
 def research_run_data_request(
     request_index: Annotated[
@@ -1933,6 +1964,48 @@ def _print_research_data_requests(requests: list[ResearchDataRequest]) -> None:
         console.print(f"   来源备忘录: {item.memo_path}", soft_wrap=True)
         console.print(f"   下钻核验: {item.verification_path}", soft_wrap=True)
     console.print("边界: 数据请求队列只用于补证据，不是买卖建议。", soft_wrap=True)
+
+
+def _print_provider_backlog(items: list[ProviderBacklogItem]) -> None:
+    if not items:
+        console.print("暂无数据源缺口。当前研究数据请求已有自动动作或暂无请求。")
+        return
+    table = Table(title="Lychee AlphaDesk 数据源缺口队列")
+    table.add_column("时间")
+    table.add_column("名称", overflow="fold")
+    table.add_column("代码")
+    table.add_column("市场")
+    table.add_column("领域")
+    table.add_column("插件类型")
+    table.add_column("缺口", overflow="fold")
+    for item in items:
+        table.add_row(
+            item.created_at,
+            item.display_name,
+            item.symbol or "-",
+            item.market,
+            item.data_domain,
+            item.plugin_type,
+            item.coverage_gap,
+        )
+    console.print(table)
+    console.print("数据源缺口明细")
+    for index, item in enumerate(items, start=1):
+        console.print(
+            f"{index}. {item.display_name} ({item.symbol or '-'}) [{item.market}]",
+            soft_wrap=True,
+        )
+        console.print(f"   研究请求: {item.request_text}", soft_wrap=True)
+        console.print(f"   数据领域: {item.data_domain}", soft_wrap=True)
+        console.print(f"   插件类型: {item.plugin_type}", soft_wrap=True)
+        console.print(f"   当前缺口: {item.coverage_gap}", soft_wrap=True)
+        console.print("   候选来源形态:")
+        for source in item.suggested_provider_examples:
+            console.print(f"   - {source}", soft_wrap=True)
+        console.print(f"   下一步: {item.next_step}", soft_wrap=True)
+        console.print(f"   来源备忘录: {item.memo_path}", soft_wrap=True)
+        console.print(f"   下钻核验: {item.verification_path}", soft_wrap=True)
+    console.print("边界: 数据源缺口队列只用于规划补数据能力，不是买卖建议。", soft_wrap=True)
 
 
 def _print_research_data_request_fulfillment(

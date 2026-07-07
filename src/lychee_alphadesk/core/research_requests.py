@@ -44,6 +44,24 @@ class ResearchDataRequest:
 
 
 @dataclass(frozen=True)
+class ProviderBacklogItem:
+    request_id: str
+    created_at: str
+    display_name: str
+    symbol: str | None
+    market: str
+    confidence: str
+    request_text: str
+    data_domain: str
+    plugin_type: str
+    coverage_gap: str
+    suggested_provider_examples: list[str]
+    next_step: str
+    memo_path: str
+    verification_path: str
+
+
+@dataclass(frozen=True)
 class ResearchDataRequestExecution:
     action_type: str
     status: str
@@ -203,6 +221,44 @@ def research_data_request_needs_manual_source(item: ResearchDataRequest) -> bool
         len(item.suggested_commands) == 1
         and item.suggested_commands[0].startswith("lychee research verify ")
     )
+
+
+def list_provider_backlog_items(
+    output_dir: Path,
+    *,
+    symbol: str | None = None,
+    name: str | None = None,
+    limit: int = 20,
+) -> list[ProviderBacklogItem]:
+    backlog: list[ProviderBacklogItem] = []
+    for request in list_research_data_requests(
+        output_dir,
+        symbol=symbol,
+        name=name,
+        limit=limit,
+    ):
+        gap = _classify_provider_gap(request.request_text)
+        if not research_data_request_needs_manual_source(request) and not gap.always_backlog:
+            continue
+        backlog.append(
+            ProviderBacklogItem(
+                request_id=request.request_id,
+                created_at=request.created_at,
+                display_name=request.display_name,
+                symbol=request.symbol,
+                market=request.market,
+                confidence=request.confidence,
+                request_text=request.request_text,
+                data_domain=gap.data_domain,
+                plugin_type=gap.plugin_type,
+                coverage_gap=gap.coverage_gap,
+                suggested_provider_examples=gap.suggested_provider_examples,
+                next_step=gap.next_step,
+                memo_path=request.memo_path,
+                verification_path=request.verification_path,
+            )
+        )
+    return backlog
 
 
 def _memo_task_key(record: ResearchMemoRecord) -> tuple[str, str, str]:
@@ -514,3 +570,101 @@ def _dedupe_actions(
         seen.add(action.command)
         unique_actions.append(action)
     return unique_actions
+
+
+@dataclass(frozen=True)
+class _ProviderGap:
+    data_domain: str
+    plugin_type: str
+    coverage_gap: str
+    suggested_provider_examples: list[str]
+    next_step: str
+    always_backlog: bool = False
+
+
+def _classify_provider_gap(request_text: str) -> _ProviderGap:
+    text = request_text.casefold()
+    if _has_any(
+        text,
+        (
+            "广度",
+            "上涨家数",
+            "下跌家数",
+            "等权",
+            "成分股",
+            "breadth",
+            "advancer",
+            "decliner",
+            "equal-weight",
+        ),
+    ):
+        return _ProviderGap(
+            data_domain="市场广度",
+            plugin_type="market_breadth",
+            coverage_gap=(
+                "当前 provider 只能补行情、新闻、公告和基金资料，"
+                "缺少指数成分、上涨家数、等权指数或板块扩散数据。"
+            ),
+            suggested_provider_examples=[
+                "指数成分数据源",
+                "等权指数或市场广度数据源",
+                "行业/子行业表现数据源",
+            ],
+            next_step="接入可审计的市场广度 provider 后，再重新运行研究数据请求。",
+            always_backlog=True,
+        )
+    if _has_any(text, ("波动率", "隐含波动", "期权", "vix", "volatility", "option")):
+        return _ProviderGap(
+            data_domain="波动率指标",
+            plugin_type="volatility_metrics",
+            coverage_gap=(
+                "当前 provider 只能补基础行情，缺少波动率、期权或风险情绪指标。"
+            ),
+            suggested_provider_examples=[
+                "波动率指数数据源",
+                "期权链或隐含波动率数据源",
+                "风险情绪指标数据源",
+            ],
+            next_step="接入可审计的波动率 provider 后，再重新运行研究数据请求。",
+            always_backlog=True,
+        )
+    if _has_any(text, ("南向", "北向", "资金流", "流入", "流出", "fund flow", "flow")):
+        return _ProviderGap(
+            data_domain="资金流",
+            plugin_type="fund_flows",
+            coverage_gap="当前 provider 缺少跨市场资金流、ETF 资金流或成交结构数据。",
+            suggested_provider_examples=[
+                "交易所资金流数据源",
+                "ETF 资金流数据源",
+                "沪深港通资金数据源",
+            ],
+            next_step="接入可审计的资金流 provider 后，再重新运行研究数据请求。",
+            always_backlog=True,
+        )
+    if _has_any(text, ("行业", "子行业", "板块", "sector", "industry")):
+        return _ProviderGap(
+            data_domain="行业表现",
+            plugin_type="sector_performance",
+            coverage_gap="当前 provider 缺少行业/板块分类、成分和相对表现数据。",
+            suggested_provider_examples=[
+                "行业分类数据源",
+                "板块行情数据源",
+                "主题指数成分数据源",
+            ],
+            next_step="接入可审计的行业表现 provider 后，再重新运行研究数据请求。",
+        )
+    return _ProviderGap(
+        data_domain="未覆盖数据",
+        plugin_type="custom_research_data",
+        coverage_gap="当前 provider 还不能自动补齐这类数据，需要新增插件或人工来源。",
+        suggested_provider_examples=[
+            "官方披露或交易所数据源",
+            "可授权转载的市场数据源",
+            "本地 CSV/SQLite 导入插件",
+        ],
+        next_step="先明确可审计来源，再把它封装成 provider 插件。",
+    )
+
+
+def _has_any(text: str, keywords: tuple[str, ...]) -> bool:
+    return any(keyword in text for keyword in keywords)

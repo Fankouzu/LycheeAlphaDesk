@@ -5,6 +5,7 @@ from lychee_alphadesk.core.live_data import FundMetadataGuide, PullResult
 from lychee_alphadesk.core.research_db import write_research_memo_record
 from lychee_alphadesk.core.research_requests import (
     fulfill_research_data_request,
+    list_provider_backlog_items,
     list_research_data_requests,
     research_data_request_needs_manual_source,
 )
@@ -180,6 +181,46 @@ def test_fulfill_research_data_request_skips_manual_source_only_request(
     assert [execution.action_type for execution in result.executions] == ["verify"]
     assert result.executions[0].status == "skipped"
     assert "人工补来源" in result.executions[0].message
+
+
+def test_provider_backlog_items_classify_manual_data_requests(tmp_path: Path) -> None:
+    _write_request_memo(
+        tmp_path,
+        [
+            "请补充纳斯达克 100 成分股上涨家数和等权指数对比。",
+            "请补齐 QQQ 的基金资料：跟踪指数、费用率、成分摘要和资料来源 URL。",
+            "请补充科技股波动率极端化新闻所引用的具体指标、时间窗口和历史分位背景。",
+        ],
+    )
+
+    backlog = list_provider_backlog_items(tmp_path, symbol="QQQ")
+
+    assert len(backlog) == 2
+    item = backlog[0]
+    assert item.display_name == "Invesco QQQ Trust"
+    assert item.symbol == "QQQ"
+    assert item.data_domain == "市场广度"
+    assert "成分股上涨家数" in item.request_text
+    assert "当前 provider 只能补行情、新闻、公告和基金资料" in item.coverage_gap
+    assert item.plugin_type == "market_breadth"
+    assert item.suggested_provider_examples == [
+        "指数成分数据源",
+        "等权指数或市场广度数据源",
+        "行业/子行业表现数据源",
+    ]
+    assert item.next_step == "接入可审计的市场广度 provider 后，再重新运行研究数据请求。"
+    assert item.memo_path.endswith("research-memo-test.json")
+    assert item.verification_path.endswith("research-verification-test.json")
+
+    volatility_item = backlog[1]
+    assert volatility_item.data_domain == "波动率指标"
+    assert volatility_item.plugin_type == "volatility_metrics"
+    assert "期权或风险情绪指标" in volatility_item.coverage_gap
+    assert volatility_item.suggested_provider_examples == [
+        "波动率指数数据源",
+        "期权链或隐含波动率数据源",
+        "风险情绪指标数据源",
+    ]
 
 
 def _write_request_memo(tmp_path: Path, requests: list[str]) -> None:

@@ -45,9 +45,11 @@ from lychee_alphadesk.core.research_memo import (
     generate_research_memo,
 )
 from lychee_alphadesk.core.research_requests import (
+    ProviderBacklogItem,
     ResearchDataRequest,
     ResearchDataRequestFulfillment,
     fulfill_research_data_request,
+    list_provider_backlog_items,
     list_research_data_requests,
     research_data_request_needs_manual_source,
 )
@@ -132,6 +134,7 @@ class AlphaDeskApp(App[None]):
             Option("证据复核历史", id="research_evidence_reviews"),
             Option("研究备忘录历史", id="research_memos"),
             Option("研究数据请求", id="research_data_requests"),
+            Option("数据源缺口队列", id="provider_backlog"),
             Option("手动查看行情", id="pull_market"),
             Option("手动查看新闻", id="pull_news"),
             Option("手动查看美股公告", id="pull_filings"),
@@ -211,6 +214,8 @@ class AlphaDeskApp(App[None]):
             await self._show_research_memo_history()
         elif action_id == "research_data_requests":
             await self._show_research_data_requests()
+        elif action_id == "provider_backlog":
+            await self._show_provider_backlog()
         elif action_id == "pull_market":
             await self._show_symbol_prompt(
                 "pull_market",
@@ -580,6 +585,17 @@ class AlphaDeskApp(App[None]):
                 Static(_research_data_requests_text(requests), id="action-status")
             )
             self.set_focus(self.query_one("#action-menu", OptionList))
+
+    async def _show_provider_backlog(self) -> None:
+        items = await asyncio.to_thread(
+            list_provider_backlog_items,
+            output_dir=self.output_dir,
+            limit=20,
+        )
+        await self._replace_action_panel(
+            Static(_provider_backlog_text(items), id="action-status")
+        )
+        self.set_focus(self.query_one("#action-menu", OptionList))
 
     async def _run_research_data_request_action(self, action_id: str) -> None:
         raw_index = action_id.removeprefix("research_data_request:")
@@ -1500,6 +1516,39 @@ def _research_data_requests_text(requests: list[ResearchDataRequest]) -> str:
             ]
         )
     lines.append("边界: 数据请求队列只用于补证据，不是买卖建议。")
+    return "\n".join(lines)
+
+
+def _provider_backlog_text(items: list[ProviderBacklogItem]) -> str:
+    if not items:
+        return "\n".join(
+            [
+                "数据源缺口队列",
+                "暂无数据源缺口。当前研究数据请求已有自动动作或暂无请求。",
+                "边界: 数据源缺口队列只用于规划补数据能力，不是买卖建议。",
+            ]
+        )
+    lines = ["数据源缺口队列"]
+    for index, item in enumerate(items, start=1):
+        lines.extend(
+            [
+                (
+                    f"{index}. {item.display_name} ({item.symbol or '-'}) "
+                    f"[{item.market}]"
+                ),
+                f"  时间: {item.created_at}",
+                f"  研究请求: {item.request_text}",
+                f"  数据领域: {item.data_domain}",
+                f"  插件类型: {item.plugin_type}",
+                f"  当前缺口: {item.coverage_gap}",
+                "  候选来源形态:",
+                *[f"  - {source}" for source in item.suggested_provider_examples],
+                f"  下一步: {item.next_step}",
+                f"  来源备忘录: {item.memo_path}",
+                f"  下钻核验: {item.verification_path}",
+            ]
+        )
+    lines.append("边界: 数据源缺口队列只用于规划补数据能力，不是买卖建议。")
     return "\n".join(lines)
 
 

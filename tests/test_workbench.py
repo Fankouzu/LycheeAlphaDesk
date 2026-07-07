@@ -16,6 +16,7 @@ from lychee_alphadesk.core.workbench import (
     render_research_task_detail,
     run_research_task,
     run_workbench_check,
+    verify_research_task,
 )
 
 
@@ -89,6 +90,31 @@ def test_workbench_check_marks_blocked_when_research_gaps_remain(
     assert "处理动作: 先补齐" in result.beginner_brief
     assert "处理命令: lychee research run --symbol STX --force" in (
         result.beginner_brief
+    )
+
+
+def test_verify_research_task_uses_proxy_prices_for_symbolless_themes(
+    tmp_path: Path,
+) -> None:
+    _write_symbolless_seed(tmp_path)
+    _write_live_caches(tmp_path, include_proxy_price=True)
+
+    result = verify_research_task(
+        output_dir=tmp_path,
+        name="恒生指数压力观察",
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    price_check = next(check for check in result.checks if check.name == "行情核验")
+    volume_check = next(check for check in result.checks if check.name == "成交量核验")
+    assert price_check.status == "pass"
+    assert "2800.HK 18.50 HKD" in price_check.detail
+    assert volume_check.status == "pass"
+    assert "成交量 1000000" in volume_check.detail
+    assert any("2800.HK 18.50 HKD" in item for item in result.evidence_board["support"])
+    assert not any(
+        "行情核验: 缺少本地行情" in item
+        for item in result.evidence_board["missing"]
     )
 
 

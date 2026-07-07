@@ -720,7 +720,7 @@ def build_research_verification_checks(
 ) -> list[ResearchVerificationCheck]:
     packet_payload = packet.packet if packet is not None else {}
     local_data = _dict_value(packet_payload.get("local_data"))
-    price = _dict_value(local_data.get("price"))
+    prices = _verification_price_rows(packet_payload, local_data)
     evidence = _dict_list(packet_payload.get("evidence"))
     related_news = _dict_list(local_data.get("related_news"))
     filings = _dict_list(local_data.get("filings"))
@@ -735,21 +735,20 @@ def build_research_verification_checks(
                 detail="；".join(data_gaps),
             )
         )
-    if price:
+    if prices:
         checks.append(
             ResearchVerificationCheck(
                 name="行情核验",
                 status="pass",
-                detail=_price_line(price).removeprefix("行情: "),
+                detail=_price_check_detail(prices),
             )
         )
-        volume = price.get("volume")
-        volume_ok = isinstance(volume, int | float) and volume > 0
+        volume_ok = all(_price_volume_ok(price) for price in prices)
         checks.append(
             ResearchVerificationCheck(
                 name="成交量核验",
                 status="pass" if volume_ok else "warn",
-                detail=f"成交量 {volume}" if volume is not None else "缺少成交量字段。",
+                detail=_volume_check_detail(prices),
             )
         )
     else:
@@ -835,12 +834,12 @@ def build_research_evidence_board(
 ) -> dict[str, list[str]]:
     packet_payload = packet.packet if packet is not None else {}
     local_data = _dict_value(packet_payload.get("local_data"))
-    price = _dict_value(local_data.get("price"))
+    prices = _verification_price_rows(packet_payload, local_data)
     filings = _dict_list(local_data.get("filings"))
     support: list[str] = []
     risk: list[str] = []
     missing: list[str] = []
-    if price:
+    for price in prices[:3]:
         support.append(_price_line(price).removeprefix("行情: "))
     topic_relevance = _news_topic_relevance(
         candidate,
@@ -885,6 +884,46 @@ def build_research_evidence_board(
         "risk": risk,
         "missing": missing,
     }
+
+
+def _verification_price_rows(
+    packet_payload: dict[str, object],
+    local_data: dict[str, object],
+) -> list[dict[str, object]]:
+    price = _dict_value(local_data.get("price"))
+    if price:
+        return [price]
+    prices: list[dict[str, object]] = []
+    for row in _symbol_mapping_rows(packet_payload):
+        latest_price = _dict_value(row.get("latest_price"))
+        if not latest_price:
+            continue
+        if not _string_value(latest_price.get("symbol")):
+            symbol = _string_value(row.get("symbol"))
+            latest_price = {**latest_price, "symbol": symbol}
+        prices.append(latest_price)
+    return prices
+
+
+def _price_check_detail(prices: list[dict[str, object]]) -> str:
+    return "；".join(_price_line(price).removeprefix("行情: ") for price in prices)
+
+
+def _price_volume_ok(price: dict[str, object]) -> bool:
+    volume = price.get("volume")
+    return isinstance(volume, int | float) and volume > 0
+
+
+def _volume_check_detail(prices: list[dict[str, object]]) -> str:
+    details: list[str] = []
+    for price in prices:
+        symbol = _string_value(price.get("symbol")) or "-"
+        volume = price.get("volume")
+        if volume is None:
+            details.append(f"{symbol} 缺少成交量字段")
+        else:
+            details.append(f"{symbol} 成交量 {volume}")
+    return "；".join(details)
 
 
 def build_research_decision_board(

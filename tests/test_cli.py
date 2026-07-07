@@ -22,6 +22,11 @@ from lychee_alphadesk.core.research_db import (
     write_research_memo_record,
 )
 from lychee_alphadesk.core.research_memo import generate_research_memo
+from lychee_alphadesk.core.research_requests import (
+    ResearchDataRequest,
+    ResearchDataRequestExecution,
+    ResearchDataRequestFulfillment,
+)
 
 runner = CliRunner()
 
@@ -2246,6 +2251,88 @@ def test_research_data_requests_command_lists_actionable_requests(tmp_path: Path
     )
     assert "lychee research verify --symbol QQQ" in result.stdout
     assert "数据请求队列只用于补证据，不是买卖建议" in result.stdout
+
+
+def test_research_run_data_request_command_executes_supported_actions(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_fulfill_research_data_request(
+        output_dir: Path,
+        **kwargs: object,
+    ) -> ResearchDataRequestFulfillment:
+        calls.append({"output_dir": output_dir, **kwargs})
+        return ResearchDataRequestFulfillment(
+            request=ResearchDataRequest(
+                request_id="memo:test:data-request:1",
+                created_at="2026-07-05T10:02:00+00:00",
+                display_name="Invesco QQQ Trust",
+                symbol="QQQ",
+                market="US",
+                confidence="low",
+                request_text="请提供 QQQ 行情和成交量。",
+                suggested_commands=["lychee data pull market --symbols QQQ"],
+                memo_path=str(tmp_path / "research" / "memo.json"),
+                verification_path=str(tmp_path / "research" / "verify.json"),
+            ),
+            executions=[
+                ResearchDataRequestExecution(
+                    action_type="market",
+                    status="completed",
+                    command="lychee data pull market --symbols QQQ",
+                    count=1,
+                    output_path=tmp_path / "data" / "market-prices.json",
+                    message="行情已刷新。",
+                ),
+                ResearchDataRequestExecution(
+                    action_type="verify",
+                    status="completed",
+                    command="lychee research verify --symbol QQQ",
+                    count=1,
+                    output_path=tmp_path / "research" / "verify-new.json",
+                    message="已重新下钻核验。",
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        cli_app,
+        "fulfill_research_data_request",
+        fake_fulfill_research_data_request,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "run-data-request",
+            "--request",
+            "2",
+            "--symbol",
+            "QQQ",
+            "--output-dir",
+            str(tmp_path),
+            "--no-force",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert calls == [
+        {
+            "output_dir": tmp_path,
+            "request_index": 2,
+            "symbol": "QQQ",
+            "name": None,
+            "limit": 20,
+            "force": False,
+        }
+    ]
+    assert "研究数据请求执行结果" in result.stdout
+    assert "行情已刷新" in result.stdout
+    assert "已重新下钻核验" in result.stdout
+    assert "数据请求执行只补证据，不是买卖建议" in result.stdout
 
 
 def test_research_memo_command_rejects_investment_advice_language(

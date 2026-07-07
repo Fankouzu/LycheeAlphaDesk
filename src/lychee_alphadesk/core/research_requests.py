@@ -1,8 +1,31 @@
 import shlex
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from lychee_alphadesk.core.live_data import (
+    FundMetadataGuide,
+    PullResult,
+    pull_market_prices,
+    pull_news_events,
+    pull_sec_filings,
+    write_fund_metadata_guide,
+)
 from lychee_alphadesk.core.research_db import ResearchMemoRecord, list_research_memos
+from lychee_alphadesk.core.workbench import verify_research_task
+
+PullMarket = Callable[..., PullResult]
+PullNews = Callable[..., PullResult]
+PullFilings = Callable[..., PullResult]
+WriteFundGuide = Callable[..., FundMetadataGuide]
+VerifyTask = Callable[..., object]
+
+
+@dataclass(frozen=True)
+class ResearchDataRequestAction:
+    action_type: str
+    command: str
+    auto_executable: bool = True
 
 
 @dataclass(frozen=True)
@@ -17,6 +40,24 @@ class ResearchDataRequest:
     suggested_commands: list[str]
     memo_path: str
     verification_path: str
+    suggested_actions: list[ResearchDataRequestAction] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ResearchDataRequestExecution:
+    action_type: str
+    status: str
+    command: str
+    count: int
+    output_path: Path | None
+    message: str
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ResearchDataRequestFulfillment:
+    request: ResearchDataRequest
+    executions: list[ResearchDataRequestExecution]
 
 
 def list_research_data_requests(
@@ -42,6 +83,7 @@ def list_research_data_requests(
         seen_tasks.add(task_key)
         request_texts = _memo_data_requests(record)
         for index, request_text in enumerate(request_texts, start=1):
+            suggested_actions = _suggest_data_request_actions(record, request_text)
             requests.append(
                 ResearchDataRequest(
                     request_id=f"{record.memo_id}:data-request:{index}",
@@ -51,18 +93,112 @@ def list_research_data_requests(
                     market=record.market,
                     confidence=record.confidence,
                     request_text=request_text,
-                    suggested_commands=_suggest_data_request_commands(
-                        record,
-                        request_text,
-                    ),
+                    suggested_commands=[action.command for action in suggested_actions],
                     memo_path=record.memo_path,
                     verification_path=record.verification_path,
+                    suggested_actions=suggested_actions,
                 )
             )
     return requests
 
 
+def fulfill_research_data_request(
+    output_dir: Path,
+    *,
+    request_index: int = 1,
+    request_id: str | None = None,
+    symbol: str | None = None,
+    name: str | None = None,
+    limit: int = 20,
+    force: bool = True,
+    pull_market: PullMarket = pull_market_prices,
+    pull_news: PullNews = pull_news_events,
+    pull_filings: PullFilings = pull_sec_filings,
+    write_fund_guide: WriteFundGuide = write_fund_metadata_guide,
+    verify_task: VerifyTask = verify_research_task,
+) -> ResearchDataRequestFulfillment:
+    requests = list_research_data_requests(
+        output_dir,
+        symbol=symbol,
+        name=name,
+        limit=limit,
+    )
+    request = _select_request(requests, request_index=request_index, request_id=request_id)
+    executions: list[ResearchDataRequestExecution] = []
+    data_changed = False
+    needs_manual_step = False
+    verify_action = _verify_action(request)
+
+    for action in request.suggested_actions:
+        if action.action_type == "verify":
+            continue
+        if action.action_type == "fund_metadata_import":
+            needs_manual_step = True
+            executions.append(
+                ResearchDataRequestExecution(
+                    action_type=action.action_type,
+                    status="manual_required",
+                    command=action.command,
+                    count=0,
+                    output_path=None,
+                    message="需要先人工填写基金资料模板，再导入缓存。",
+                )
+            )
+            continue
+        execution = _execute_data_request_action(
+            output_dir=output_dir,
+            request=request,
+            action=action,
+            force=force,
+            pull_market=pull_market,
+            pull_news=pull_news,
+            pull_filings=pull_filings,
+            write_fund_guide=write_fund_guide,
+        )
+        executions.append(execution)
+        if execution.status == "completed" and action.action_type in {
+            "market",
+            "news",
+            "filings",
+        }:
+            data_changed = True
+
+    if data_changed and verify_action is not None:
+        executions.append(
+            _execute_verify_action(
+                output_dir=output_dir,
+                request=request,
+                action=verify_action,
+                verify_task=verify_task,
+            )
+        )
+    elif verify_action is not None:
+        message = (
+            "等待人工补来源或填写模板后再重新核验。"
+            if needs_manual_step or research_data_request_needs_manual_source(request)
+            else "本次没有改变本地数据，未重新核验。"
+        )
+        executions.append(
+            ResearchDataRequestExecution(
+                action_type="verify",
+                status="skipped",
+                command=verify_action.command,
+                count=0,
+                output_path=None,
+                message=message,
+            )
+        )
+    return ResearchDataRequestFulfillment(request=request, executions=executions)
+
+
 def research_data_request_needs_manual_source(item: ResearchDataRequest) -> bool:
+    executable_data_actions = [
+        action
+        for action in item.suggested_actions
+        if action.auto_executable and action.action_type != "verify"
+    ]
+    if item.suggested_actions:
+        return not executable_data_actions
     return (
         len(item.suggested_commands) == 1
         and item.suggested_commands[0].startswith("lychee research verify ")
@@ -87,44 +223,216 @@ def _memo_data_requests(record: ResearchMemoRecord) -> list[str]:
     return [item.strip() for item in raw_requests if isinstance(item, str) and item.strip()]
 
 
-def _suggest_data_request_commands(
+def _select_request(
+    requests: list[ResearchDataRequest],
+    *,
+    request_index: int,
+    request_id: str | None,
+) -> ResearchDataRequest:
+    if not requests:
+        raise ValueError("暂无研究数据请求。请先运行 `lychee research memo`。")
+    if request_id:
+        for request in requests:
+            if request.request_id == request_id:
+                return request
+        raise ValueError("没有找到匹配的数据请求。")
+    if request_index < 1 or request_index > len(requests):
+        raise ValueError(f"数据请求序号必须在 1 到 {len(requests)} 之间。")
+    return requests[request_index - 1]
+
+
+def _suggest_data_request_actions(
     record: ResearchMemoRecord,
     request_text: str,
-) -> list[str]:
-    commands: list[str] = []
+) -> list[ResearchDataRequestAction]:
+    actions: list[ResearchDataRequestAction] = []
     selector = _research_selector(record)
     lowered = request_text.casefold()
     if _looks_like_fund_metadata_request(lowered) and record.symbol:
-        commands.extend(
+        actions.extend(
             [
-                (
-                    f"lychee data guide fund --symbol {record.symbol} "
-                    f"--name {_quote_cli_value(record.display_name)} "
-                    f"--market {record.market.upper() or '<MARKET>'}"
+                ResearchDataRequestAction(
+                    "fund_metadata_guide",
+                    (
+                        f"lychee data guide fund --symbol {record.symbol} "
+                        f"--name {_quote_cli_value(record.display_name)} "
+                        f"--market {record.market.upper() or '<MARKET>'}"
+                    ),
                 ),
-                (
-                    "lychee data set fund --from-file "
-                    f".alphadesk/data/fund-metadata-guide-{record.symbol.upper()}.json"
+                ResearchDataRequestAction(
+                    "fund_metadata_import",
+                    (
+                        "lychee data set fund --from-file "
+                        f".alphadesk/data/fund-metadata-guide-{record.symbol.upper()}.json"
+                    ),
+                    auto_executable=False,
                 ),
             ]
         )
     if _looks_like_market_request(lowered) and record.symbol:
-        commands.append(
-            f"lychee data pull market --symbols {record.symbol} --provider auto --force"
+        actions.append(
+            ResearchDataRequestAction(
+                "market",
+                f"lychee data pull market --symbols {record.symbol} --provider auto --force",
+            )
         )
     if _looks_like_news_request(lowered):
         query = _quote_cli_value(record.display_name)
         if record.symbol:
-            commands.append(
-                "lychee data pull news "
-                f"--symbols {record.symbol} --query {query} --force"
+            actions.append(
+                ResearchDataRequestAction(
+                    "news",
+                    "lychee data pull news "
+                    f"--symbols {record.symbol} --query {query} --force",
+                )
             )
         else:
-            commands.append(f"lychee data pull news --query {query} --force")
+            actions.append(
+                ResearchDataRequestAction(
+                    "news",
+                    f"lychee data pull news --query {query} --force",
+                )
+            )
     if _looks_like_filing_request(lowered) and record.symbol and record.market.upper() == "US":
-        commands.append(f"lychee data pull filings --symbols {record.symbol}")
-    commands.append(f"lychee research verify {selector}")
-    return _dedupe_preserve_order(commands)
+        actions.append(
+            ResearchDataRequestAction(
+                "filings",
+                f"lychee data pull filings --symbols {record.symbol}",
+            )
+        )
+    actions.append(ResearchDataRequestAction("verify", f"lychee research verify {selector}"))
+    return _dedupe_actions(actions)
+
+
+def _execute_data_request_action(
+    *,
+    output_dir: Path,
+    request: ResearchDataRequest,
+    action: ResearchDataRequestAction,
+    force: bool,
+    pull_market: PullMarket,
+    pull_news: PullNews,
+    pull_filings: PullFilings,
+    write_fund_guide: WriteFundGuide,
+) -> ResearchDataRequestExecution:
+    try:
+        if action.action_type == "fund_metadata_guide":
+            if not request.symbol:
+                raise ValueError("基金资料向导需要证券代码。")
+            guide = write_fund_guide(
+                output_dir=output_dir,
+                symbol=request.symbol,
+                display_name=request.display_name,
+                market=request.market,
+            )
+            return ResearchDataRequestExecution(
+                action_type=action.action_type,
+                status="completed",
+                command=action.command,
+                count=1,
+                output_path=guide.output_path,
+                message="已生成基金资料模板；填写并导入后再重新核验。",
+            )
+        if action.action_type == "market":
+            if not request.symbol:
+                raise ValueError("行情刷新需要证券代码。")
+            result = pull_market(
+                symbols=[request.symbol],
+                output_dir=output_dir,
+                provider_id="auto",
+                force=force,
+            )
+            return _pull_execution(action, result, "行情已刷新。")
+        if action.action_type == "news":
+            result = pull_news(
+                symbols=[request.symbol] if request.symbol else [],
+                query=request.display_name,
+                output_dir=output_dir,
+                provider_id="auto",
+                force=force,
+            )
+            return _pull_execution(action, result, "新闻已刷新。")
+        if action.action_type == "filings":
+            if not request.symbol:
+                raise ValueError("公告刷新需要证券代码。")
+            result = pull_filings(symbols=[request.symbol], output_dir=output_dir)
+            return _pull_execution(action, result, "SEC 公告已刷新。")
+    except (RuntimeError, ValueError) as error:
+        return ResearchDataRequestExecution(
+            action_type=action.action_type,
+            status="failed",
+            command=action.command,
+            count=0,
+            output_path=None,
+            message=str(error),
+        )
+    return ResearchDataRequestExecution(
+        action_type=action.action_type,
+        status="skipped",
+        command=action.command,
+        count=0,
+        output_path=None,
+        message="这个数据请求动作暂不支持自动执行。",
+    )
+
+
+def _execute_verify_action(
+    *,
+    output_dir: Path,
+    request: ResearchDataRequest,
+    action: ResearchDataRequestAction,
+    verify_task: VerifyTask,
+) -> ResearchDataRequestExecution:
+    try:
+        verification = verify_task(
+            output_dir=output_dir,
+            symbol=request.symbol,
+            name=None if request.symbol else request.display_name,
+        )
+    except (RuntimeError, ValueError) as error:
+        return ResearchDataRequestExecution(
+            action_type="verify",
+            status="failed",
+            command=action.command,
+            count=0,
+            output_path=None,
+            message=str(error),
+        )
+    output_path = getattr(verification, "artifact_path", None)
+    return ResearchDataRequestExecution(
+        action_type="verify",
+        status="completed",
+        command=action.command,
+        count=1,
+        output_path=output_path if isinstance(output_path, Path) else None,
+        message="已重新下钻核验。",
+    )
+
+
+def _pull_execution(
+    action: ResearchDataRequestAction,
+    result: PullResult,
+    message: str,
+) -> ResearchDataRequestExecution:
+    return ResearchDataRequestExecution(
+        action_type=action.action_type,
+        status="completed",
+        command=action.command,
+        count=result.count,
+        output_path=result.output_path,
+        message=message,
+        warnings=result.warnings,
+    )
+
+
+def _verify_action(request: ResearchDataRequest) -> ResearchDataRequestAction | None:
+    for action in request.suggested_actions:
+        if action.action_type == "verify":
+            return action
+    for command in request.suggested_commands:
+        if "research verify" in command:
+            return ResearchDataRequestAction("verify", command)
+    return None
 
 
 def _looks_like_fund_metadata_request(text: str) -> bool:
@@ -195,12 +503,14 @@ def _quote_cli_value(value: str) -> str:
     return shlex.quote(value)
 
 
-def _dedupe_preserve_order(items: list[str]) -> list[str]:
+def _dedupe_actions(
+    actions: list[ResearchDataRequestAction],
+) -> list[ResearchDataRequestAction]:
     seen: set[str] = set()
-    unique_items: list[str] = []
-    for item in items:
-        if item in seen:
+    unique_actions: list[ResearchDataRequestAction] = []
+    for action in actions:
+        if action.command in seen:
             continue
-        seen.add(item)
-        unique_items.append(item)
-    return unique_items
+        seen.add(action.command)
+        unique_actions.append(action)
+    return unique_actions

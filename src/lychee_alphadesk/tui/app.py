@@ -46,6 +46,8 @@ from lychee_alphadesk.core.research_memo import (
 )
 from lychee_alphadesk.core.research_requests import (
     ResearchDataRequest,
+    ResearchDataRequestFulfillment,
+    fulfill_research_data_request,
     list_research_data_requests,
     research_data_request_needs_manual_source,
 )
@@ -116,6 +118,7 @@ class AlphaDeskApp(App[None]):
         self.pending_evidence_review_items: list[str] = []
         self.last_pending_evidence_review: ResearchEvidenceReviewResult | None = None
         self.current_fund_metadata_guide_path: Path | None = None
+        self.research_data_requests: list[ResearchDataRequest] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -187,6 +190,9 @@ class AlphaDeskApp(App[None]):
             return
         if isinstance(action_id, str) and action_id.startswith("pending_evidence_review:"):
             await self._run_pending_evidence_review_action(action_id)
+            return
+        if isinstance(action_id, str) and action_id.startswith("research_data_request:"):
+            await self._run_research_data_request_action(action_id)
             return
         if action_id == "pending_evidence_verify_last":
             await self._run_pending_evidence_verification()
@@ -550,10 +556,68 @@ class AlphaDeskApp(App[None]):
             output_dir=self.output_dir,
             limit=20,
         )
+        self.research_data_requests = requests
+        options = [
+            Option(
+                f"执行 {index}. {_short_request_label(item)}",
+                id=f"research_data_request:{index - 1}",
+            )
+            for index, item in enumerate(requests, start=1)
+        ]
+        options.append(Option("返回主菜单", id="refresh"))
+        if requests:
+            await self._replace_action_panel(
+                Static(_research_data_requests_text(requests), id="action-status"),
+                OptionList(
+                    *options,
+                    id="research-data-request-menu",
+                    markup=False,
+                ),
+            )
+            self.set_focus(self.query_one("#research-data-request-menu", OptionList))
+        else:
+            await self._replace_action_panel(
+                Static(_research_data_requests_text(requests), id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+
+    async def _run_research_data_request_action(self, action_id: str) -> None:
+        raw_index = action_id.removeprefix("research_data_request:")
+        try:
+            index = int(raw_index)
+            request = self.research_data_requests[index]
+        except (ValueError, IndexError):
+            await self._replace_action_panel(
+                Static("数据请求不存在，请重新打开研究数据请求。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
         await self._replace_action_panel(
-            Static(_research_data_requests_text(requests), id="action-status")
+            Static("正在执行研究数据请求，请稍候...", id="action-status")
         )
-        self.set_focus(self.query_one("#action-menu", OptionList))
+        try:
+            result = await asyncio.to_thread(
+                fulfill_research_data_request,
+                self.output_dir,
+                request_id=request.request_id,
+            )
+        except (RuntimeError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._refresh_research_state()
+        await self._replace_action_panel(
+            Static(_research_data_request_fulfillment_text(result), id="action-status"),
+            OptionList(
+                Option("查看研究数据请求", id="research_data_requests"),
+                Option("返回主菜单", id="refresh"),
+                id="research-data-request-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#research-data-request-menu", OptionList))
 
     async def _show_research_task_detail(self, task_id: str) -> None:
         raw_index = task_id.removeprefix("research_task:")
@@ -1437,6 +1501,62 @@ def _research_data_requests_text(requests: list[ResearchDataRequest]) -> str:
         )
     lines.append("边界: 数据请求队列只用于补证据，不是买卖建议。")
     return "\n".join(lines)
+
+
+def _research_data_request_fulfillment_text(
+    result: ResearchDataRequestFulfillment,
+) -> str:
+    request = result.request
+    lines = [
+        "研究数据请求执行结果",
+        f"请求: {request.display_name} ({request.symbol or '-'}) [{request.market}]",
+        f"内容: {request.request_text}",
+        "",
+        "执行明细",
+    ]
+    for execution in result.executions:
+        lines.extend(
+            [
+                (
+                    f"- {_display_data_request_action(execution.action_type)}: "
+                    f"{_display_data_request_execution_status(execution.status)}"
+                ),
+                f"  行数: {execution.count}",
+                f"  说明: {execution.message}",
+                f"  输出: {execution.output_path or '-'}",
+                *[f"  警告: {warning}" for warning in execution.warnings],
+            ]
+        )
+    lines.append("边界: 数据请求执行只补证据，不是买卖建议。")
+    return "\n".join(lines)
+
+
+def _short_request_label(item: ResearchDataRequest) -> str:
+    prefix = f"{item.display_name} ({item.symbol or '-'})"
+    text = item.request_text.replace("\n", " ")
+    if len(text) > 30:
+        text = text[:30] + "..."
+    return f"{prefix}: {text}"
+
+
+def _display_data_request_action(action_type: str) -> str:
+    return {
+        "fund_metadata_guide": "基金资料模板",
+        "fund_metadata_import": "基金资料导入",
+        "market": "行情",
+        "news": "新闻",
+        "filings": "SEC 公告",
+        "verify": "下钻核验",
+    }.get(action_type, action_type)
+
+
+def _display_data_request_execution_status(status: str) -> str:
+    return {
+        "completed": "已完成",
+        "failed": "失败",
+        "skipped": "跳过",
+        "manual_required": "需人工",
+    }.get(status, status)
 
 
 def _display_workbench_status(status: str) -> str:

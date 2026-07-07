@@ -60,6 +60,8 @@ from lychee_alphadesk.core.research_memo import (
 )
 from lychee_alphadesk.core.research_requests import (
     ResearchDataRequest,
+    ResearchDataRequestFulfillment,
+    fulfill_research_data_request,
     list_research_data_requests,
     research_data_request_needs_manual_source,
 )
@@ -1136,6 +1138,49 @@ def research_data_requests(
     _print_research_data_requests(requests)
 
 
+@research_app.command("run-data-request")
+def research_run_data_request(
+    request_index: Annotated[
+        int,
+        typer.Option("--request", help="要执行的数据请求序号，从 1 开始。"),
+    ] = 1,
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="按证券代码过滤数据请求，例如 QQQ、STX。"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="按任务名称过滤数据请求。"),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多扫描多少条最新研究备忘录。"),
+    ] = 20,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force/--no-force", help="执行可自动拉取的数据时是否强制刷新。"),
+    ] = True,
+) -> None:
+    """执行一条研究数据请求中可自动完成的补数据动作。"""
+    try:
+        result = fulfill_research_data_request(
+            output_dir,
+            request_index=request_index,
+            symbol=symbol,
+            name=name,
+            limit=limit,
+            force=force,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    _print_research_data_request_fulfillment(result)
+
+
 @data_pull_app.command("market")
 def data_pull_market(
     symbols: Annotated[
@@ -1880,9 +1925,45 @@ def _print_research_data_requests(requests: list[ResearchDataRequest]) -> None:
         console.print("   建议命令:")
         for command in item.suggested_commands:
             console.print(f"   - {command}", soft_wrap=True)
+        console.print(
+            f"   执行支持的动作: lychee research run-data-request --request {index} "
+            f"{_research_selector(item.symbol, item.display_name)}",
+            soft_wrap=True,
+        )
         console.print(f"   来源备忘录: {item.memo_path}", soft_wrap=True)
         console.print(f"   下钻核验: {item.verification_path}", soft_wrap=True)
     console.print("边界: 数据请求队列只用于补证据，不是买卖建议。", soft_wrap=True)
+
+
+def _print_research_data_request_fulfillment(
+    result: ResearchDataRequestFulfillment,
+) -> None:
+    request = result.request
+    console.print("研究数据请求执行结果")
+    console.print(
+        f"请求: {request.display_name} ({request.symbol or '-'}) [{request.market}]",
+        soft_wrap=True,
+    )
+    console.print(f"内容: {request.request_text}", soft_wrap=True)
+    table = Table(title="执行明细")
+    table.add_column("动作")
+    table.add_column("状态")
+    table.add_column("行数")
+    table.add_column("说明", overflow="fold")
+    table.add_column("输出", overflow="fold")
+    for execution in result.executions:
+        table.add_row(
+            _display_data_request_action(execution.action_type),
+            _display_data_request_execution_status(execution.status),
+            str(execution.count),
+            execution.message,
+            str(execution.output_path or "-"),
+        )
+    console.print(table)
+    for execution in result.executions:
+        for warning in execution.warnings:
+            console.print(f"警告: {warning}", soft_wrap=True)
+    console.print("边界: 数据请求执行只补证据，不是买卖建议。", soft_wrap=True)
 
 
 def _print_evidence_board_column(title: str, rows: list[str]) -> None:
@@ -1926,6 +2007,26 @@ def _display_research_action_status(status: str) -> str:
         "cached": "使用缓存",
         "failed": "失败",
         "skipped": "跳过",
+    }.get(status, status)
+
+
+def _display_data_request_action(action_type: str) -> str:
+    return {
+        "fund_metadata_guide": "基金资料模板",
+        "fund_metadata_import": "基金资料导入",
+        "market": "行情",
+        "news": "新闻",
+        "filings": "SEC 公告",
+        "verify": "下钻核验",
+    }.get(action_type, action_type)
+
+
+def _display_data_request_execution_status(status: str) -> str:
+    return {
+        "completed": "已完成",
+        "failed": "失败",
+        "skipped": "跳过",
+        "manual_required": "需人工",
     }.get(status, status)
 
 

@@ -21,7 +21,11 @@ from lychee_alphadesk.core.research_db import (
     list_research_queue,
 )
 from lychee_alphadesk.core.research_memo import ResearchMemo, ResearchMemoResult
-from lychee_alphadesk.core.research_requests import ResearchDataRequest
+from lychee_alphadesk.core.research_requests import (
+    ResearchDataRequest,
+    ResearchDataRequestExecution,
+    ResearchDataRequestFulfillment,
+)
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
     PendingEvidenceReviewItem,
@@ -402,32 +406,65 @@ def test_dashboard_research_memo_history_action_lists_records(
 def test_dashboard_research_data_requests_action_lists_actionable_requests(
     monkeypatch, tmp_path: Path
 ) -> None:
+    request = ResearchDataRequest(
+        request_id="research-memo:test:data-request:1",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        confidence="low",
+        request_text="请补齐 QQQ 的基金资料：跟踪指数、费用率、成分摘要和来源 URL。",
+        suggested_commands=[
+            "lychee data guide fund --symbol QQQ --name 'Invesco QQQ Trust' --market US",
+            "lychee research verify --symbol QQQ",
+        ],
+        memo_path=str(tmp_path / "research" / "research-memo-test.json"),
+        verification_path=str(tmp_path / "research" / "research-verification-test.json"),
+    )
+
     def fake_list_research_data_requests(**kwargs: object) -> list[ResearchDataRequest]:
         assert kwargs["output_dir"] == tmp_path
-        return [
-            ResearchDataRequest(
-                request_id="research-memo:test:data-request:1",
-                created_at="2026-07-05T10:02:00+00:00",
-                display_name="Invesco QQQ Trust",
-                symbol="QQQ",
-                market="US",
-                confidence="low",
-                request_text="请补齐 QQQ 的基金资料：跟踪指数、费用率、成分摘要和来源 URL。",
-                suggested_commands=[
-                    "lychee data guide fund --symbol QQQ --name 'Invesco QQQ Trust' --market US",
-                    "lychee research verify --symbol QQQ",
-                ],
-                memo_path=str(tmp_path / "research" / "research-memo-test.json"),
-                verification_path=str(
-                    tmp_path / "research" / "research-verification-test.json"
+        return [request]
+
+    fulfill_calls: list[dict[str, object]] = []
+
+    def fake_fulfill_research_data_request(
+        output_dir: Path,
+        **kwargs: object,
+    ) -> ResearchDataRequestFulfillment:
+        fulfill_calls.append({"output_dir": output_dir, **kwargs})
+        return ResearchDataRequestFulfillment(
+            request=request,
+            executions=[
+                ResearchDataRequestExecution(
+                    action_type="fund_metadata_guide",
+                    status="completed",
+                    command="lychee data guide fund --symbol QQQ",
+                    count=1,
+                    output_path=tmp_path / "data" / "fund-metadata-guide-QQQ.json",
+                    message="已生成基金资料模板；填写并导入后再重新核验。",
                 ),
-            )
-        ]
+                ResearchDataRequestExecution(
+                    action_type="verify",
+                    status="skipped",
+                    command="lychee research verify --symbol QQQ",
+                    count=0,
+                    output_path=None,
+                    message="等待人工补来源或填写模板后再重新核验。",
+                ),
+            ],
+        )
 
     monkeypatch.setattr(
         tui_app,
         "list_research_data_requests",
         fake_list_research_data_requests,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tui_app,
+        "fulfill_research_data_request",
+        fake_fulfill_research_data_request,
         raising=False,
     )
 
@@ -448,6 +485,23 @@ def test_dashboard_research_data_requests_action_lists_actionable_requests(
             assert "lychee data guide fund --symbol QQQ" in text
             assert "lychee research verify --symbol QQQ" in text
             assert "数据请求队列只用于补证据，不是买卖建议" in text
+
+            request_menu = app.query_one("#research-data-request-menu", OptionList)
+            assert "执行 1." in str(request_menu.get_option_at_index(0).prompt)
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert fulfill_calls == [
+                {
+                    "output_dir": tmp_path,
+                    "request_id": "research-memo:test:data-request:1",
+                }
+            ]
+            result_text = str(app.query_one("#action-status", Static).content)
+            assert "研究数据请求执行结果" in result_text
+            assert "基金资料模板: 已完成" in result_text
+            assert "下钻核验: 跳过" in result_text
+            assert "数据请求执行只补证据，不是买卖建议" in result_text
 
     asyncio.run(run_case())
 

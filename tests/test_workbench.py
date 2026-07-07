@@ -335,6 +335,79 @@ def test_research_run_detail_includes_topic_news_for_proxy_theme(
     assert "主题新闻过滤: 本次拉取 2 条，1 条进入相关新闻。" in result.detail
 
 
+def test_research_run_does_not_match_ai_inside_unrelated_words(
+    tmp_path: Path,
+) -> None:
+    _write_hk_tech_seed(tmp_path)
+    _write_live_caches(tmp_path, include_hk_tech_price=True)
+
+    def fake_news_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        data_dir = output_dir / "data"
+        data_dir.mkdir(exist_ok=True)
+        output_path = data_dir / "news-events.json"
+        query = str(kwargs.get("query") or "")
+        if query:
+            output_path.write_text(
+                json.dumps(
+                    {
+                        "provider": "newsapi",
+                        "rows": [
+                            {
+                                "timestamp": "2026-07-05T09:30:00+00:00",
+                                "headline": "AWS Summit Hong Kong highlights enterprise AI agents",
+                                "summary": (
+                                    "Hong Kong technology teams are deploying "
+                                    "agentic AI tools."
+                                ),
+                                "symbols": ["MARKET"],
+                                "source_url": "https://example.com/aws-hk-ai",
+                            },
+                            {
+                                "timestamp": "2026-07-05T09:31:00+00:00",
+                                "headline": "Domino's China expands Mainland stores",
+                                "summary": (
+                                    "The Hong Kong-listed restaurant operator "
+                                    "reported Mainland sales momentum."
+                                ),
+                                "symbols": ["MARKET"],
+                                "source_url": "https://example.com/dominos",
+                            },
+                            {
+                                "timestamp": "2026-07-05T09:32:00+00:00",
+                                "headline": "Dubai tops Asian crypto hubs",
+                                "summary": (
+                                    "Dubai overtakes Singapore and Hong Kong "
+                                    "for licensed crypto firms."
+                                ),
+                                "symbols": ["MARKET"],
+                                "source_url": "https://example.com/dubai",
+                            },
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            return PullResult("news", "newsapi", 3, output_path, [])
+        return PullResult("news", "newsapi", 0, output_path, [])
+
+    result = run_research_task(
+        output_dir=tmp_path,
+        name="港股科技板块观察",
+        force=True,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+        pull_market=_fake_market_pull,
+        pull_news=fake_news_pull,
+    )
+
+    assert "AWS Summit Hong Kong highlights enterprise AI agents" in result.detail
+    assert "Domino's China expands Mainland stores" not in result.detail
+    assert "Dubai tops Asian crypto hubs" not in result.detail
+    assert "主题新闻过滤: 本次拉取 3 条，1 条进入相关新闻。" in result.detail
+
+
 def test_evidence_change_marks_content_replacement_as_changed(tmp_path: Path) -> None:
     research_dir = tmp_path / "research"
     research_dir.mkdir(parents=True)
@@ -526,10 +599,50 @@ def _write_stock_seed(tmp_path: Path) -> None:
     write_discovery_research_run(report, tmp_path, tmp_path / "data" / "discovery-today.json")
 
 
+def _write_hk_tech_seed(tmp_path: Path) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["HK"],
+        sources=[DiscoverySource(provider="test-llm", market="HK", description="测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="港股科技与中国资金流观察",
+                markets=["HK"],
+                summary="港股科技板块可能受 AI 交易和资金流变化影响。",
+                evidence=["news_001"],
+                sectors=["Technology"],
+                risk_flags=["跨市场噪音"],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="港股科技板块观察",
+                symbol=None,
+                market="HK",
+                asset_type="sector",
+                related_theme="港股科技与中国资金流观察",
+                why_watch="港股上半年跑输且错过部分 AI 交易，后续需观察是否修复。",
+                evidence=["news_001"],
+                risk_flags=["主题证据可能较噪"],
+                next_actions=["映射到港股科技 ETF"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(report, tmp_path, tmp_path / "data" / "discovery-today.json")
+
+
 def _write_live_caches(
     tmp_path: Path,
     *,
     include_proxy_price: bool = False,
+    include_hk_tech_price: bool = False,
     include_stock_price: bool = False,
     include_filings: bool = False,
     news_headline: str = "Market evidence",
@@ -574,6 +687,16 @@ def _write_live_caches(
                 "close": 110.5,
                 "volume": 3210000,
                 "currency": "USD",
+            }
+        )
+    if include_hk_tech_price:
+        rows.append(
+            {
+                "symbol": "3033.HK",
+                "date": "2026-07-02",
+                "close": 4.4,
+                "volume": 2000000,
+                "currency": "HKD",
             }
         )
     if rows:

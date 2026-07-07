@@ -616,7 +616,16 @@ def _news_timestamp_sort_key(row: dict[str, object]) -> str:
 
 
 def _news_topic_score(text: str, topic_terms: list[str]) -> int:
-    return sum(1 for term in topic_terms if term in text)
+    return sum(1 for term in topic_terms if _topic_term_matches(text, term))
+
+
+def _topic_term_matches(text: str, term: str) -> bool:
+    cleaned = term.strip().lower()
+    if not cleaned:
+        return False
+    if re.fullmatch(r"[a-z0-9][a-z0-9 .+-]*", cleaned):
+        return bool(re.search(rf"(?<![a-z0-9]){re.escape(cleaned)}(?![a-z0-9])", text))
+    return cleaned in text
 
 
 def _market_context_terms(market: str) -> list[str]:

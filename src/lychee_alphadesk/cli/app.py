@@ -39,6 +39,7 @@ from lychee_alphadesk.core.live_data import (
     pull_sec_filings,
     run_cached_data_health,
     write_fund_metadata_cache,
+    write_fund_metadata_guide,
 )
 from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
@@ -90,6 +91,7 @@ audit_app = typer.Typer(help="审计记录命令。")
 data_app = typer.Typer(help="行情、新闻、公告和预测数据命令。")
 data_pull_app = typer.Typer(help="拉取实时数据源数据到本地缓存。")
 data_set_app = typer.Typer(help="写入人工核验过的数据到本地缓存。")
+data_guide_app = typer.Typer(help="生成数据补齐向导和本地模板。")
 discover_app = typer.Typer(help="发现优先的市场研究命令。")
 research_app = typer.Typer(help="本地研究库和研究队列命令。")
 setup_app = typer.Typer(
@@ -1272,6 +1274,52 @@ def data_set_fund(
     _print_pull_result(result_label="基金资料", count=result.count, result=result)
 
 
+@data_guide_app.command("fund")
+def data_guide_fund(
+    symbol: Annotated[
+        str,
+        typer.Option("--symbol", help="基金或 ETF 代码，例如 2800.HK、510300.SH。"),
+    ],
+    display_name: Annotated[
+        str,
+        typer.Option("--name", help="基金或 ETF 显示名称。"),
+    ],
+    market: Annotated[
+        str,
+        typer.Option("--market", help="市场，例如 US、HK、CN。"),
+    ] = "",
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="向导输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """生成基金/ETF 资料补齐向导，不写入未经核验的数据。"""
+    try:
+        guide = write_fund_metadata_guide(
+            output_dir=output_dir,
+            symbol=symbol,
+            display_name=display_name,
+            market=market,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    console.print("基金资料补齐向导")
+    console.print(f"标的: {guide.display_name} ({guide.symbol}) [{guide.market}]")
+    console.print(f"模板已写入: {guide.output_path}", soft_wrap=True)
+    console.print("先查这些资料")
+    console.print("- 跟踪指数或基准")
+    console.print("- 费用率或管理费说明")
+    console.print("- 成分或持仓摘要")
+    console.print("- 资料来源 URL")
+    console.print("建议来源")
+    for source in guide.suggested_sources:
+        console.print(f"- {source}")
+    console.print("查完后写入")
+    console.print(guide.write_command, soft_wrap=True)
+    console.print("边界: 向导只生成模板，不会猜测基金资料，也不是投资建议。")
+
+
 def _print_pull_result(*, result_label: str, count: int, result: PullResult) -> None:
     provider = result.provider
     output_path = result.output_path
@@ -1905,6 +1953,7 @@ app.add_typer(discover_app, name="discover")
 app.add_typer(research_app, name="research")
 data_app.add_typer(data_pull_app, name="pull")
 data_app.add_typer(data_set_app, name="set")
+data_app.add_typer(data_guide_app, name="guide")
 app.add_typer(data_app, name="data")
 setup_app.add_typer(llm_setup_app, name="llm")
 app.add_typer(setup_app, name="setup")

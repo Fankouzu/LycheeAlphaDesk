@@ -374,6 +374,9 @@ def test_verify_research_task_requires_direct_etf_fund_metadata(
         for item in result.evidence_board["off_topic"]
     )
     assert result.decision_board.workflow_state == "fund_metadata_review"
+    assert result.decision_board.next_commands[0].startswith(
+        "lychee data guide fund --symbol 3456.HK"
+    )
     assert any(
         "lychee data set fund --symbol 3456.HK" in command
         for command in result.decision_board.next_commands
@@ -388,9 +391,9 @@ def test_verify_research_task_requires_direct_etf_fund_metadata(
     )
     candidate = workbench.candidates[0]
     assert candidate.priority == "P2 待补基金资料"
-    assert "先补 ETF/基金资料" in candidate.next_step
-    assert "lychee data set fund --symbol 3456.HK" in candidate.next_command
-    assert "lychee data set fund --symbol 3456.HK" in workbench.beginner_brief
+    assert "先生成 ETF/基金资料补齐向导" in candidate.next_step
+    assert "lychee data guide fund --symbol 3456.HK" in candidate.next_command
+    assert "lychee data guide fund --symbol 3456.HK" in workbench.beginner_brief
 
 
 def test_verify_research_task_uses_direct_etf_fund_metadata(

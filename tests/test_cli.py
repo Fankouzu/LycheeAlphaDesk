@@ -123,6 +123,44 @@ def test_data_set_fund_command_writes_proxy_metadata_cache(tmp_path: Path) -> No
     assert cache["rows"][0]["expense_ratio"] == "0.10%"
 
 
+def test_data_guide_fund_command_writes_beginner_metadata_template(
+    tmp_path: Path,
+) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "guide",
+            "fund",
+            "--symbol",
+            "3456.HK",
+            "--name",
+            "E Fund HKEX Tech 100 ETF",
+            "--market",
+            "HK",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "基金资料补齐向导" in result.stdout
+    assert "3456.HK" in result.stdout
+    assert "先查这些资料" in result.stdout
+    assert "基金公司产品页" in result.stdout
+    assert "香港交易所 ETF 页面" in result.stdout
+    assert "lychee data set fund --symbol 3456.HK" in result.stdout
+    guide_path = tmp_path / "data" / "fund-metadata-guide-3456.HK.json"
+    assert guide_path.exists()
+    guide = json.loads(guide_path.read_text("utf-8"))
+    assert guide["symbol"] == "3456.HK"
+    assert guide["display_name"] == "E Fund HKEX Tech 100 ETF"
+    assert guide["market"] == "HK"
+    assert "tracking_index" in guide["required_fields"]
+    assert "香港交易所 ETF 页面" in guide["suggested_sources"]
+    assert guide["write_command"].startswith("lychee data set fund --symbol 3456.HK")
+
+
 def test_discover_today_requires_llm_configuration(
     monkeypatch, tmp_path: Path
 ) -> None:

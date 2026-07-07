@@ -1178,11 +1178,12 @@ def build_research_decision_board(
             decision_rule="ETF/基金必须先核对成分、跟踪指数、费用和来源，否则不能判断它是否覆盖研究主题。",
             suggested_verdict="needs_more_evidence",
             next_steps=[
-                "先从基金公司、交易所或券商页面补齐成分/跟踪指数、费用和来源。",
+                "先生成基金资料补齐向导，再从基金公司、交易所或券商页面补齐成分/跟踪指数、费用和来源。",
                 "补齐后重新运行下钻核验，再决定是否生成研究备忘录。",
             ],
             candidate=candidate,
             next_commands=[
+                _fund_metadata_guide_command(candidate),
                 _fund_metadata_set_command(candidate),
                 _research_review_command(candidate, "needs_more_evidence"),
             ],
@@ -1353,6 +1354,15 @@ def _fund_metadata_set_command(candidate: CandidateCheck) -> str:
         '--expense-ratio "<填写费用率>" '
         '--holdings-summary "<填写成分摘要>" '
         '--source-url "<填写资料来源URL>"'
+    )
+
+
+def _fund_metadata_guide_command(candidate: CandidateCheck) -> str:
+    symbol = candidate.symbol or "<SYMBOL>"
+    return (
+        f"lychee data guide fund --symbol {symbol} "
+        f"--name {_quote_cli_value(candidate.display_name)} "
+        f"--market {candidate.market.upper() or '<MARKET>'}"
     )
 
 
@@ -3224,8 +3234,8 @@ def _mark_fund_metadata_review(candidate: CandidateCheck) -> CandidateCheck:
         candidate,
         priority="P2 待补基金资料",
         ranking_reason="最近一次下钻核验要求先补 ETF/基金成分、跟踪指数、费用和来源。",
-        next_step="先补 ETF/基金资料；补齐后重新运行下钻核验。",
-        next_command=_fund_metadata_set_command(candidate),
+        next_step="先生成 ETF/基金资料补齐向导；补齐后重新运行下钻核验。",
+        next_command=_fund_metadata_guide_command(candidate),
     )
 
 

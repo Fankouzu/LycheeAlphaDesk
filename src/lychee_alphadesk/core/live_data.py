@@ -69,6 +69,80 @@ class FundMetadata:
     provider: str
 
 
+@dataclass(frozen=True)
+class FundMetadataGuide:
+    symbol: str
+    display_name: str
+    market: str
+    required_fields: list[str]
+    suggested_sources: list[str]
+    write_command: str
+    output_path: Path
+
+
+def write_fund_metadata_guide(
+    *,
+    output_dir: Path,
+    symbol: str,
+    display_name: str,
+    market: str = "",
+) -> FundMetadataGuide:
+    normalized_symbol = symbol.strip().upper()
+    if not normalized_symbol:
+        raise ValueError("请提供基金或 ETF 代码。")
+    normalized_market = market.strip().upper() or _infer_symbol_market(normalized_symbol)
+    clean_name = display_name.strip() or normalized_symbol
+    required_fields = [
+        "tracking_index",
+        "expense_ratio",
+        "holdings_summary",
+        "source_url",
+    ]
+    suggested_sources = _fund_metadata_suggested_sources(normalized_market)
+    write_command = _fund_metadata_write_command(
+        symbol=normalized_symbol,
+        display_name=clean_name,
+        market=normalized_market,
+    )
+    guide = FundMetadataGuide(
+        symbol=normalized_symbol,
+        display_name=clean_name,
+        market=normalized_market,
+        required_fields=required_fields,
+        suggested_sources=suggested_sources,
+        write_command=write_command,
+        output_path=_fund_metadata_guide_path(output_dir, normalized_symbol),
+    )
+    guide.output_path.parent.mkdir(parents=True, exist_ok=True)
+    guide.output_path.write_text(
+        json.dumps(
+            {
+                "symbol": guide.symbol,
+                "display_name": guide.display_name,
+                "market": guide.market,
+                "required_fields": guide.required_fields,
+                "suggested_sources": guide.suggested_sources,
+                "write_command": guide.write_command,
+                "template": {
+                    "tracking_index": "",
+                    "expense_ratio": "",
+                    "holdings_summary": "",
+                    "source_url": "",
+                    "as_of": "",
+                },
+                "notes": [
+                    "只填写已经从基金公司、交易所、券商或可信数据商核对过的资料。",
+                    "不要让 LLM 猜测费用率、跟踪指数或持仓成分。",
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return guide
+
+
 def write_fund_metadata_cache(
     *,
     output_dir: Path,
@@ -112,6 +186,43 @@ def write_fund_metadata_cache(
         warnings=[],
     )
     return PullResult("fund_metadata", row.provider, 1, output_path, [])
+
+
+def _fund_metadata_guide_path(output_dir: Path, symbol: str) -> Path:
+    safe_symbol = re.sub(r"[^A-Z0-9._-]+", "-", symbol.upper()).strip("-")
+    return output_dir / "data" / f"fund-metadata-guide-{safe_symbol}.json"
+
+
+def _fund_metadata_suggested_sources(market: str) -> list[str]:
+    if market == "HK":
+        return ["基金公司产品页", "香港交易所 ETF 页面", "券商/数据商基金资料页"]
+    if market == "CN":
+        return ["基金公司产品页", "交易所或基金公告页面", "券商/数据商基金资料页"]
+    if market == "US":
+        return ["基金公司产品页", "交易所 ETF 页面", "券商/数据商基金资料页"]
+    return ["基金公司产品页", "交易所基金资料页面", "券商/数据商基金资料页"]
+
+
+def _fund_metadata_write_command(
+    *,
+    symbol: str,
+    display_name: str,
+    market: str,
+) -> str:
+    return (
+        f"lychee data set fund --symbol {symbol} "
+        f"--name {_quote_cli_value(display_name)} "
+        f"--market {market or '<MARKET>'} "
+        '--tracking-index "<填入核验后的跟踪指数>" '
+        '--expense-ratio "<填入核验后的费用率>" '
+        '--holdings-summary "<填入核验后的成分摘要>" '
+        '--source-url "<填入资料来源URL>"'
+    )
+
+
+def _quote_cli_value(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def read_fund_metadata_cache(output_dir: Path) -> list[FundMetadata]:

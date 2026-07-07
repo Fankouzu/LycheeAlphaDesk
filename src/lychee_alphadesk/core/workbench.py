@@ -2524,6 +2524,8 @@ def research_detail_actions(
         ("refresh_market", "刷新行情"),
         ("refresh_news", "刷新新闻"),
     ]
+    if _needs_fund_metadata_guide(candidate):
+        actions.append(("fund_metadata_guide", "补基金资料向导"))
     if _needs_topic_news_refresh(candidate) and topic_news_query(candidate, packet):
         actions.append(("refresh_topic_news", "刷新主题新闻"))
     if research_filing_symbols(candidate, packet):
@@ -2691,11 +2693,18 @@ def research_action_name(action: str) -> str:
         "start_research": "开始/继续研究",
         "refresh_market": "刷新行情",
         "refresh_news": "刷新新闻",
+        "fund_metadata_guide": "补基金资料向导",
         "refresh_topic_news": "刷新主题新闻",
         "refresh_filings": "刷新美股公告/财报",
         "verify_research": "下钻核验",
         "generate_memo": "生成研究备忘录",
     }.get(action, action)
+
+
+def _needs_fund_metadata_guide(candidate: CandidateCheck) -> bool:
+    return bool(candidate.symbol) and candidate.next_command.startswith(
+        "lychee data guide fund"
+    )
 
 
 def research_action_result(

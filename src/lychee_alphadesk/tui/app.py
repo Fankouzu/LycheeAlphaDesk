@@ -18,12 +18,14 @@ from lychee_alphadesk.core.discovery import (
     write_discovery_report,
 )
 from lychee_alphadesk.core.live_data import (
+    FundMetadataGuide,
     build_cached_data_snapshot,
     parse_symbols,
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
     run_cached_data_health,
+    write_fund_metadata_guide,
 )
 from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR
@@ -580,6 +582,9 @@ class AlphaDeskApp(App[None]):
         if action == "start_research":
             await self._run_research_verification(candidate)
             return
+        if action == "fund_metadata_guide":
+            await self._show_fund_metadata_guide(candidate)
+            return
         if action in {"refresh_market", "refresh_news", "refresh_topic_news"} and not symbols:
             await self._replace_action_panel(
                 Static(
@@ -698,6 +703,44 @@ class AlphaDeskApp(App[None]):
                     Option(label, id=f"research_detail:{detail_action_id}")
                     for detail_action_id, label in actions
                 ],
+                id="research-detail-action-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#research-detail-action-menu", OptionList))
+
+    async def _show_fund_metadata_guide(self, candidate: CandidateCheck) -> None:
+        if not candidate.symbol:
+            await self._replace_action_panel(
+                Static(
+                    "这个任务不是直接 ETF/基金代码，暂时不能生成单一基金资料向导。",
+                    id="action-status",
+                )
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static("正在生成基金资料补齐向导，请稍候...", id="action-status")
+        )
+        try:
+            guide = await asyncio.to_thread(
+                write_fund_metadata_guide,
+                output_dir=self.output_dir,
+                symbol=candidate.symbol,
+                display_name=candidate.display_name,
+                market=candidate.market,
+            )
+        except ValueError as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static(_fund_metadata_guide_text(guide), id="action-status"),
+            OptionList(
+                Option("重新下钻核验", id="research_detail:verify_research"),
+                Option("返回研究任务列表", id="research_detail:back_tasks"),
                 id="research-detail-action-menu",
                 markup=False,
             ),
@@ -1393,6 +1436,29 @@ def _research_review_recorded_text(result: ResearchReviewResult) -> str:
         lines.extend(["", "工作台下一步"])
         lines.extend(f"- {label}" for _, label in followups)
     lines.append("边界: 研究复核不是买卖建议。")
+    return "\n".join(lines)
+
+
+def _fund_metadata_guide_text(guide: FundMetadataGuide) -> str:
+    lines = [
+        "基金资料补齐向导",
+        f"标的: {guide.display_name} ({guide.symbol}) [{guide.market}]",
+        f"模板已写入: {guide.output_path}",
+        "",
+        "先查这些资料",
+        "- 跟踪指数或基准",
+        "- 费用率或管理费说明",
+        "- 成分或持仓摘要",
+        "- 资料来源 URL",
+        "",
+        "建议来源",
+        *[f"- {source}" for source in guide.suggested_sources],
+        "",
+        "查完后写入",
+        guide.write_command,
+        "",
+        "边界: 向导只生成模板，不会猜测基金资料，也不是投资建议。",
+    ]
     return "\n".join(lines)
 
 

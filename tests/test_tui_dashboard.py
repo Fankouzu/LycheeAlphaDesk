@@ -1203,6 +1203,104 @@ def test_dashboard_research_task_action_runs_drilldown_verification(
     asyncio.run(run_case())
 
 
+def test_dashboard_research_task_can_open_fund_metadata_guide(
+    monkeypatch, tmp_path: Path
+) -> None:
+    class FakeWorkbenchResult:
+        status = "ready"
+        ready_count = 1
+        blocked_count = 0
+        candidates = [
+            CandidateCheck(
+                display_name="E Fund HKEX Tech 100 ETF",
+                market="HK",
+                symbol="3456.HK",
+                proxy_symbols=[],
+                evidence_count=1,
+                gap_count=0,
+                data_gaps=[],
+                status="ready",
+                explanation="",
+                beginner_question="港股科技 ETF 是否能代表这条研究线索？",
+                why_it_matters="",
+                observation_entry="3456.HK",
+                what_to_check="先核对 ETF 成分、跟踪指数、费用和来源。",
+                next_step="先生成 ETF/基金资料补齐向导；补齐后重新运行下钻核验。",
+                priority="P2 待补基金资料",
+                evidence_status="证据 1 条；缺口 0 个",
+                next_command=(
+                    'lychee data guide fund --symbol 3456.HK '
+                    '--name "E Fund HKEX Tech 100 ETF" --market HK'
+                ),
+            )
+        ]
+        deepen_result = ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[
+                ResearchPacket(
+                    packet_id="research:test:fund-guide",
+                    candidate_id=1,
+                    created_at="2026-07-05T10:00:00+00:00",
+                    display_name="E Fund HKEX Tech 100 ETF",
+                    symbol="3456.HK",
+                    market="HK",
+                    packet={
+                        "candidate": {"asset_type": "ETF"},
+                        "evidence": [],
+                        "local_data": {
+                            "price": {},
+                            "related_news": [],
+                            "filings": [],
+                            "symbol_mapping": [],
+                            "fund_metadata": None,
+                        },
+                        "data_gaps": [],
+                    },
+                )
+            ],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        )
+        beginner_brief = "AlphaDesk 研究工作台"
+
+    monkeypatch.setattr(
+        tui_app,
+        "run_workbench_check",
+        lambda **kwargs: FakeWorkbenchResult(),
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            action_menu = app.query_one("#research-detail-action-menu", OptionList)
+            guide_index = _option_index(action_menu, "补基金资料向导")
+            assert guide_index > 0
+
+            for _ in range(guide_index):
+                await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            guide_path = tmp_path / "data" / "fund-metadata-guide-3456.HK.json"
+            assert guide_path.exists()
+            text = str(app.query_one("#action-status", Static).content)
+            assert "基金资料补齐向导" in text
+            assert "E Fund HKEX Tech 100 ETF (3456.HK) [HK]" in text
+            assert "先查这些资料" in text
+            assert "香港交易所 ETF 页面" in text
+            assert "lychee data set fund --symbol 3456.HK" in text
+
+    asyncio.run(run_case())
+
+
 def test_dashboard_research_start_keeps_proxy_theme_selection(
     monkeypatch, tmp_path: Path
 ) -> None:

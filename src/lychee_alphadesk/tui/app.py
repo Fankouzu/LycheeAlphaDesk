@@ -9,7 +9,12 @@ from textual.widget import Widget
 from textual.widgets import Footer, Header, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from lychee_alphadesk.core.action_queue import ActionQueueItem, build_action_queue
+from lychee_alphadesk.core.action_queue import (
+    ActionQueueExecution,
+    ActionQueueItem,
+    build_action_queue,
+    execute_action_queue_item,
+)
 from lychee_alphadesk.core.data_engine import write_snapshot_json
 from lychee_alphadesk.core.discovery import (
     DiscoveryDataRequiredError,
@@ -129,6 +134,7 @@ class AlphaDeskApp(App[None]):
         self.last_pending_evidence_review: ResearchEvidenceReviewResult | None = None
         self.current_fund_metadata_guide_path: Path | None = None
         self.research_data_requests: list[ResearchDataRequest] = []
+        self.action_queue_items: list[ActionQueueItem] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -206,6 +212,9 @@ class AlphaDeskApp(App[None]):
             return
         if isinstance(action_id, str) and action_id.startswith("research_data_request:"):
             await self._run_research_data_request_action(action_id)
+            return
+        if isinstance(action_id, str) and action_id.startswith("next_action_item:"):
+            await self._run_next_action_item(action_id)
             return
         if action_id == "pending_evidence_verify_last":
             await self._run_pending_evidence_verification()
@@ -372,10 +381,68 @@ class AlphaDeskApp(App[None]):
             )
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
+        self.action_queue_items = items
+        if not items:
+            await self._replace_action_panel(
+                Static(_action_queue_text(items), id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
         await self._replace_action_panel(
-            Static(_action_queue_text(items), id="action-status")
+            Static(_action_queue_text(items), id="action-status"),
+            OptionList(
+                *[
+                    Option(
+                        f"执行: {item.title}",
+                        id=f"next_action_item:{index}",
+                    )
+                    for index, item in enumerate(items)
+                ],
+                id="next-action-menu",
+                markup=False,
+            ),
         )
-        self.set_focus(self.query_one("#action-menu", OptionList))
+        self.set_focus(self.query_one("#next-action-menu", OptionList))
+
+    async def _run_next_action_item(self, action_id: str) -> None:
+        raw_index = action_id.removeprefix("next_action_item:")
+        try:
+            index = int(raw_index)
+            item = self.action_queue_items[index]
+        except (ValueError, IndexError):
+            await self._replace_action_panel(
+                Static("下一步行动不存在，请刷新行动队列。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static(f"正在执行下一步行动: {item.title}，请稍候...", id="action-status")
+        )
+        try:
+            result = await asyncio.to_thread(
+                execute_action_queue_item,
+                self.output_dir,
+                action_index=index + 1,
+                limit=max(len(self.action_queue_items), 12),
+                force=False,
+                queue_builder=lambda *args, **kwargs: self.action_queue_items,
+            )
+        except (RuntimeError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static(_action_queue_execution_text(result), id="action-status"),
+            OptionList(
+                Option("刷新下一步行动队列", id="next_actions"),
+                Option("返回主菜单", id="refresh"),
+                id="next-action-followup-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#next-action-followup-menu", OptionList))
 
     async def _show_research_review_history(self) -> None:
         records = await asyncio.to_thread(
@@ -1595,6 +1662,28 @@ def _action_queue_text(items: list[ActionQueueItem]) -> str:
             ]
         )
     lines.append("边界: 行动队列只推进研究流程，不是买卖建议。")
+    return "\n".join(lines)
+
+
+def _action_queue_execution_text(result: ActionQueueExecution) -> str:
+    count_label = (
+        "新闻行数"
+        if result.item.command.startswith("lychee data pull news")
+        else "处理数量"
+    )
+    lines = [
+        "下一步行动执行结果",
+        f"行动: [{result.item.area}] {result.item.title}",
+        f"状态: {result.status}",
+        f"结果: {result.message}",
+        f"{count_label}: {result.count}",
+    ]
+    if result.output_path is not None:
+        lines.append(f"缓存: {result.output_path}")
+    lines.extend(f"警告: {warning}" for warning in result.warnings)
+    if result.next_command:
+        lines.append(f"下一步核验: {result.next_command}")
+    lines.append("边界: 自动行动只补研究证据，不是买卖建议。")
     return "\n".join(lines)
 
 

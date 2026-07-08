@@ -5,7 +5,7 @@ from pathlib import Path
 from textual.widgets import Input, OptionList, Static
 
 import lychee_alphadesk.tui.app as tui_app
-from lychee_alphadesk.core.action_queue import ActionQueueItem
+from lychee_alphadesk.core.action_queue import ActionQueueExecution, ActionQueueItem
 from lychee_alphadesk.core.config import set_openai_compatible_llm
 from lychee_alphadesk.core.discovery import (
     DiscoveryCandidate,
@@ -635,6 +635,139 @@ def test_dashboard_next_actions_action_lists_unified_queue(
             assert "下钻 NVIDIA" in text
             assert "lychee data pull news --symbols NVDA" in text
             assert "行动队列只推进研究流程，不是买卖建议" in text
+            queue_menu = app.query_one("#next-action-menu", OptionList)
+            assert "执行: 复核 Seagate 的待判定新闻" in str(
+                queue_menu.get_option_at_index(0).prompt
+            )
+            assert "执行: 下钻 NVIDIA: AI 基础设施扩散" in str(
+                queue_menu.get_option_at_index(1).prompt
+            )
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_next_actions_can_execute_whitelisted_action(
+    monkeypatch, tmp_path: Path
+) -> None:
+    item = ActionQueueItem(
+        priority=2,
+        area="机会雷达",
+        title="下钻 NVIDIA: AI 基础设施扩散",
+        detail="来自 QQQ 雷达信号；缺少该标的的主题新闻缓存。",
+        command='lychee data pull news --symbols NVDA --query "AI chip data center" --force',
+        source="opportunity-radar",
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_build_action_queue(**kwargs: object) -> list[ActionQueueItem]:
+        return [item]
+
+    def fake_execute_action_queue_item(
+        output_dir: Path,
+        **kwargs: object,
+    ) -> ActionQueueExecution:
+        calls.append({"output_dir": output_dir, **kwargs})
+        return ActionQueueExecution(
+            item=item,
+            status="completed",
+            message="已执行机会雷达补新闻动作。",
+            count=3,
+            output_path=tmp_path / "data" / "news-events.json",
+            next_command="lychee research run --symbol NVDA --force",
+            warnings=[],
+        )
+
+    monkeypatch.setattr(tui_app, "build_action_queue", fake_build_action_queue)
+    monkeypatch.setattr(
+        tui_app,
+        "execute_action_queue_item",
+        fake_execute_action_queue_item,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            menu = app.query_one("#action-menu", OptionList)
+            next_index = _option_index(menu, "下一步行动队列")
+            await pilot.press(*(["down"] * next_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert calls
+            assert calls[0]["output_dir"] == tmp_path
+            assert calls[0]["action_index"] == 1
+            assert calls[0]["limit"] == 12
+            assert calls[0]["force"] is False
+            result_text = str(app.query_one("#action-status", Static).content)
+            assert "下一步行动执行结果" in result_text
+            assert "下钻 NVIDIA: AI 基础设施扩散" in result_text
+            assert "状态: completed" in result_text
+            assert "新闻行数: 3" in result_text
+            assert "lychee research run --symbol NVDA --force" in result_text
+            assert "自动行动只补研究证据，不是买卖建议" in result_text
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_next_actions_no_data_does_not_show_verification_followup(
+    monkeypatch, tmp_path: Path
+) -> None:
+    item = ActionQueueItem(
+        priority=2,
+        area="机会雷达",
+        title="下钻 Alibaba: AI 基础设施扩散",
+        detail="来自 NVDA 雷达信号；缺少该标的的主题新闻缓存。",
+        command=(
+            "lychee data pull news --symbols BABA "
+            '--query "AI cloud revenue Alibaba data center" --force'
+        ),
+        source="opportunity-radar",
+    )
+
+    def fake_build_action_queue(**kwargs: object) -> list[ActionQueueItem]:
+        return [item]
+
+    def fake_execute_action_queue_item(
+        output_dir: Path,
+        **kwargs: object,
+    ) -> ActionQueueExecution:
+        return ActionQueueExecution(
+            item=item,
+            status="no-data",
+            message="没有获取到匹配新闻，暂不能进入研究核验。",
+            count=0,
+            output_path=tmp_path / "data" / "news-events.json",
+            next_command="",
+            warnings=["新闻缓存记录为空且仍在保质期内，跳过重复刷新。"],
+        )
+
+    monkeypatch.setattr(tui_app, "build_action_queue", fake_build_action_queue)
+    monkeypatch.setattr(
+        tui_app,
+        "execute_action_queue_item",
+        fake_execute_action_queue_item,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            menu = app.query_one("#action-menu", OptionList)
+            next_index = _option_index(menu, "下一步行动队列")
+            await pilot.press(*(["down"] * next_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            await pilot.press("enter")
+            await pilot.pause()
+
+            result_text = str(app.query_one("#action-status", Static).content)
+            assert "状态: no-data" in result_text
+            assert "没有获取到匹配新闻" in result_text
+            assert "下一步核验" not in result_text
+            assert "自动行动只补研究证据，不是买卖建议" in result_text
 
     asyncio.run(run_case())
 

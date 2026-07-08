@@ -30,6 +30,10 @@ from lychee_alphadesk.core.live_data import (
     write_fund_metadata_guide,
 )
 from lychee_alphadesk.core.llm import LLMProviderError
+from lychee_alphadesk.core.opportunity_radar import (
+    OpportunityRadarReport,
+    build_opportunity_radar,
+)
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR
 from lychee_alphadesk.core.research import ResearchPacket
 from lychee_alphadesk.core.research_db import (
@@ -81,6 +85,7 @@ from lychee_alphadesk.core.workbench import (
 
 ActionId = Literal[
     "today_discovery",
+    "opportunity_radar",
     "research_workbench",
     "next_actions",
     "pending_evidence",
@@ -132,6 +137,7 @@ class AlphaDeskApp(App[None]):
         yield OptionList(
             Option("今日市场发现", id="today_discovery"),
             Option("研究工作台", id="research_workbench"),
+            Option("机会雷达", id="opportunity_radar"),
             Option("下一步行动队列", id="next_actions"),
             Option("待判定证据队列", id="pending_evidence"),
             Option("研究复核历史", id="research_reviews"),
@@ -206,6 +212,8 @@ class AlphaDeskApp(App[None]):
             return
         if action_id == "today_discovery":
             await self._show_today_discovery()
+        elif action_id == "opportunity_radar":
+            await self._show_opportunity_radar()
         elif action_id == "research_workbench":
             await self._show_research_workbench()
         elif action_id == "next_actions":
@@ -326,6 +334,27 @@ class AlphaDeskApp(App[None]):
             ),
         )
         self.set_focus(self.query_one("#research-task-menu", OptionList))
+
+    async def _show_opportunity_radar(self) -> None:
+        await self._replace_action_panel(
+            Static("正在扫描本地行情和新闻缓存，请稍候...", id="action-status")
+        )
+        try:
+            report = await asyncio.to_thread(
+                build_opportunity_radar,
+                output_dir=self.output_dir,
+                limit=8,
+            )
+        except (RuntimeError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static(_opportunity_radar_text(report), id="action-status")
+        )
+        self.set_focus(self.query_one("#action-menu", OptionList))
 
     async def _show_next_actions(self) -> None:
         await self._replace_action_panel(
@@ -1566,6 +1595,34 @@ def _action_queue_text(items: list[ActionQueueItem]) -> str:
             ]
         )
     lines.append("边界: 行动队列只推进研究流程，不是买卖建议。")
+    return "\n".join(lines)
+
+
+def _opportunity_radar_text(report: OpportunityRadarReport) -> str:
+    lines = [
+        "机会雷达",
+        f"状态: {report.status}",
+        report.disclaimer,
+    ]
+    lines.extend(f"警告: {warning}" for warning in report.warnings)
+    if not report.signals:
+        return "\n".join(lines)
+    for index, signal in enumerate(report.signals, start=1):
+        lines.extend(
+            [
+                f"{index}. {signal.symbol} [{signal.market}] {signal.theme}",
+                (
+                    f"  信号: 新闻 {signal.news_count} | 主题命中 {signal.theme_hits} "
+                    f"| 成交量排名 {signal.volume_rank} | 分数 {signal.score}"
+                ),
+                f"  行情快照: {signal.price_snapshot}",
+                f"  为什么值得研究: {signal.why_it_matters}",
+                "  证据标题:",
+                *[f"  - {headline}" for headline in signal.evidence],
+                "  下一步验证:",
+                *[f"  - {step}" for step in signal.next_steps],
+            ]
+        )
     return "\n".join(lines)
 
 

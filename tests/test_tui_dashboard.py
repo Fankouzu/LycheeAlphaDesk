@@ -14,6 +14,10 @@ from lychee_alphadesk.core.discovery import (
     DiscoveryTheme,
 )
 from lychee_alphadesk.core.live_data import PullResult
+from lychee_alphadesk.core.opportunity_radar import (
+    OpportunityRadarReport,
+    OpportunitySignal,
+)
 from lychee_alphadesk.core.research import ResearchDeepenResult, ResearchPacket
 from lychee_alphadesk.core.research_db import (
     ResearchEvidenceReviewRecord,
@@ -192,11 +196,62 @@ def test_dashboard_has_keyboard_action_menu(tmp_path: Path) -> None:
             assert menu.highlighted == 0
             assert "今日市场发现" in str(menu.get_option_at_index(0).prompt)
             assert "研究工作台" in str(menu.get_option_at_index(1).prompt)
+            assert "机会雷达" in str(menu.get_option_at_index(2).prompt)
 
             await pilot.press("down")
             await pilot.pause()
 
             assert menu.highlighted == 1
+
+    asyncio.run(run_case())
+
+
+def test_dashboard_opportunity_radar_action_shows_discovery_signals(
+    monkeypatch, tmp_path: Path
+) -> None:
+    def fake_build_opportunity_radar(**kwargs: object) -> OpportunityRadarReport:
+        assert kwargs["output_dir"] == tmp_path
+        return OpportunityRadarReport(
+            created_at="2026-07-08T00:00:00+00:00",
+            status="ready",
+            signals=[
+                OpportunitySignal(
+                    symbol="STX",
+                    market="US",
+                    theme="AI 基础设施扩散",
+                    score=18,
+                    news_count=2,
+                    theme_hits=5,
+                    volume_rank=2,
+                    price_snapshot="130.00 USD | 2026-07-07",
+                    why_it_matters="新闻热度和主题命中同时出现。",
+                    evidence=["AI storage demand lifts hard-drive suppliers"],
+                    next_steps=[
+                        'lychee data pull news --symbols STX --query "AI storage" --force'
+                    ],
+                )
+            ],
+            warnings=[],
+            disclaimer="非投资建议。机会雷达只用于决定下一步研究什么。",
+        )
+
+    monkeypatch.setattr(tui_app, "build_opportunity_radar", fake_build_opportunity_radar)
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            menu = app.query_one("#action-menu", OptionList)
+            radar_index = _option_index(menu, "机会雷达")
+            await pilot.press(*(["down"] * radar_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            text = str(app.query_one("#action-status", Static).content)
+            assert "机会雷达" in text
+            assert "STX" in text
+            assert "AI 基础设施扩散" in text
+            assert "新闻热度和主题命中" in text
+            assert "lychee data pull news --symbols STX" in text
 
     asyncio.run(run_case())
 

@@ -17,6 +17,10 @@ from lychee_alphadesk.core.discovery import (
     DiscoveryTheme,
 )
 from lychee_alphadesk.core.live_data import PullResult
+from lychee_alphadesk.core.opportunity_radar import (
+    OpportunityRadarReport,
+    OpportunitySignal,
+)
 from lychee_alphadesk.core.research_db import (
     write_discovery_research_run,
     write_research_evidence_review_record,
@@ -277,6 +281,61 @@ def test_discover_today_requires_llm_configuration(
     assert "LLM 尚未配置" in result.stdout
     assert "lychee setup llm set" in result.stdout
     assert not (tmp_path / "data" / "discovery-today.json").exists()
+
+
+def test_discover_radar_prints_local_opportunity_signals(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    def fake_build_opportunity_radar(**kwargs: object) -> OpportunityRadarReport:
+        assert kwargs["output_dir"] == tmp_path
+        assert kwargs["limit"] == 5
+        return OpportunityRadarReport(
+            created_at="2026-07-08T00:00:00+00:00",
+            status="ready",
+            signals=[
+                OpportunitySignal(
+                    symbol="STX",
+                    market="US",
+                    theme="AI 基础设施扩散",
+                    score=17,
+                    news_count=2,
+                    theme_hits=5,
+                    volume_rank=2,
+                    price_snapshot="130.00 USD | 2026-07-07",
+                    why_it_matters="新闻热度和主题命中同时出现，适合进入研究队列。",
+                    evidence=[
+                        "AI storage demand lifts hard-drive suppliers",
+                        "Cloud data center expansion increases storage backlog",
+                    ],
+                    next_steps=[
+                        'lychee data pull news --symbols STX --query "AI storage" --force',
+                        "lychee research run --symbol STX --force",
+                    ],
+                )
+            ],
+            warnings=[],
+            disclaimer="非投资建议。机会雷达只用于决定下一步研究什么。",
+        )
+
+    monkeypatch.setattr(
+        cli_app,
+        "build_opportunity_radar",
+        fake_build_opportunity_radar,
+    )
+
+    result = runner.invoke(
+        app,
+        ["discover", "radar", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "Lychee AlphaDesk 机会雷达" in result.stdout
+    assert "STX" in result.stdout
+    assert "AI 基础设施扩散" in result.stdout
+    assert "新闻热度和主题命中" in result.stdout
+    assert "lychee data pull news --symbols STX" in result.stdout
+    assert "非投资建议" in result.stdout
 
 
 def test_discover_today_command_writes_report_when_llm_configured(

@@ -45,6 +45,11 @@ from lychee_alphadesk.core.live_data import (
     write_research_metric_cache,
 )
 from lychee_alphadesk.core.llm import LLMProviderError
+from lychee_alphadesk.core.opportunity_radar import (
+    OpportunityRadarReport,
+    build_opportunity_radar,
+    write_opportunity_radar_report,
+)
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
 from lychee_alphadesk.core.policy import load_policy, validate_policy
 from lychee_alphadesk.core.reports import generate_demo_report
@@ -359,6 +364,24 @@ def discover_today(
     console.print(f"今日市场发现已写入: {output_path}", soft_wrap=True)
     console.print(f"研究库已更新: {db_path}", soft_wrap=True)
     console.print(discovery_report_summary(report, output_dir=output_dir))
+
+
+@discover_app.command("radar")
+def discover_radar(
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多显示多少条机会雷达线索。"),
+    ] = 5,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="发现缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """基于本地行情和新闻缓存扫描异常研究线索。"""
+    report = build_opportunity_radar(output_dir=output_dir, limit=limit)
+    output_path = write_opportunity_radar_report(report, output_dir)
+    console.print(f"机会雷达已写入: {output_path}", soft_wrap=True)
+    _print_opportunity_radar(report)
 
 
 @research_app.command("queue")
@@ -2112,6 +2135,50 @@ def _print_action_queue(items: list[ActionQueueItem]) -> None:
         console.print(f"   执行: {item.command}", soft_wrap=True)
         console.print(f"   来源: {item.source}", soft_wrap=True)
     console.print("边界: 行动队列只推进研究流程，不是买卖建议。", soft_wrap=True)
+
+
+def _print_opportunity_radar(report: OpportunityRadarReport) -> None:
+    console.print("Lychee AlphaDesk 机会雷达")
+    console.print(f"状态: {report.status}")
+    console.print(report.disclaimer, soft_wrap=True)
+    for warning in report.warnings:
+        console.print(f"警告: {warning}", soft_wrap=True)
+    if not report.signals:
+        return
+    table = Table(title="机会雷达线索")
+    table.add_column("优先级")
+    table.add_column("市场")
+    table.add_column("代码")
+    table.add_column("主题", overflow="fold")
+    table.add_column("分数")
+    table.add_column("信号", overflow="fold")
+    for index, signal in enumerate(report.signals, start=1):
+        table.add_row(
+            str(index),
+            signal.market,
+            signal.symbol,
+            signal.theme,
+            str(signal.score),
+            (
+                f"新闻 {signal.news_count} | 主题命中 {signal.theme_hits} | "
+                f"成交量排名 {signal.volume_rank}"
+            ),
+        )
+    console.print(table)
+    console.print("线索明细")
+    for index, signal in enumerate(report.signals, start=1):
+        console.print(
+            f"{index}. {signal.symbol} [{signal.market}] {signal.theme}",
+            soft_wrap=True,
+        )
+        console.print(f"   行情快照: {signal.price_snapshot}", soft_wrap=True)
+        console.print(f"   为什么值得研究: {signal.why_it_matters}", soft_wrap=True)
+        console.print("   证据标题:", soft_wrap=True)
+        for headline in signal.evidence:
+            console.print(f"   - {headline}", soft_wrap=True)
+        console.print("   下一步验证:", soft_wrap=True)
+        for step in signal.next_steps:
+            console.print(f"   - {step}", soft_wrap=True)
 
 
 def _print_research_data_request_fulfillment(

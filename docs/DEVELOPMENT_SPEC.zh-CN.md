@@ -141,7 +141,7 @@ lad
 - `lad data snapshot --demo` 写入统一 JSON 快照，包含市场、新闻、公告和预测数据。
 - `lychee discover today` 在不要求用户先输入股票代码的情况下，运行覆盖美股、港股和 A 股的发现优先流程。
 - `lad discover today --markets us,hk,cn` 会先检查/拉取市场级新闻 cache，再以 `stream: true` 调用已配置的 OpenAI-compatible `/chat/completions` 接口，解析模型返回的 JSON，并写入本地 `llm-synthesized` discovery report cache，包含主题、关注候选、证据引用、warning 和下一步动作。如果没有可用新闻 provider、没有配置 LLM provider、API 请求失败，或模型没有返回有效 JSON，命令必须失败；不允许静默生成 fallback 报告。成功后必须同步写入 `.alphadesk/research.sqlite3`，作为研究队列和证据追踪的本地数据库。默认 LLM 读超时为 180 秒。
-- `lad discover radar` 必须在不调用 LLM、不要求用户输入股票代码的情况下，读取本地行情和新闻缓存，组合 symbol 新闻热度、主题关键词命中和成交量排名，生成“机会雷达”研究线索。每条线索必须包含市场、代码、主题、分数、行情快照、为什么值得研究、证据标题和下一步验证命令。它只能回答“下一步研究什么”，不得输出买入、卖出、持有、仓位、目标价或收益预期。
+- `lad discover radar` 必须在不调用 LLM、不要求用户输入股票代码的情况下，读取本地行情和新闻缓存，组合 symbol 新闻热度、主题关键词命中和成交量排名，生成“机会雷达”研究线索。每条线索必须包含市场、代码、主题、分数、行情快照、为什么值得研究、证据标题、下一步验证命令，以及从本地已缓存标的中映射出的可下钻目标。可下钻目标必须展示名称、市场、类别、映射理由、证据缺口和补数据/研究命令；未进入本地缓存的标的不得伪装成当前雷达结果。它只能回答“下一步研究什么”，不得输出买入、卖出、持有、仓位、目标价或收益预期。
 - `lad data pull market` 将 Alpha Vantage 日线行情写入本地 live cache。默认使用行情 cache 的保质期和交易时段判断；`--force` 可强制刷新。
 - `lad data pull news` 将 Marketaux、Finnhub 或 NewsAPI 新闻事件写入本地 live cache。不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`--query` 可传入主题关键词，用于按研究主题补强新闻证据；主题查询应使用 Marketaux 或 NewsAPI，Finnhub 不支持主题关键词查询。默认使用新闻 cache 保质期；`--force` 可强制刷新。新闻缓存必须保留已有行并追加去重后的新行，避免刷新后改变 `news_001` 等 evidence ID 的含义。Finnhub 当前仅用于个股新闻；市场级新闻应使用 Marketaux 或 NewsAPI。
 - `lad data pull filings` 将 SEC EDGAR 近期 filings 写入本地 live cache。

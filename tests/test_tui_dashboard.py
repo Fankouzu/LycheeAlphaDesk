@@ -15,6 +15,7 @@ from lychee_alphadesk.core.discovery import (
 )
 from lychee_alphadesk.core.live_data import PullResult
 from lychee_alphadesk.core.opportunity_radar import (
+    OpportunityDrilldownTarget,
     OpportunityRadarReport,
     OpportunitySignal,
 )
@@ -229,6 +230,22 @@ def test_dashboard_opportunity_radar_action_shows_discovery_signals(
                     next_steps=[
                         'lychee data pull news --symbols STX --query "AI storage" --force'
                     ],
+                    drilldown_targets=[
+                        OpportunityDrilldownTarget(
+                            symbol="NVDA",
+                            market="US",
+                            display_name="NVIDIA",
+                            category="算力芯片锚点",
+                            reason="用算力芯片龙头校验 AI 主题是否扩散。",
+                            evidence_gap="缺少该标的的主题新闻缓存，需补新闻验证。",
+                            next_steps=[
+                                (
+                                    "lychee data pull news --symbols NVDA "
+                                    '--query "AI chip data center" --force'
+                                )
+                            ],
+                        )
+                    ],
                 )
             ],
             warnings=[],
@@ -252,6 +269,9 @@ def test_dashboard_opportunity_radar_action_shows_discovery_signals(
             assert "AI 基础设施扩散" in text
             assert "新闻热度和主题命中" in text
             assert "lychee data pull news --symbols STX" in text
+            assert "可下钻目标" in text
+            assert "NVIDIA (NVDA)" in text
+            assert "缺少该标的的主题新闻缓存" in text
 
     asyncio.run(run_case())
 

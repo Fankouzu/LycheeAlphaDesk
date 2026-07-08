@@ -136,7 +136,7 @@ The first anti-spin discovery slice is the local opportunity radar:
 lychee discover radar
 ```
 
-`discover radar` does not call an LLM and does not ask the user for a ticker. It reads local market and news caches, combines symbol-level news heat, theme keyword hits, and volume ranking, then prints auditable research signals with evidence headlines and follow-up commands. This is intentionally a discovery engine surface, not another task queue: its job is to surface “what looks unusual enough to research next.”
+`discover radar` does not call an LLM and does not ask the user for a ticker. It reads local market and news caches, combines symbol-level news heat, theme keyword hits, and volume ranking, then prints auditable research signals with evidence headlines, follow-up commands, and locally cached drilldown targets. This is intentionally a discovery engine surface, not another task queue: its job is to surface “what looks unusual enough to research next” and which cached instruments can help verify it.
 
 The first discovery pass covers US stocks, Hong Kong stocks, and China A-shares together:
 

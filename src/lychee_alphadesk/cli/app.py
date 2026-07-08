@@ -2179,6 +2179,20 @@ def _print_opportunity_radar(report: OpportunityRadarReport) -> None:
         console.print("   下一步验证:", soft_wrap=True)
         for step in signal.next_steps:
             console.print(f"   - {step}", soft_wrap=True)
+        if signal.drilldown_targets:
+            console.print("   可下钻目标:", soft_wrap=True)
+            for target in signal.drilldown_targets:
+                console.print(
+                    (
+                        f"   - {target.display_name} ({target.symbol}) "
+                        f"[{target.market}] {target.category}"
+                    ),
+                    soft_wrap=True,
+                )
+                console.print(f"     为什么: {target.reason}", soft_wrap=True)
+                console.print(f"     证据缺口: {target.evidence_gap}", soft_wrap=True)
+                for step in target.next_steps:
+                    console.print(f"     执行: {step}", soft_wrap=True)
 
 
 def _print_research_data_request_fulfillment(

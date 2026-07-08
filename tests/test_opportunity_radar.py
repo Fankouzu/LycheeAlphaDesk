@@ -82,6 +82,61 @@ def test_opportunity_radar_ranks_niche_theme_above_obvious_mega_cap(
     assert all("买入" not in signal.why_it_matters for signal in report.signals)
 
 
+def test_opportunity_radar_maps_broad_theme_to_cached_drilldown_targets(
+    tmp_path: Path,
+) -> None:
+    _write_cache(
+        tmp_path,
+        "market-prices.json",
+        [
+            {
+                "symbol": "QQQ",
+                "date": "2026-07-07",
+                "close": 708.0,
+                "volume": 50_000_000,
+                "currency": "USD",
+            },
+            {
+                "symbol": "NVDA",
+                "date": "2026-07-07",
+                "close": 190.0,
+                "volume": 120_000_000,
+                "currency": "USD",
+            },
+            {
+                "symbol": "512480.SH",
+                "date": "2026-07-07",
+                "close": 1.33,
+                "volume": 1_500_000_000,
+                "currency": "CNY",
+            },
+        ],
+    )
+    _write_cache(
+        tmp_path,
+        "news-events.json",
+        [
+            {
+                "timestamp": "2026-07-07T10:00:00+00:00",
+                "headline": "AI data center semiconductor demand lifts QQQ",
+                "summary": "Cloud and chip stocks drive market trading in technology ETFs.",
+                "symbols": ["QQQ"],
+                "source_url": "https://example.com/qqq-ai",
+            }
+        ],
+    )
+
+    report = build_opportunity_radar(output_dir=tmp_path, limit=5)
+
+    assert report.signals[0].symbol == "QQQ"
+    targets = report.signals[0].drilldown_targets
+    assert [target.symbol for target in targets] == ["NVDA", "512480.SH"]
+    assert targets[0].display_name == "NVIDIA"
+    assert targets[0].evidence_gap == "缺少该标的的主题新闻缓存，需补新闻验证。"
+    assert "lychee data pull news --symbols NVDA" in targets[0].next_steps[0]
+    assert all("买入" not in target.reason for target in targets)
+
+
 def test_opportunity_radar_requires_local_market_and_news_cache(tmp_path: Path) -> None:
     report = build_opportunity_radar(output_dir=tmp_path, limit=5)
 

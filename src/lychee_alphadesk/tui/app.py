@@ -1623,6 +1623,20 @@ def _opportunity_radar_text(report: OpportunityRadarReport) -> str:
                 *[f"  - {step}" for step in signal.next_steps],
             ]
         )
+        if signal.drilldown_targets:
+            lines.append("  可下钻目标:")
+            for target in signal.drilldown_targets:
+                lines.extend(
+                    [
+                        (
+                            f"  - {target.display_name} ({target.symbol}) "
+                            f"[{target.market}] {target.category}"
+                        ),
+                        f"    为什么: {target.reason}",
+                        f"    证据缺口: {target.evidence_gap}",
+                        *[f"    执行: {step}" for step in target.next_steps],
+                    ]
+                )
     return "\n".join(lines)
 
 

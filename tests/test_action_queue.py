@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -395,6 +396,313 @@ def test_execute_action_queue_does_not_advance_empty_news_refresh(
     assert result.warnings == ["provider 返回 0 条新闻"]
 
 
+def test_no_data_radar_action_enters_cooldown_and_leaves_queue(
+    tmp_path: Path,
+) -> None:
+    first = OpportunityDrilldownTarget(
+        symbol="BABA",
+        market="US",
+        display_name="Alibaba",
+        category="AI 云观察",
+        reason="用阿里云线索校验 AI 基础设施是否扩散到中国云厂商。",
+        evidence_gap="缺少该标的的主题新闻缓存，需补新闻验证。",
+        next_steps=[
+            (
+                "lychee data pull news --symbols BABA "
+                '--query "AI cloud revenue Alibaba data center" --force'
+            ),
+            "lychee research run --symbol BABA --force",
+        ],
+    )
+    second = OpportunityDrilldownTarget(
+        symbol="512480.SH",
+        market="CN",
+        display_name="半导体 ETF",
+        category="A 股供应链代理",
+        reason="用半导体 ETF 观察 AI 基础设施主题是否扩散到 A 股供应链。",
+        evidence_gap="缺少该标的的主题新闻缓存，需补新闻验证。",
+        next_steps=[
+            (
+                "lychee data pull news --symbols 512480.SH "
+                '--query "AI semiconductor data center China" --force'
+            ),
+            "lychee research run --symbol 512480.SH --force",
+        ],
+    )
+    radar_report = OpportunityRadarReport(
+        created_at="2026-07-08T00:00:00+00:00",
+        status="ready",
+        signals=[
+            OpportunitySignal(
+                symbol="QQQ",
+                market="US",
+                theme="AI 基础设施扩散",
+                score=300,
+                news_count=20,
+                theme_hits=50,
+                volume_rank=10,
+                price_snapshot="708.12 USD | 2026-07-07",
+                why_it_matters="新闻热度和主题命中同时出现。",
+                evidence=["AI infrastructure spending accelerates"],
+                next_steps=[],
+                drilldown_targets=[first, second],
+            )
+        ],
+        warnings=[],
+        disclaimer="非投资建议。",
+    )
+    workbench_result = SimpleNamespace(
+        candidates=[],
+        deepen_result=ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        ),
+        fill_result=ResearchGapFillResult(1, [], [], [], []),
+    )
+
+    def fake_pull_news(**kwargs: object) -> PullResult:
+        return PullResult(
+            domain="news",
+            provider="test-news",
+            count=0,
+            output_path=tmp_path / "data" / "news-events.json",
+            warnings=["provider 返回 0 条新闻"],
+        )
+
+    result = action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        limit=5,
+        queue_builder=lambda *args, **kwargs: build_action_queue(
+            tmp_path,
+            workbench_runner=lambda **kwargs: workbench_result,
+            pending_reader=lambda **kwargs: [],
+            data_request_reader=lambda **kwargs: [],
+            provider_backlog_reader=lambda **kwargs: [],
+            radar_reader=lambda **kwargs: radar_report,
+        ),
+        pull_news=fake_pull_news,
+    )
+
+    queue = build_action_queue(
+        tmp_path,
+        workbench_runner=lambda **kwargs: workbench_result,
+        pending_reader=lambda **kwargs: [],
+        data_request_reader=lambda **kwargs: [],
+        provider_backlog_reader=lambda **kwargs: [],
+        radar_reader=lambda **kwargs: radar_report,
+    )
+
+    assert result.status == "no-data"
+    assert queue[0].title == "下钻 半导体 ETF: AI 基础设施扩散"
+    assert all("BABA" not in item.command for item in queue)
+    with sqlite3.connect(tmp_path / "research.sqlite3") as connection:
+        row = connection.execute(
+            """
+            SELECT status, command
+            FROM action_queue_cooldowns
+            WHERE command = ?
+            """,
+            (first.next_steps[0],),
+        ).fetchone()
+    assert row == ("no-data", first.next_steps[0])
+
+
+def test_completed_radar_news_action_turns_into_research_followup(
+    tmp_path: Path,
+) -> None:
+    target = OpportunityDrilldownTarget(
+        symbol="512480.SH",
+        market="CN",
+        display_name="半导体 ETF",
+        category="A 股供应链代理",
+        reason="用半导体 ETF 观察 AI 基础设施主题是否扩散到 A 股供应链。",
+        evidence_gap="缺少该标的的主题新闻缓存，需补新闻验证。",
+        next_steps=[
+            (
+                "lychee data pull news --symbols 512480.SH "
+                '--query "AI semiconductor China ETF" --force'
+            ),
+            "lychee research run --symbol 512480.SH --force",
+        ],
+    )
+    radar_report = OpportunityRadarReport(
+        created_at="2026-07-08T00:00:00+00:00",
+        status="ready",
+        signals=[
+            OpportunitySignal(
+                symbol="QQQ",
+                market="US",
+                theme="AI 基础设施扩散",
+                score=300,
+                news_count=20,
+                theme_hits=50,
+                volume_rank=10,
+                price_snapshot="708.12 USD | 2026-07-07",
+                why_it_matters="新闻热度和主题命中同时出现。",
+                evidence=["AI infrastructure spending accelerates"],
+                next_steps=[],
+                drilldown_targets=[target],
+            )
+        ],
+        warnings=[],
+        disclaimer="非投资建议。",
+    )
+    workbench_result = SimpleNamespace(
+        candidates=[],
+        deepen_result=ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        ),
+        fill_result=ResearchGapFillResult(1, [], [], [], []),
+    )
+
+    def fake_pull_news(**kwargs: object) -> PullResult:
+        return PullResult(
+            domain="news",
+            provider="test-news",
+            count=6,
+            output_path=tmp_path / "data" / "news-events.json",
+            warnings=[],
+        )
+
+    result = action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        queue_builder=lambda *args, **kwargs: build_action_queue(
+            tmp_path,
+            workbench_runner=lambda **kwargs: workbench_result,
+            pending_reader=lambda **kwargs: [],
+            data_request_reader=lambda **kwargs: [],
+            provider_backlog_reader=lambda **kwargs: [],
+            radar_reader=lambda **kwargs: radar_report,
+        ),
+        pull_news=fake_pull_news,
+    )
+
+    queue = build_action_queue(
+        tmp_path,
+        workbench_runner=lambda **kwargs: workbench_result,
+        pending_reader=lambda **kwargs: [],
+        data_request_reader=lambda **kwargs: [],
+        provider_backlog_reader=lambda **kwargs: [],
+        radar_reader=lambda **kwargs: radar_report,
+    )
+
+    assert result.status == "completed"
+    assert result.next_command == "lychee research run --symbol 512480.SH --force"
+    assert queue[0].title == "继续研究 半导体 ETF: AI 基础设施扩散"
+    assert queue[0].command == "lychee research run --symbol 512480.SH --force"
+    with sqlite3.connect(tmp_path / "research.sqlite3") as connection:
+        row = connection.execute(
+            """
+            SELECT status, next_command
+            FROM action_queue_cooldowns
+            WHERE command = ?
+            """,
+            (target.next_steps[0],),
+        ).fetchone()
+    assert row == ("completed", "lychee research run --symbol 512480.SH --force")
+
+
+def test_completed_radar_research_followup_leaves_queue(tmp_path: Path) -> None:
+    target = OpportunityDrilldownTarget(
+        symbol="512480.SH",
+        market="CN",
+        display_name="半导体 ETF",
+        category="A 股供应链代理",
+        reason="用半导体 ETF 观察 AI 基础设施主题是否扩散到 A 股供应链。",
+        evidence_gap="缺少该标的的主题新闻缓存，需补新闻验证。",
+        next_steps=[
+            (
+                "lychee data pull news --symbols 512480.SH "
+                '--query "AI semiconductor China ETF" --force'
+            ),
+            "lychee research run --symbol 512480.SH --force",
+        ],
+    )
+    radar_report = OpportunityRadarReport(
+        created_at="2026-07-08T00:00:00+00:00",
+        status="ready",
+        signals=[
+            OpportunitySignal(
+                symbol="QQQ",
+                market="US",
+                theme="AI 基础设施扩散",
+                score=300,
+                news_count=20,
+                theme_hits=50,
+                volume_rank=10,
+                price_snapshot="708.12 USD | 2026-07-07",
+                why_it_matters="新闻热度和主题命中同时出现。",
+                evidence=["AI infrastructure spending accelerates"],
+                next_steps=[],
+                drilldown_targets=[target],
+            )
+        ],
+        warnings=[],
+        disclaimer="非投资建议。",
+    )
+    workbench_result = SimpleNamespace(
+        candidates=[],
+        deepen_result=ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        ),
+        fill_result=ResearchGapFillResult(1, [], [], [], []),
+    )
+
+    def queue_builder(*args: object, **kwargs: object) -> list[action_queue.ActionQueueItem]:
+        return build_action_queue(
+            tmp_path,
+            workbench_runner=lambda **kwargs: workbench_result,
+            pending_reader=lambda **kwargs: [],
+            data_request_reader=lambda **kwargs: [],
+            provider_backlog_reader=lambda **kwargs: [],
+            radar_reader=lambda **kwargs: radar_report,
+        )
+
+    def fake_pull_news(**kwargs: object) -> PullResult:
+        return PullResult(
+            domain="news",
+            provider="test-news",
+            count=6,
+            output_path=tmp_path / "data" / "news-events.json",
+            warnings=[],
+        )
+
+    def fake_run_research(**kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            status="completed",
+            actions=[],
+            artifact_path=tmp_path / "research" / "research-run-512480.json",
+        )
+
+    action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        queue_builder=queue_builder,
+        pull_news=fake_pull_news,
+    )
+    action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        queue_builder=queue_builder,
+        run_research=fake_run_research,
+        radar_candidate_writer=lambda **kwargs: tmp_path / "research.sqlite3",
+    )
+
+    queue = queue_builder()
+
+    assert queue == []
+
+
 def test_execute_action_queue_rejects_unsupported_commands(tmp_path: Path) -> None:
     item = action_queue.ActionQueueItem(
         priority=10,
@@ -741,7 +1049,116 @@ def test_execute_action_queue_batch_stops_on_no_data_without_repeating(
     assert calls == 1
     assert len(result.executions) == 1
     assert result.status == "no-data"
-    assert result.stop_reason == "遇到 no-data，停止批量推进，避免重复消耗数据源。"
+    assert result.stop_reason == "队列首项没有变化，停止批量推进，避免重复执行同一动作。"
+
+
+def test_execute_action_queue_batch_continues_after_no_data_when_queue_advances(
+    tmp_path: Path,
+) -> None:
+    first = action_queue.ActionQueueItem(
+        priority=20,
+        area="机会雷达",
+        title="下钻 Alibaba: AI 基础设施扩散",
+        detail="缺少主题新闻缓存。",
+        command='lychee data pull news --symbols BABA --query "AI cloud" --force',
+        source="opportunity-radar",
+    )
+    second = action_queue.ActionQueueItem(
+        priority=20,
+        area="机会雷达",
+        title="下钻 半导体 ETF: AI 基础设施扩散",
+        detail="缺少主题新闻缓存。",
+        command=(
+            'lychee data pull news --symbols 512480.SH --query "AI chips" --force'
+        ),
+        source="opportunity-radar",
+    )
+    calls: list[list[str]] = []
+
+    def fake_queue_builder(
+        output_dir: Path,
+        **kwargs: object,
+    ) -> list[action_queue.ActionQueueItem]:
+        if action_queue._action_is_in_cooldown(output_dir, first):
+            return [second]
+        return [first, second]
+
+    def fake_pull_news(**kwargs: object) -> PullResult:
+        symbols = kwargs["symbols"]
+        assert isinstance(symbols, list)
+        calls.append([str(symbol) for symbol in symbols])
+        if symbols == ["BABA"]:
+            return PullResult(
+                domain="news",
+                provider="test-news",
+                count=0,
+                output_path=tmp_path / "data" / "news-events.json",
+                warnings=[],
+            )
+        return PullResult(
+            domain="news",
+            provider="test-news",
+            count=2,
+            output_path=tmp_path / "data" / "news-events.json",
+            warnings=[],
+        )
+
+    result = action_queue.execute_action_queue_batch(
+        tmp_path,
+        max_actions=2,
+        queue_builder=fake_queue_builder,
+        pull_news=fake_pull_news,
+    )
+
+    assert calls == [["BABA"], ["512480.SH"]]
+    assert [execution.status for execution in result.executions] == [
+        "no-data",
+        "completed",
+    ]
+    assert result.status == "completed"
+    assert result.stop_reason == "已达到本次批量上限 2。"
+
+
+def test_action_queue_batch_status_preserves_partial_progress(tmp_path: Path) -> None:
+    item = action_queue.ActionQueueItem(
+        priority=20,
+        area="机会雷达",
+        title="继续研究 半导体 ETF: AI 基础设施扩散",
+        detail="主题新闻已补到，下一步进入研究链。",
+        command="lychee research run --symbol 512480.SH --force",
+        source="opportunity-radar",
+    )
+    executions = [
+        action_queue.ActionQueueExecution(
+            item=item,
+            status="cached",
+            message="已使用未过期新闻缓存。",
+            count=6,
+            output_path=tmp_path / "data" / "news-events.json",
+            next_command=item.command,
+            warnings=[],
+        ),
+        action_queue.ActionQueueExecution(
+            item=item,
+            status="partial",
+            message="已执行研究任务刷新链。",
+            count=3,
+            output_path=tmp_path / "research" / "research-run.json",
+            next_command="lychee research verify --symbol 512480.SH",
+            warnings=[],
+        ),
+        action_queue.ActionQueueExecution(
+            item=item,
+            status="no-data",
+            message="没有获取到匹配新闻。",
+            count=0,
+            output_path=tmp_path / "data" / "news-events.json",
+            next_command="",
+            warnings=[],
+        ),
+    ]
+
+    assert action_queue._batch_status(executions) == "partial"
 
 
 def test_execute_action_queue_seeds_radar_target_before_research_run(

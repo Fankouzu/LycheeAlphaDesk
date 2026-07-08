@@ -1,6 +1,9 @@
+import json
 import shlex
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +45,8 @@ FulfillDataRequest = Callable[..., ResearchDataRequestFulfillment]
 RadarCandidateWriter = Callable[..., Path]
 ActionQueueBuilder = Callable[..., list["ActionQueueItem"]]
 
+ACTION_NO_DATA_COOLDOWN_SECONDS = 60 * 60
+
 
 @dataclass(frozen=True)
 class ActionQueueItem:
@@ -69,6 +74,22 @@ class ActionQueueBatchExecution:
     executions: list[ActionQueueExecution]
     status: str
     stop_reason: str
+
+
+@dataclass(frozen=True)
+class ActionCooldown:
+    command: str
+    area: str
+    title: str
+    source: str
+    status: str
+    message: str
+    output_path: str
+    warnings: list[str]
+    created_at: datetime
+    expires_at: datetime
+    ttl_seconds: int
+    next_command: str
 
 
 def build_action_queue(
@@ -104,7 +125,7 @@ def build_action_queue(
     radar_actions: list[ActionQueueItem] = []
     for signal in radar.signals:
         radar_actions.extend(_radar_drilldown_actions(signal))
-    items.extend(radar_actions[: min(3, limit)])
+    items.extend(_active_radar_actions(output_dir, radar_actions)[: min(3, limit)])
 
     for candidate in workbench.candidates:
         if candidate.next_command:
@@ -171,10 +192,8 @@ def execute_action_queue_batch(
             radar_candidate_writer=radar_candidate_writer,
         )
         executions.append(execution)
-        if execution.status in {"failed", "no-data"}:
-            stop_reason = (
-                f"遇到 {execution.status}，停止批量推进，避免重复消耗数据源。"
-            )
+        if execution.status == "failed":
+            stop_reason = "遇到 failed，停止批量推进，避免重复消耗数据源。"
             break
         if execution.status in {"manual_required", "skipped"}:
             stop_reason = f"遇到 {execution.status}，需要人工处理后再继续。"
@@ -288,6 +307,14 @@ def _execute_pull_news_action(
             warnings=[],
         )
     if result.count == 0:
+        _record_action_cooldown(
+            output_dir=output_dir,
+            item=item,
+            status="no-data",
+            message="没有获取到匹配新闻，暂不能进入研究核验。",
+            output_path=result.output_path,
+            warnings=result.warnings,
+        )
         return ActionQueueExecution(
             item=item,
             status="no-data",
@@ -297,13 +324,24 @@ def _execute_pull_news_action(
             next_command="",
             warnings=result.warnings,
         )
+    status = "completed" if result.refreshed else "cached"
+    next_command = _next_research_command(payload["symbols"])
+    _record_action_cooldown(
+        output_dir=output_dir,
+        item=item,
+        status=status,
+        message="已执行机会雷达补新闻动作。" if result.refreshed else "已使用未过期新闻缓存。",
+        output_path=result.output_path,
+        warnings=result.warnings,
+        next_command=next_command,
+    )
     return ActionQueueExecution(
         item=item,
-        status="completed" if result.refreshed else "cached",
+        status=status,
         message="已执行机会雷达补新闻动作。" if result.refreshed else "已使用未过期新闻缓存。",
         count=result.count,
         output_path=result.output_path,
-        next_command=_next_research_command(payload["symbols"]),
+        next_command=next_command,
         warnings=result.warnings,
     )
 
@@ -350,9 +388,19 @@ def _execute_research_run_action(
         )
     output_path = getattr(result, "artifact_path", None)
     actions = getattr(result, "actions", [])
+    status = str(getattr(result, "status", "completed"))
+    if item.source == "opportunity-radar":
+        _record_action_cooldown(
+            output_dir=output_dir,
+            item=item,
+            status=status,
+            message="已执行机会雷达研究链。",
+            output_path=output_path if isinstance(output_path, Path) else None,
+            warnings=[],
+        )
     return ActionQueueExecution(
         item=item,
-        status=str(getattr(result, "status", "completed")),
+        status=status,
         message="已执行研究任务刷新链。",
         count=len(actions),
         output_path=output_path if isinstance(output_path, Path) else None,
@@ -612,14 +660,16 @@ def _batch_status(executions: list[ActionQueueExecution]) -> str:
     statuses = [execution.status for execution in executions]
     if any(status == "failed" for status in statuses):
         return "failed"
-    if any(status == "no-data" for status in statuses):
-        return "no-data"
     if any(status == "manual_required" for status in statuses):
         return "manual_required"
     if any(status == "completed" for status in statuses):
         return "completed"
+    if any(status == "partial" for status in statuses):
+        return "partial"
     if any(status == "cached" for status in statuses):
         return "cached"
+    if any(status == "no-data" for status in statuses):
+        return "no-data"
     return statuses[-1]
 
 
@@ -737,3 +787,243 @@ def _dedupe_actions(items: list[ActionQueueItem]) -> list[ActionQueueItem]:
         seen_commands.add(item.command)
         deduped.append(item)
     return deduped
+
+
+def _active_radar_actions(
+    output_dir: Path,
+    radar_actions: list[ActionQueueItem],
+) -> list[ActionQueueItem]:
+    active: list[ActionQueueItem] = []
+    for action in radar_actions:
+        cooldown = _fresh_action_cooldown(output_dir, action.command)
+        if cooldown is None:
+            active.append(action)
+            continue
+        if cooldown.status in {"completed", "cached"} and cooldown.next_command:
+            if _fresh_action_cooldown(output_dir, cooldown.next_command) is None:
+                active.append(_radar_followup_action(action, cooldown))
+    return active
+
+
+def _action_is_in_cooldown(output_dir: Path, item: ActionQueueItem) -> bool:
+    if item.source != "opportunity-radar":
+        return False
+    cooldown = _fresh_action_cooldown(output_dir, item.command)
+    if cooldown is None:
+        return False
+    return cooldown.status in {"no-data", "completed", "cached"}
+
+
+def _fresh_action_cooldown(output_dir: Path, command: str) -> ActionCooldown | None:
+    cooldown = _get_action_cooldown(output_dir, command)
+    if cooldown is None:
+        return None
+    if datetime.now(UTC) >= cooldown.expires_at:
+        return None
+    return cooldown
+
+
+def _radar_followup_action(
+    action: ActionQueueItem,
+    cooldown: ActionCooldown,
+) -> ActionQueueItem:
+    return ActionQueueItem(
+        priority=action.priority,
+        area=action.area,
+        title=_radar_followup_title(action.title),
+        detail=(
+            f"{cooldown.message} 下一步进入研究链；"
+            f"原始原因: {action.detail}"
+        ),
+        command=cooldown.next_command,
+        source="opportunity-radar",
+    )
+
+
+def _radar_followup_title(title: str) -> str:
+    if title.startswith("下钻 "):
+        return "继续研究 " + title.removeprefix("下钻 ")
+    return "继续研究 " + title
+
+
+def _record_action_cooldown(
+    *,
+    output_dir: Path,
+    item: ActionQueueItem,
+    status: str,
+    message: str,
+    output_path: Path | None,
+    warnings: list[str],
+    next_command: str = "",
+    now: datetime | None = None,
+) -> None:
+    current = _ensure_aware(now or datetime.now(UTC))
+    expires_at = current + timedelta(seconds=ACTION_NO_DATA_COOLDOWN_SECONDS)
+    _init_action_queue_db(output_dir)
+    with sqlite3.connect(_action_queue_db_path(output_dir)) as connection:
+        connection.execute(
+            """
+            INSERT INTO action_queue_cooldowns (
+                command,
+                area,
+                title,
+                source,
+                status,
+                message,
+                output_path,
+                warnings_json,
+                created_at,
+                expires_at,
+                ttl_seconds,
+                next_command
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(command) DO UPDATE SET
+                area = excluded.area,
+                title = excluded.title,
+                source = excluded.source,
+                status = excluded.status,
+                message = excluded.message,
+                output_path = excluded.output_path,
+                warnings_json = excluded.warnings_json,
+                created_at = excluded.created_at,
+                expires_at = excluded.expires_at,
+                ttl_seconds = excluded.ttl_seconds,
+                next_command = excluded.next_command
+            """,
+            (
+                item.command,
+                item.area,
+                item.title,
+                item.source,
+                status,
+                message,
+                str(output_path) if output_path else "",
+                _warnings_json(warnings),
+                current.isoformat(timespec="seconds"),
+                expires_at.isoformat(timespec="seconds"),
+                ACTION_NO_DATA_COOLDOWN_SECONDS,
+                next_command,
+            ),
+        )
+
+
+def _get_action_cooldown(
+    output_dir: Path,
+    command: str,
+) -> ActionCooldown | None:
+    db_path = _action_queue_db_path(output_dir)
+    if not db_path.exists():
+        return None
+    _init_action_queue_db(output_dir)
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            """
+            SELECT
+                command,
+                area,
+                title,
+                source,
+                status,
+                message,
+                output_path,
+                warnings_json,
+                created_at,
+                expires_at,
+                ttl_seconds,
+                next_command
+            FROM action_queue_cooldowns
+            WHERE command = ?
+            """,
+            (command,),
+        ).fetchone()
+    if row is None:
+        return None
+    return ActionCooldown(
+        command=str(row[0]),
+        area=str(row[1]),
+        title=str(row[2]),
+        source=str(row[3]),
+        status=str(row[4]),
+        message=str(row[5]),
+        output_path=str(row[6]),
+        warnings=_parse_warnings(str(row[7])),
+        created_at=_parse_datetime(str(row[8])),
+        expires_at=_parse_datetime(str(row[9])),
+        ttl_seconds=int(str(row[10])),
+        next_command=str(row[11] or ""),
+    )
+
+
+def _init_action_queue_db(output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(_action_queue_db_path(output_dir)) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS action_queue_cooldowns (
+                command TEXT PRIMARY KEY,
+                area TEXT NOT NULL,
+                title TEXT NOT NULL,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                message TEXT NOT NULL,
+                output_path TEXT NOT NULL,
+                warnings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                ttl_seconds INTEGER NOT NULL,
+                next_command TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(action_queue_cooldowns)")
+        }
+        if "next_command" not in columns:
+            connection.execute(
+                """
+                ALTER TABLE action_queue_cooldowns
+                ADD COLUMN next_command TEXT NOT NULL DEFAULT ''
+                """
+            )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_action_queue_cooldowns_next_command
+            ON action_queue_cooldowns(next_command)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_action_queue_cooldowns_expires
+            ON action_queue_cooldowns(expires_at)
+            """
+        )
+
+
+def _action_queue_db_path(output_dir: Path) -> Path:
+    return output_dir / "research.sqlite3"
+
+
+def _warnings_json(warnings: list[str]) -> str:
+    return json.dumps(warnings, ensure_ascii=False)
+
+
+def _parse_warnings(value: str) -> list[str]:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed]
+
+
+def _parse_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    return _ensure_aware(parsed)
+
+
+def _ensure_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)

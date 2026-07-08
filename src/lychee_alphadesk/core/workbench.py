@@ -504,10 +504,11 @@ def record_research_evidence_review(
         raise ValueError("请提供要复核的证据文本。")
 
     created_at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
+    candidate_limit = limit
     workbench = run_workbench_check(
         output_dir=output_dir,
         status=status,
-        limit=limit,
+        limit=candidate_limit,
         force=False,
         now=now,
     )
@@ -516,6 +517,20 @@ def record_research_evidence_review(
         symbol=symbol,
         name=name,
     )
+    if selected_index is None and (symbol or name):
+        candidate_limit = max(limit, 50)
+        workbench = run_workbench_check(
+            output_dir=output_dir,
+            status=status,
+            limit=candidate_limit,
+            force=False,
+            now=now,
+        )
+        selected_index = select_research_candidate_index(
+            workbench,
+            symbol=symbol,
+            name=name,
+        )
     if selected_index is None:
         raise ValueError("没有找到匹配的研究任务。")
     candidate = workbench.candidates[selected_index]

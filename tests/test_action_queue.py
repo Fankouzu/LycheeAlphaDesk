@@ -453,6 +453,60 @@ def test_execute_action_queue_runs_research_task(tmp_path: Path) -> None:
     assert result.next_command == "lychee research verify --symbol NVDA"
 
 
+def test_execute_action_queue_records_pending_evidence_review(
+    tmp_path: Path,
+) -> None:
+    item = action_queue.ActionQueueItem(
+        priority=10,
+        area="待判定证据",
+        title="复核 NVIDIA 的待判定证据",
+        detail="AI 算力需求是否扩散？ | 系统建议: 无关/排除",
+        command=(
+            "lychee research evidence-review --symbol NVDA "
+            "--text \"Perplexity says it plans to use Nvidia's new CPU\" "
+            "--verdict irrelevant "
+            '--note "系统暂未识别明确方向，建议先按无关/排除处理。"'
+        ),
+        source="research-verification-test.json",
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_record_review(**kwargs: object) -> SimpleNamespace:
+        calls.append(kwargs)
+        return SimpleNamespace(
+            verdict="irrelevant",
+            verdict_label="无关/排除",
+            evidence_text="Perplexity says it plans to use Nvidia's new CPU",
+            note="系统暂未识别明确方向，建议先按无关/排除处理。",
+            artifact_path=tmp_path / "research" / "research-evidence-review-nvda.json",
+        )
+
+    result = action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        limit=12,
+        queue_builder=lambda *args, **kwargs: [item],
+        record_evidence_review=fake_record_review,
+    )
+
+    assert calls == [
+        {
+            "output_dir": tmp_path,
+            "symbol": "NVDA",
+            "name": None,
+            "evidence_text": "Perplexity says it plans to use Nvidia's new CPU",
+            "verdict": "irrelevant",
+            "note": "系统暂未识别明确方向，建议先按无关/排除处理。",
+            "limit": 12,
+        }
+    ]
+    assert result.status == "completed"
+    assert result.count == 1
+    assert result.output_path == tmp_path / "research" / "research-evidence-review-nvda.json"
+    assert result.next_command == "lychee research verify --symbol NVDA"
+    assert "已记录证据复核" in result.message
+
+
 def test_execute_action_queue_seeds_radar_target_before_research_run(
     tmp_path: Path,
 ) -> None:

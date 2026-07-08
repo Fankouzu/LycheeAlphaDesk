@@ -23,6 +23,7 @@ from lychee_alphadesk.core.workbench import (
     PendingEvidenceReviewItem,
     WorkbenchCheckResult,
     list_pending_evidence_reviews,
+    record_research_evidence_review,
     run_research_task,
     run_workbench_check,
 )
@@ -34,6 +35,7 @@ ProviderBacklogReader = Callable[..., list[ProviderBacklogItem]]
 RadarReader = Callable[..., OpportunityRadarReport]
 PullNews = Callable[..., PullResult]
 RunResearch = Callable[..., Any]
+RecordEvidenceReview = Callable[..., Any]
 RadarCandidateWriter = Callable[..., Path]
 ActionQueueBuilder = Callable[..., list["ActionQueueItem"]]
 
@@ -122,6 +124,7 @@ def execute_action_queue_item(
     queue_builder: ActionQueueBuilder = build_action_queue,
     pull_news: PullNews = pull_news_events,
     run_research: RunResearch = run_research_task,
+    record_evidence_review: RecordEvidenceReview = record_research_evidence_review,
     radar_candidate_writer: RadarCandidateWriter = write_opportunity_radar_candidate,
 ) -> ActionQueueExecution:
     queue = queue_builder(output_dir, limit=limit)
@@ -154,6 +157,16 @@ def execute_action_queue_item(
             force=force,
             run_research=run_research,
             radar_candidate_writer=radar_candidate_writer,
+        )
+
+    evidence_review_payload = _parse_evidence_review_command(item.command)
+    if evidence_review_payload is not None:
+        return _execute_evidence_review_action(
+            output_dir=output_dir,
+            item=item,
+            payload=evidence_review_payload,
+            limit=limit,
+            record_evidence_review=record_evidence_review,
         )
 
     raise ValueError(
@@ -262,6 +275,47 @@ def _execute_research_run_action(
     )
 
 
+def _execute_evidence_review_action(
+    *,
+    output_dir: Path,
+    item: ActionQueueItem,
+    payload: dict[str, str | None],
+    limit: int,
+    record_evidence_review: RecordEvidenceReview,
+) -> ActionQueueExecution:
+    try:
+        result = record_evidence_review(
+            output_dir=output_dir,
+            symbol=payload["symbol"],
+            name=payload["name"],
+            evidence_text=payload["evidence_text"] or "",
+            verdict=payload["verdict"] or "",
+            note=payload["note"] or "",
+            limit=limit,
+        )
+    except (RuntimeError, ValueError) as error:
+        return ActionQueueExecution(
+            item=item,
+            status="failed",
+            message=str(error),
+            count=0,
+            output_path=None,
+            next_command="",
+            warnings=[],
+        )
+    output_path = getattr(result, "artifact_path", None)
+    verdict_label = str(getattr(result, "verdict_label", payload["verdict"] or ""))
+    return ActionQueueExecution(
+        item=item,
+        status="completed",
+        message=f"已记录证据复核: {verdict_label}。",
+        count=1,
+        output_path=output_path if isinstance(output_path, Path) else None,
+        next_command=_next_verify_command(payload["symbol"], payload["name"]),
+        warnings=[],
+    )
+
+
 def _pending_evidence_action(item: PendingEvidenceReviewItem) -> ActionQueueItem:
     return ActionQueueItem(
         priority=10,
@@ -353,6 +407,25 @@ def _parse_research_run_command(command: str) -> dict[str, str | None] | None:
     if not symbol and not name:
         return None
     return {"symbol": symbol.upper() if symbol else None, "name": name or None}
+
+
+def _parse_evidence_review_command(command: str) -> dict[str, str | None] | None:
+    parts = shlex.split(command)
+    if parts[:3] != ["lychee", "research", "evidence-review"]:
+        return None
+    symbol = _option_value(parts, "--symbol")
+    name = _option_value(parts, "--name")
+    evidence_text = _option_value(parts, "--text") or _option_value(parts, "--evidence")
+    verdict = _option_value(parts, "--verdict")
+    if (not symbol and not name) or not evidence_text or not verdict:
+        return None
+    return {
+        "symbol": symbol.upper() if symbol else None,
+        "name": name or None,
+        "evidence_text": evidence_text,
+        "verdict": verdict,
+        "note": _option_value(parts, "--note") or None,
+    }
 
 
 def _option_value(parts: list[str], option: str) -> str:

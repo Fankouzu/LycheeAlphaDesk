@@ -712,6 +712,68 @@ def test_dashboard_next_actions_can_execute_whitelisted_action(
     asyncio.run(run_case())
 
 
+def test_dashboard_next_actions_can_execute_pending_evidence_review(
+    monkeypatch, tmp_path: Path
+) -> None:
+    item = ActionQueueItem(
+        priority=1,
+        area="待判定证据",
+        title="复核 NVIDIA 的待判定证据",
+        detail="AI 算力需求是否扩散？ | 系统建议: 无关/排除",
+        command=(
+            "lychee research evidence-review --symbol NVDA "
+            '--text "Perplexity says it plans to use Nvidia" '
+            "--verdict irrelevant"
+        ),
+        source="research-verification-test.json",
+    )
+
+    def fake_build_action_queue(**kwargs: object) -> list[ActionQueueItem]:
+        return [item]
+
+    def fake_execute_action_queue_item(
+        output_dir: Path,
+        **kwargs: object,
+    ) -> ActionQueueExecution:
+        return ActionQueueExecution(
+            item=item,
+            status="completed",
+            message="已记录证据复核: 无关/排除。",
+            count=1,
+            output_path=tmp_path / "research" / "research-evidence-review-nvda.json",
+            next_command="lychee research verify --symbol NVDA",
+            warnings=[],
+        )
+
+    monkeypatch.setattr(tui_app, "build_action_queue", fake_build_action_queue)
+    monkeypatch.setattr(
+        tui_app,
+        "execute_action_queue_item",
+        fake_execute_action_queue_item,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            menu = app.query_one("#action-menu", OptionList)
+            next_index = _option_index(menu, "下一步行动队列")
+            await pilot.press(*(["down"] * next_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            await pilot.press("enter")
+            await pilot.pause()
+
+            result_text = str(app.query_one("#action-status", Static).content)
+            assert "下一步行动执行结果" in result_text
+            assert "复核 NVIDIA 的待判定证据" in result_text
+            assert "已记录证据复核: 无关/排除" in result_text
+            assert "处理数量: 1" in result_text
+            assert "lychee research verify --symbol NVDA" in result_text
+
+    asyncio.run(run_case())
+
+
 def test_dashboard_next_actions_no_data_does_not_show_verification_followup(
     monkeypatch, tmp_path: Path
 ) -> None:

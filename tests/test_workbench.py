@@ -16,6 +16,7 @@ from lychee_alphadesk.core.workbench import (
     _packet_related_news_count,
     beginner_research_brief,
     build_research_evidence_change,
+    record_research_evidence_review,
     render_research_task_detail,
     run_research_task,
     run_workbench_check,
@@ -850,6 +851,24 @@ def test_research_run_expands_pool_for_explicit_symbol(tmp_path: Path) -> None:
     )
 
     assert result.candidate.symbol == "NVDA"
+
+
+def test_evidence_review_expands_pool_for_explicit_symbol(tmp_path: Path) -> None:
+    _write_explicit_symbol_pool_seed(tmp_path)
+
+    result = record_research_evidence_review(
+        output_dir=tmp_path,
+        symbol="NVDA",
+        evidence_text="Perplexity says it plans to use Nvidia's new CPU",
+        verdict="irrelevant",
+        note="系统暂未识别明确方向，建议先按无关/排除处理。",
+        limit=1,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    assert result.candidate.symbol == "NVDA"
+    assert result.verdict == "irrelevant"
+    assert result.artifact_path.exists()
 
 
 def test_workbench_check_remembers_exhausted_topic_news_run(tmp_path: Path) -> None:
@@ -1755,3 +1774,103 @@ def _fake_news_pull(**kwargs: object) -> PullResult:
     output_dir = kwargs["output_dir"]
     assert isinstance(output_dir, Path)
     return PullResult("news", "auto", 0, output_dir / "data" / "news-events.json", [])
+
+
+def _write_explicit_symbol_pool_seed(tmp_path: Path) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["US"],
+        sources=[DiscoverySource(provider="test-llm", market="US", description="测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="AI 基础设施扩散",
+                markets=["US"],
+                summary="AI 基础设施主题需要下钻多个公司。",
+                evidence=["news_001"],
+                sectors=["Technology"],
+                risk_flags=[],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="NVIDIA",
+                symbol="NVDA",
+                market="US",
+                asset_type="stock",
+                related_theme="AI 基础设施扩散",
+                why_watch="用算力芯片龙头校验主题。",
+                evidence=["news_001"],
+                risk_flags=[],
+                next_actions=["下钻 NVDA"],
+                confidence="medium",
+                recommendation="research",
+            ),
+            DiscoveryCandidate(
+                display_name="Seagate",
+                symbol="STX",
+                market="US",
+                asset_type="stock",
+                related_theme="AI 存储需求",
+                why_watch="硬盘供需可能改善。",
+                evidence=["news_001"],
+                risk_flags=[],
+                next_actions=["下钻 STX"],
+                confidence="medium",
+                recommendation="research",
+            ),
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(report, tmp_path, tmp_path / "data" / "discovery.json")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "auto",
+                "rows": [
+                    {
+                        "symbol": "NVDA",
+                        "date": "2026-07-02",
+                        "close": 194.83,
+                        "volume": 142068700,
+                        "currency": "USD",
+                    },
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-02",
+                        "close": 110.5,
+                        "volume": 3210000,
+                        "currency": "USD",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "AI chip data center demand supports Nvidia",
+                        "summary": (
+                            "Artificial intelligence infrastructure demand remains "
+                            "relevant."
+                        ),
+                        "symbols": ["NVDA"],
+                        "source_url": "https://example.com/nvda",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )

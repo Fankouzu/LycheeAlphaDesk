@@ -46,6 +46,10 @@ RadarCandidateWriter = Callable[..., Path]
 ActionQueueBuilder = Callable[..., list["ActionQueueItem"]]
 
 ACTION_NO_DATA_COOLDOWN_SECONDS = 60 * 60
+RADAR_RESEARCH_FOLLOWUP_SECONDS = 24 * 60 * 60
+RADAR_FOLLOWUP_WORKBENCH_PRIORITY = 25
+DEFAULT_WORKBENCH_PRIORITY = 40
+RADAR_RESEARCH_ADVANCED_STATUSES = {"completed", "partial", "cached"}
 
 
 @dataclass(frozen=True)
@@ -129,19 +133,7 @@ def build_action_queue(
 
     for candidate in workbench.candidates:
         if candidate.next_command:
-            items.append(
-                ActionQueueItem(
-                    priority=40,
-                    area="研究任务",
-                    title=f"{candidate.display_name}: {candidate.next_step}",
-                    detail=(
-                        f"{candidate.ranking_reason or candidate.evidence_status} "
-                        f"研究问题: {candidate.beginner_question}"
-                    ).strip(),
-                    command=candidate.next_command,
-                    source="workbench",
-                )
-            )
+            items.append(_workbench_candidate_action(output_dir, candidate))
 
     return _dedupe_actions(sorted(items, key=lambda item: item.priority))[:limit]
 
@@ -505,6 +497,34 @@ def _pending_evidence_action(item: PendingEvidenceReviewItem) -> ActionQueueItem
     )
 
 
+def _workbench_candidate_action(output_dir: Path, candidate: Any) -> ActionQueueItem:
+    recent_radar = _recent_radar_research_cooldown(output_dir, candidate)
+    if recent_radar is not None:
+        return ActionQueueItem(
+            priority=RADAR_FOLLOWUP_WORKBENCH_PRIORITY,
+            area="雷达跟进",
+            title=f"{candidate.display_name}: {candidate.next_step}",
+            detail=(
+                "机会雷达刚推进过这个候选，下一步先核验证据板。 "
+                f"{candidate.ranking_reason or candidate.evidence_status} "
+                f"研究问题: {candidate.beginner_question}"
+            ).strip(),
+            command=candidate.next_command,
+            source="workbench:opportunity-radar",
+        )
+    return ActionQueueItem(
+        priority=DEFAULT_WORKBENCH_PRIORITY,
+        area="研究任务",
+        title=f"{candidate.display_name}: {candidate.next_step}",
+        detail=(
+            f"{candidate.ranking_reason or candidate.evidence_status} "
+            f"研究问题: {candidate.beginner_question}"
+        ).strip(),
+        command=candidate.next_command,
+        source="workbench",
+    )
+
+
 def _provider_backlog_action(item: ProviderBacklogItem) -> ActionQueueItem | None:
     command = item.suggested_commands[0] if item.suggested_commands else ""
     if not command:
@@ -803,6 +823,30 @@ def _active_radar_actions(
             if _fresh_action_cooldown(output_dir, cooldown.next_command) is None:
                 active.append(_radar_followup_action(action, cooldown))
     return active
+
+
+def _recent_radar_research_cooldown(
+    output_dir: Path,
+    candidate: Any,
+) -> ActionCooldown | None:
+    symbol = str(getattr(candidate, "symbol", "") or "").strip().upper()
+    if not symbol:
+        return None
+    cooldown = _get_action_cooldown(
+        output_dir,
+        f"lychee research run --symbol {symbol} --force",
+    )
+    if cooldown is None:
+        return None
+    if cooldown.source != "opportunity-radar":
+        return None
+    if cooldown.status not in RADAR_RESEARCH_ADVANCED_STATUSES:
+        return None
+    if datetime.now(UTC) - cooldown.created_at > timedelta(
+        seconds=RADAR_RESEARCH_FOLLOWUP_SECONDS
+    ):
+        return None
+    return cooldown
 
 
 def _action_is_in_cooldown(output_dir: Path, item: ActionQueueItem) -> bool:

@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -259,6 +260,120 @@ def test_action_queue_passes_limit_into_workbench_scan(tmp_path: Path) -> None:
     assert [item.command for item in queue] == [
         "lychee research verify --symbol 512480.SH"
     ]
+
+
+def test_recent_radar_research_followup_is_promoted_before_data_requests(
+    tmp_path: Path,
+) -> None:
+    recent_candidate = CandidateCheck(
+        display_name="512480.SH",
+        market="CN",
+        symbol="512480.SH",
+        proxy_symbols=[],
+        evidence_count=1,
+        gap_count=0,
+        data_gaps=[],
+        status="ready",
+        explanation="机会雷达已经把半导体 ETF 推入研究队列。",
+        beginner_question="AI 基础设施主题是否扩散到 A 股半导体代理？",
+        why_it_matters="这是雷达补证据后的后续研究动作。",
+        observation_entry="512480.SH",
+        what_to_check="核验行情、新闻方向和代理标的有效性。",
+        next_step="主题新闻已刷新；先下钻核验证据板。",
+        priority="P2 证据待分类",
+        evidence_status="证据 1 条；缺口 0 个",
+        ranking_reason="主题新闻已刷新，下一步是核验证据方向。",
+        next_command="lychee research verify --symbol 512480.SH",
+    )
+    old_candidate = CandidateCheck(
+        display_name="Tesla",
+        market="US",
+        symbol="TSLA",
+        proxy_symbols=[],
+        evidence_count=1,
+        gap_count=0,
+        data_gaps=[],
+        status="ready",
+        explanation="普通研究任务。",
+        beginner_question="Tesla 的叙事是否有证据支持？",
+        why_it_matters="普通任务不应抢在刚推进的雷达任务前面。",
+        observation_entry="TSLA",
+        what_to_check="核验行情和新闻。",
+        next_step="下钻核验证据板。",
+        priority="P2 证据待分类",
+        evidence_status="证据 1 条；缺口 0 个",
+        ranking_reason="普通任务。",
+        next_command="lychee research verify --symbol TSLA",
+    )
+    data_request = ResearchDataRequest(
+        request_id="memo:test:qqq:data-request:1",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        confidence="medium",
+        request_text="请补充 QQQ 行情。",
+        suggested_commands=["lychee data pull market --symbols QQQ --force"],
+        memo_path=str(tmp_path / "research" / "memo-qqq.json"),
+        verification_path=str(tmp_path / "research" / "verify-qqq.json"),
+        suggested_actions=[
+            ResearchDataRequestAction(
+                "market",
+                "lychee data pull market --symbols QQQ --force",
+            )
+        ],
+    )
+    workbench_result = SimpleNamespace(
+        candidates=[old_candidate, recent_candidate],
+        deepen_result=ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        ),
+        fill_result=ResearchGapFillResult(1, [], [], [], []),
+    )
+    action_queue._record_action_cooldown(
+        output_dir=tmp_path,
+        item=action_queue.ActionQueueItem(
+            priority=20,
+            area="机会雷达",
+            title="继续研究 半导体 ETF: AI 基础设施扩散",
+            detail="主题新闻已补到，下一步进入研究链。",
+            command="lychee research run --symbol 512480.SH --force",
+            source="opportunity-radar",
+        ),
+        status="partial",
+        message="已执行机会雷达研究链。",
+        output_path=tmp_path / "research" / "research-run-512480.json",
+        warnings=[],
+        now=datetime.now(UTC) - timedelta(hours=2),
+    )
+
+    queue = build_action_queue(
+        tmp_path,
+        limit=10,
+        workbench_runner=lambda **kwargs: workbench_result,
+        pending_reader=lambda **kwargs: [],
+        data_request_reader=lambda **kwargs: [data_request],
+        provider_backlog_reader=lambda **kwargs: [],
+        radar_reader=lambda **kwargs: OpportunityRadarReport(
+            created_at="2026-07-08T00:00:00+00:00",
+            status="empty",
+            signals=[],
+            warnings=[],
+            disclaimer="非投资建议。",
+        ),
+    )
+
+    assert [item.command for item in queue[:3]] == [
+        "lychee research verify --symbol 512480.SH",
+        "lychee research run-data-request --request 1 --symbol QQQ",
+        "lychee research verify --symbol TSLA",
+    ]
+    assert queue[0].area == "雷达跟进"
+    assert "机会雷达刚推进过" in queue[0].detail
+    assert "买入" not in queue[0].detail
 
 
 def test_action_queue_includes_opportunity_radar_drilldown_targets(

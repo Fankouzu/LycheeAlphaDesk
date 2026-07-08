@@ -64,6 +64,13 @@ class ActionQueueExecution:
     warnings: list[str]
 
 
+@dataclass(frozen=True)
+class ActionQueueBatchExecution:
+    executions: list[ActionQueueExecution]
+    status: str
+    stop_reason: str
+
+
 def build_action_queue(
     output_dir: Path,
     *,
@@ -116,6 +123,70 @@ def build_action_queue(
             )
 
     return _dedupe_actions(sorted(items, key=lambda item: item.priority))[:limit]
+
+
+def execute_action_queue_batch(
+    output_dir: Path,
+    *,
+    max_actions: int = 3,
+    limit: int = 10,
+    force: bool = True,
+    queue_builder: ActionQueueBuilder = build_action_queue,
+    pull_news: PullNews = pull_news_events,
+    run_research: RunResearch = run_research_task,
+    record_evidence_review: RecordEvidenceReview = record_research_evidence_review,
+    fulfill_data_request: FulfillDataRequest = fulfill_research_data_request,
+    radar_candidate_writer: RadarCandidateWriter = write_opportunity_radar_candidate,
+) -> ActionQueueBatchExecution:
+    if max_actions < 1:
+        raise ValueError("批量推进数量必须大于 0。")
+
+    executions: list[ActionQueueExecution] = []
+    attempted_commands: set[str] = set()
+    stop_reason = ""
+
+    for _ in range(max_actions):
+        queue = queue_builder(output_dir, limit=limit)
+        if not queue:
+            stop_reason = "行动队列已清空。"
+            break
+
+        item = queue[0]
+        if item.command in attempted_commands:
+            stop_reason = "队列首项没有变化，停止批量推进，避免重复执行同一动作。"
+            break
+        attempted_commands.add(item.command)
+        queue_snapshot = list(queue)
+
+        execution = execute_action_queue_item(
+            output_dir,
+            action_index=1,
+            limit=limit,
+            force=force,
+            queue_builder=lambda *args, queue=queue_snapshot, **kwargs: queue,
+            pull_news=pull_news,
+            run_research=run_research,
+            record_evidence_review=record_evidence_review,
+            fulfill_data_request=fulfill_data_request,
+            radar_candidate_writer=radar_candidate_writer,
+        )
+        executions.append(execution)
+        if execution.status in {"failed", "no-data"}:
+            stop_reason = (
+                f"遇到 {execution.status}，停止批量推进，避免重复消耗数据源。"
+            )
+            break
+        if execution.status in {"manual_required", "skipped"}:
+            stop_reason = f"遇到 {execution.status}，需要人工处理后再继续。"
+            break
+    else:
+        stop_reason = f"已达到本次批量上限 {max_actions}。"
+
+    return ActionQueueBatchExecution(
+        executions=executions,
+        status=_batch_status(executions),
+        stop_reason=stop_reason,
+    )
 
 
 def execute_action_queue_item(
@@ -533,6 +604,23 @@ def _next_verify_command(symbol: str | None, name: str | None) -> str:
     if name:
         return f'lychee research verify --name "{name}"'
     return ""
+
+
+def _batch_status(executions: list[ActionQueueExecution]) -> str:
+    if not executions:
+        return "empty"
+    statuses = [execution.status for execution in executions]
+    if any(status == "failed" for status in statuses):
+        return "failed"
+    if any(status == "no-data" for status in statuses):
+        return "no-data"
+    if any(status == "manual_required" for status in statuses):
+        return "manual_required"
+    if any(status == "completed" for status in statuses):
+        return "completed"
+    if any(status == "cached" for status in statuses):
+        return "cached"
+    return statuses[-1]
 
 
 def _data_request_execution_status(result: ResearchDataRequestFulfillment) -> str:

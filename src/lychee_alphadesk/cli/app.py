@@ -8,9 +8,11 @@ from rich.table import Table
 
 from lychee_alphadesk.core import setup as setup_helpers
 from lychee_alphadesk.core.action_queue import (
+    ActionQueueBatchExecution,
     ActionQueueExecution,
     ActionQueueItem,
     build_action_queue,
+    execute_action_queue_batch,
     execute_action_queue_item,
 )
 from lychee_alphadesk.core.audit import init_audit_db, list_audit_records
@@ -1189,9 +1191,13 @@ def research_next(
 @research_app.command("run-next")
 def research_run_next(
     action_index: Annotated[
+        int | None,
+        typer.Option("--action", help="要执行的下一步行动序号，从 1 开始；省略时从第一项开始。"),
+    ] = None,
+    count: Annotated[
         int,
-        typer.Option("--action", help="要执行的下一步行动序号，从 1 开始。"),
-    ],
+        typer.Option("--count", help="连续推进多少个白名单行动。"),
+    ] = 1,
     limit: Annotated[
         int,
         typer.Option("--limit", help="生成行动队列时最多扫描多少条。"),
@@ -1206,7 +1212,22 @@ def research_run_next(
     ] = True,
 ) -> None:
     """执行下一步行动队列中的一条白名单自动动作。"""
+    if count < 1:
+        console.print("批量推进数量必须大于 0。", soft_wrap=True)
+        raise typer.Exit(code=1)
+    if action_index is not None and count != 1:
+        console.print("`--action` 不能和 `--count` 大于 1 同时使用。", soft_wrap=True)
+        raise typer.Exit(code=1)
     try:
+        if action_index is None:
+            batch_result = execute_action_queue_batch(
+                output_dir,
+                max_actions=count,
+                limit=limit,
+                force=force,
+            )
+            _print_action_queue_batch_execution(batch_result)
+            return
         result = execute_action_queue_item(
             output_dir,
             action_index=action_index,
@@ -2192,6 +2213,47 @@ def _print_action_queue_execution(result: ActionQueueExecution) -> None:
         console.print(f"警告: {warning}", soft_wrap=True)
     if result.next_command:
         console.print(f"下一步核验: {result.next_command}", soft_wrap=True)
+    console.print("边界: 自动行动只补研究证据，不是买卖建议。", soft_wrap=True)
+
+
+def _print_action_queue_batch_execution(result: ActionQueueBatchExecution) -> None:
+    console.print("下一步行动批量执行结果")
+    console.print(f"状态: {result.status}")
+    console.print(f"执行数量: {len(result.executions)}")
+    console.print(f"停止原因: {result.stop_reason}", soft_wrap=True)
+    if not result.executions:
+        console.print("本次没有执行任何行动。", soft_wrap=True)
+        console.print("边界: 自动行动只补研究证据，不是买卖建议。", soft_wrap=True)
+        return
+
+    table = Table(title="批量执行明细")
+    table.add_column("#")
+    table.add_column("区域")
+    table.add_column("行动", overflow="fold")
+    table.add_column("状态")
+    table.add_column("数量")
+    table.add_column("说明", overflow="fold")
+    for index, execution in enumerate(result.executions, start=1):
+        table.add_row(
+            str(index),
+            execution.item.area,
+            execution.item.title,
+            execution.status,
+            str(execution.count),
+            execution.message,
+        )
+    console.print(table)
+    for execution in result.executions:
+        if execution.output_path is not None:
+            console.print(
+                f"输出: [{execution.item.area}] {execution.item.title}: "
+                f"{execution.output_path}",
+                soft_wrap=True,
+            )
+        for warning in execution.warnings:
+            console.print(f"警告: {warning}", soft_wrap=True)
+        if execution.next_command:
+            console.print(f"下一步核验: {execution.next_command}", soft_wrap=True)
     console.print("边界: 自动行动只补研究证据，不是买卖建议。", soft_wrap=True)
 
 

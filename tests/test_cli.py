@@ -7,7 +7,11 @@ from typer.testing import CliRunner
 
 import lychee_alphadesk.cli.app as cli_app
 from lychee_alphadesk.cli.app import app
-from lychee_alphadesk.core.action_queue import ActionQueueExecution, ActionQueueItem
+from lychee_alphadesk.core.action_queue import (
+    ActionQueueBatchExecution,
+    ActionQueueExecution,
+    ActionQueueItem,
+)
 from lychee_alphadesk.core.cache_freshness import record_cache_entry
 from lychee_alphadesk.core.config import set_openai_compatible_llm
 from lychee_alphadesk.core.discovery import (
@@ -2486,6 +2490,97 @@ def test_research_run_next_command_executes_selected_action(
     assert "已执行机会雷达补新闻动作" in result.stdout
     assert "新闻行数: 3" in result.stdout
     assert "lychee research run --symbol NVDA --force" in result.stdout
+    assert "不是买卖建议" in result.stdout
+
+
+def test_research_run_next_command_executes_batch(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+    first = ActionQueueItem(
+        priority=1,
+        area="待判定证据",
+        title="复核 NVIDIA 的待判定证据",
+        detail="系统建议: 无关/排除",
+        command="lychee research evidence-review --symbol NVDA --text x --verdict irrelevant",
+        source="verify-1.json",
+    )
+    second = ActionQueueItem(
+        priority=2,
+        area="研究数据请求",
+        title="补新闻资料: QQQ",
+        detail="补新闻原文。",
+        command="lychee research run-data-request --request 1 --symbol QQQ",
+        source="memo.json",
+    )
+
+    def fake_execute_action_queue_batch(
+        output_dir: Path,
+        **kwargs: object,
+    ) -> ActionQueueBatchExecution:
+        calls.append({"output_dir": output_dir, **kwargs})
+        return ActionQueueBatchExecution(
+            executions=[
+                ActionQueueExecution(
+                    item=first,
+                    status="completed",
+                    message="已记录证据复核: 无关/排除。",
+                    count=1,
+                    output_path=tmp_path / "research" / "review.json",
+                    next_command="lychee research verify --symbol NVDA",
+                    warnings=[],
+                ),
+                ActionQueueExecution(
+                    item=second,
+                    status="cached",
+                    message="已使用未过期缓存。",
+                    count=4,
+                    output_path=tmp_path / "research" / "fulfillment.json",
+                    next_command="",
+                    warnings=["新闻缓存仍在保质期内。"],
+                ),
+            ],
+            status="completed",
+            stop_reason="已达到本次批量上限 2。",
+        )
+
+    monkeypatch.setattr(
+        cli_app,
+        "execute_action_queue_batch",
+        fake_execute_action_queue_batch,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "run-next",
+            "--count",
+            "2",
+            "--limit",
+            "8",
+            "--output-dir",
+            str(tmp_path),
+            "--no-force",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert calls == [
+        {
+            "output_dir": tmp_path,
+            "max_actions": 2,
+            "limit": 8,
+            "force": False,
+        }
+    ]
+    assert "下一步行动批量执行结果" in result.stdout
+    assert "执行数量: 2" in result.stdout
+    assert "复核 NVIDIA 的待判定证据" in result.stdout
+    assert "补新闻资料: QQQ" in result.stdout
+    assert "新闻缓存仍在保质期内" in result.stdout
+    assert "已达到本次批量上限 2" in result.stdout
     assert "不是买卖建议" in result.stdout
 
 

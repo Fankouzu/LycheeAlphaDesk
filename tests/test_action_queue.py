@@ -649,6 +649,101 @@ def test_execute_action_queue_data_request_no_data_does_not_advance(
     assert "没有获取到匹配数据" in result.message
 
 
+def test_execute_action_queue_batch_rebuilds_queue_between_actions(
+    tmp_path: Path,
+) -> None:
+    first = action_queue.ActionQueueItem(
+        priority=10,
+        area="待判定证据",
+        title="复核 NVIDIA 的待判定证据",
+        detail="系统建议: 无关/排除",
+        command=(
+            "lychee research evidence-review --symbol NVDA "
+            '--text "first pending evidence" --verdict irrelevant'
+        ),
+        source="verify-1.json",
+    )
+    second = action_queue.ActionQueueItem(
+        priority=10,
+        area="待判定证据",
+        title="复核 QQQ 的待判定证据",
+        detail="系统建议: 支持证据",
+        command=(
+            "lychee research evidence-review --symbol QQQ "
+            '--text "second pending evidence" --verdict support'
+        ),
+        source="verify-2.json",
+    )
+    reviewed: list[str] = []
+
+    def fake_queue_builder(*args: object, **kwargs: object) -> list[action_queue.ActionQueueItem]:
+        if not reviewed:
+            return [first, second]
+        if reviewed == ["first pending evidence"]:
+            return [second]
+        return []
+
+    def fake_record_review(**kwargs: object) -> SimpleNamespace:
+        reviewed.append(str(kwargs["evidence_text"]))
+        return SimpleNamespace(
+            verdict_label="已复核",
+            artifact_path=tmp_path / "research" / f"review-{len(reviewed)}.json",
+        )
+
+    result = action_queue.execute_action_queue_batch(
+        tmp_path,
+        max_actions=3,
+        limit=5,
+        queue_builder=fake_queue_builder,
+        record_evidence_review=fake_record_review,
+    )
+
+    assert [execution.item.command for execution in result.executions] == [
+        first.command,
+        second.command,
+    ]
+    assert result.status == "completed"
+    assert result.stop_reason == "行动队列已清空。"
+    assert reviewed == ["first pending evidence", "second pending evidence"]
+
+
+def test_execute_action_queue_batch_stops_on_no_data_without_repeating(
+    tmp_path: Path,
+) -> None:
+    item = action_queue.ActionQueueItem(
+        priority=20,
+        area="机会雷达",
+        title="下钻 Alibaba: AI 基础设施扩散",
+        detail="缺少主题新闻缓存。",
+        command='lychee data pull news --symbols BABA --query "AI cloud" --force',
+        source="opportunity-radar",
+    )
+    calls = 0
+
+    def fake_pull_news(**kwargs: object) -> PullResult:
+        nonlocal calls
+        calls += 1
+        return PullResult(
+            domain="news",
+            provider="test-news",
+            count=0,
+            output_path=tmp_path / "data" / "news-events.json",
+            warnings=[],
+        )
+
+    result = action_queue.execute_action_queue_batch(
+        tmp_path,
+        max_actions=3,
+        queue_builder=lambda *args, **kwargs: [item],
+        pull_news=fake_pull_news,
+    )
+
+    assert calls == 1
+    assert len(result.executions) == 1
+    assert result.status == "no-data"
+    assert result.stop_reason == "遇到 no-data，停止批量推进，避免重复消耗数据源。"
+
+
 def test_execute_action_queue_seeds_radar_target_before_research_run(
     tmp_path: Path,
 ) -> None:

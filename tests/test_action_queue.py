@@ -201,6 +201,66 @@ def test_action_queue_numbers_data_requests_within_selected_task(
     ]
 
 
+def test_action_queue_passes_limit_into_workbench_scan(tmp_path: Path) -> None:
+    scanned_limits: list[int | None] = []
+    candidate = CandidateCheck(
+        display_name="512480.SH",
+        market="CN",
+        symbol="512480.SH",
+        proxy_symbols=[],
+        evidence_count=1,
+        gap_count=0,
+        data_gaps=[],
+        status="ready",
+        explanation="机会雷达已经把半导体 ETF 推入研究队列。",
+        beginner_question="AI 基础设施主题是否扩散到 A 股半导体代理？",
+        why_it_matters="这是雷达补证据后的后续研究动作。",
+        observation_entry="512480.SH",
+        what_to_check="核验行情、新闻方向和代理标的有效性。",
+        next_step="下钻核验证据板。",
+        priority="P2 证据待分类",
+        evidence_status="证据 1 条；缺口 0 个",
+        ranking_reason="主题新闻已刷新，下一步是核验证据方向。",
+        next_command="lychee research verify --symbol 512480.SH",
+    )
+
+    def fake_workbench_runner(**kwargs: object) -> SimpleNamespace:
+        raw_limit = kwargs.get("limit")
+        scanned_limits.append(raw_limit if isinstance(raw_limit, int) else None)
+        candidates = [candidate] if raw_limit == 20 else []
+        return SimpleNamespace(
+            candidates=candidates,
+            deepen_result=ResearchDeepenResult(
+                created_at="2026-07-05T10:00:00+00:00",
+                packets=[],
+                artifact_path=None,
+                db_path=tmp_path / "research.sqlite3",
+            ),
+            fill_result=ResearchGapFillResult(1, [], [], [], []),
+        )
+
+    queue = build_action_queue(
+        tmp_path,
+        limit=20,
+        workbench_runner=fake_workbench_runner,
+        pending_reader=lambda **kwargs: [],
+        data_request_reader=lambda **kwargs: [],
+        provider_backlog_reader=lambda **kwargs: [],
+        radar_reader=lambda **kwargs: OpportunityRadarReport(
+            created_at="2026-07-08T00:00:00+00:00",
+            status="empty",
+            signals=[],
+            warnings=[],
+            disclaimer="非投资建议。",
+        ),
+    )
+
+    assert scanned_limits == [20]
+    assert [item.command for item in queue] == [
+        "lychee research verify --symbol 512480.SH"
+    ]
+
+
 def test_action_queue_includes_opportunity_radar_drilldown_targets(
     tmp_path: Path,
 ) -> None:

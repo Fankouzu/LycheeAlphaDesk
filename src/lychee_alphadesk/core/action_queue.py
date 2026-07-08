@@ -103,7 +103,7 @@ def build_action_queue(
     radar_reader: RadarReader = build_opportunity_radar,
 ) -> list[ActionQueueItem]:
     items: list[ActionQueueItem] = []
-    workbench = workbench_runner(output_dir=output_dir)
+    workbench = workbench_runner(output_dir=output_dir, limit=limit)
 
     for pending in pending_reader(output_dir=output_dir, limit=limit):
         items.append(_pending_evidence_action(pending))

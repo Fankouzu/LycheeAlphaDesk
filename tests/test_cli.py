@@ -2396,6 +2396,17 @@ def test_research_next_command_lists_unified_action_queue(
                 command="lychee data set metric --symbol STX --domain market_breadth",
                 source="research-memo-test.json",
             ),
+            ActionQueueItem(
+                priority=3,
+                area="机会雷达",
+                title="下钻 NVIDIA: AI 基础设施扩散",
+                detail="来自 QQQ 雷达信号；缺少该标的的主题新闻缓存。",
+                command=(
+                    "lychee data pull news --symbols NVDA "
+                    '--query "AI chip data center" --force'
+                ),
+                source="opportunity-radar",
+            ),
         ]
 
     monkeypatch.setattr(cli_app, "build_action_queue", fake_build_action_queue)
@@ -2409,8 +2420,10 @@ def test_research_next_command_lists_unified_action_queue(
     assert "Lychee AlphaDesk 下一步行动队列" in result.stdout
     assert "待判定证据" in result.stdout
     assert "数据源缺口" in result.stdout
+    assert "机会雷达" in result.stdout
     assert "lychee research evidence-review --symbol STX" in result.stdout
     assert "lychee data set metric --symbol STX --domain market_breadth" in result.stdout
+    assert "lychee data pull news --symbols NVDA" in result.stdout
     assert "行动队列只推进研究流程，不是买卖建议" in result.stdout
 
 

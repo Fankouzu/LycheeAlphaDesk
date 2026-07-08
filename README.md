@@ -285,7 +285,7 @@ View the unified next-action queue:
 lychee research next
 ```
 
-`research next` is the beginner-facing research control surface. It aggregates pending evidence reviews, provider/data-source gaps, executable research data requests, and regular research-task follow-up commands into one prioritized queue. Each row includes the area, action, reason, source artifact, and copyable command. The TUI home screen exposes the same queue as `下一步行动队列` immediately after `研究工作台`, so users do not need to inspect several menus to understand what to do next. It advances only the research workflow and must not contain buy/sell/hold, allocation, target-price, or position-sizing advice.
+`research next` is the beginner-facing research control surface. It aggregates pending evidence reviews, provider/data-source gaps, executable research data requests, opportunity-radar drilldowns, and regular research-task follow-up commands into one prioritized queue. Radar drilldowns turn "this looks worth researching" into the next evidence-gathering command, such as refreshing topic news for a mapped target. Each row includes the area, action, reason, source artifact, and copyable command. The TUI home screen exposes the same queue as `下一步行动队列` immediately after `研究工作台`, so users do not need to inspect several menus to understand what to do next. It advances only the research workflow and must not contain buy/sell/hold, allocation, target-price, or position-sizing advice.
 
 Inspect one research task in detail:
 

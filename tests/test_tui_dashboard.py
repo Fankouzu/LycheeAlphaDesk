@@ -596,6 +596,17 @@ def test_dashboard_next_actions_action_lists_unified_queue(
                 detail="判断这条新闻是支持、反向还是无关。",
                 command="lychee research evidence-review --symbol STX --verdict support",
                 source="research-verification-test.json",
+            ),
+            ActionQueueItem(
+                priority=2,
+                area="机会雷达",
+                title="下钻 NVIDIA: AI 基础设施扩散",
+                detail="来自 QQQ 雷达信号；缺少该标的的主题新闻缓存。",
+                command=(
+                    "lychee data pull news --symbols NVDA "
+                    '--query "AI chip data center" --force'
+                ),
+                source="opportunity-radar",
             )
         ]
 
@@ -620,6 +631,9 @@ def test_dashboard_next_actions_action_lists_unified_queue(
             assert "待判定证据" in text
             assert "复核 Seagate 的待判定新闻" in text
             assert "lychee research evidence-review --symbol STX" in text
+            assert "机会雷达" in text
+            assert "下钻 NVIDIA" in text
+            assert "lychee data pull news --symbols NVDA" in text
             assert "行动队列只推进研究流程，不是买卖建议" in text
 
     asyncio.run(run_case())

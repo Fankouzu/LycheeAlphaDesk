@@ -2,6 +2,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from lychee_alphadesk.core.opportunity_radar import (
+    OpportunityDrilldownTarget,
+    OpportunityRadarReport,
+    OpportunitySignal,
+    build_opportunity_radar,
+)
 from lychee_alphadesk.core.research_requests import (
     ProviderBacklogItem,
     ResearchDataRequest,
@@ -20,6 +26,7 @@ WorkbenchRunner = Callable[..., WorkbenchCheckResult]
 PendingReader = Callable[..., list[PendingEvidenceReviewItem]]
 DataRequestReader = Callable[..., list[ResearchDataRequest]]
 ProviderBacklogReader = Callable[..., list[ProviderBacklogItem]]
+RadarReader = Callable[..., OpportunityRadarReport]
 
 
 @dataclass(frozen=True)
@@ -40,6 +47,7 @@ def build_action_queue(
     pending_reader: PendingReader = list_pending_evidence_reviews,
     data_request_reader: DataRequestReader = list_research_data_requests,
     provider_backlog_reader: ProviderBacklogReader = list_provider_backlog_items,
+    radar_reader: RadarReader = build_opportunity_radar,
 ) -> list[ActionQueueItem]:
     items: list[ActionQueueItem] = []
     workbench = workbench_runner(output_dir=output_dir)
@@ -59,6 +67,12 @@ def build_action_queue(
         action = _data_request_action(request_indexes[request_key], request)
         if action is not None:
             items.append(action)
+
+    radar = radar_reader(output_dir=output_dir, limit=limit)
+    radar_actions: list[ActionQueueItem] = []
+    for signal in radar.signals:
+        radar_actions.extend(_radar_drilldown_actions(signal))
+    items.extend(radar_actions[: min(3, limit)])
 
     for candidate in workbench.candidates:
         if candidate.next_command:
@@ -95,7 +109,7 @@ def _provider_backlog_action(item: ProviderBacklogItem) -> ActionQueueItem | Non
     if not command:
         return None
     return ActionQueueItem(
-        priority=20,
+        priority=45,
         area="数据源缺口",
         title=f"补充 {item.display_name} 的{item.data_domain}",
         detail=f"{item.coverage_gap} 下一步: {item.next_step}",
@@ -115,6 +129,36 @@ def _data_request_action(index: int, item: ResearchDataRequest) -> ActionQueueIt
         command=f"lychee research run-data-request --request {index} {_research_selector(item)}",
         source=item.memo_path,
     )
+
+
+def _radar_drilldown_actions(signal: OpportunitySignal) -> list[ActionQueueItem]:
+    actions: list[ActionQueueItem] = []
+    for target in signal.drilldown_targets:
+        command = _radar_target_command(target)
+        if not command:
+            continue
+        actions.append(
+            ActionQueueItem(
+                priority=20,
+                area="机会雷达",
+                title=f"下钻 {target.display_name}: {signal.theme}",
+                detail=(
+                    f"来自 {signal.symbol} 雷达信号；{target.reason} "
+                    f"证据缺口: {target.evidence_gap}"
+                ),
+                command=command,
+                source="opportunity-radar",
+            )
+        )
+    return actions
+
+
+def _radar_target_command(target: OpportunityDrilldownTarget) -> str:
+    if not target.next_steps:
+        return ""
+    if "缺少" in target.evidence_gap:
+        return target.next_steps[0]
+    return target.next_steps[-1]
 
 
 def _research_selector(item: ResearchDataRequest) -> str:

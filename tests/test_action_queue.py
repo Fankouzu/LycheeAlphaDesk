@@ -2,6 +2,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from lychee_alphadesk.core.action_queue import build_action_queue
+from lychee_alphadesk.core.opportunity_radar import (
+    OpportunityDrilldownTarget,
+    OpportunityRadarReport,
+    OpportunitySignal,
+)
 from lychee_alphadesk.core.research import ResearchDeepenResult, ResearchGapFillResult
 from lychee_alphadesk.core.research_requests import (
     ProviderBacklogItem,
@@ -113,14 +118,14 @@ def test_action_queue_prioritizes_concrete_next_steps(tmp_path: Path) -> None:
 
     assert [item.area for item in queue] == [
         "待判定证据",
-        "数据源缺口",
         "研究数据请求",
         "研究任务",
+        "数据源缺口",
     ]
     assert queue[0].command.startswith("lychee research evidence-review --symbol STX")
-    assert queue[1].command.startswith("lychee data set metric --symbol STX")
-    assert queue[2].command == "lychee research run-data-request --request 1 --symbol STX"
-    assert queue[3].command == "lychee research verify --symbol STX"
+    assert queue[1].command == "lychee research run-data-request --request 1 --symbol STX"
+    assert queue[2].command == "lychee research verify --symbol STX"
+    assert queue[3].command.startswith("lychee data set metric --symbol STX")
     assert all("买入" not in item.detail for item in queue)
 
 
@@ -186,3 +191,112 @@ def test_action_queue_numbers_data_requests_within_selected_task(
         "lychee research run-data-request --request 1 --symbol QQQ",
         "lychee research run-data-request --request 1 --symbol STX",
     ]
+
+
+def test_action_queue_includes_opportunity_radar_drilldown_targets(
+    tmp_path: Path,
+) -> None:
+    workbench_result = SimpleNamespace(
+        candidates=[],
+        deepen_result=ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        ),
+        fill_result=ResearchGapFillResult(1, [], [], [], []),
+    )
+    radar_report = OpportunityRadarReport(
+        created_at="2026-07-08T00:00:00+00:00",
+        status="ready",
+        signals=[
+            OpportunitySignal(
+                symbol="QQQ",
+                market="US",
+                theme="AI 基础设施扩散",
+                score=341,
+                news_count=30,
+                theme_hits=73,
+                volume_rank=11,
+                price_snapshot="708.12 USD | 2026-07-07",
+                why_it_matters="新闻热度和主题命中同时出现。",
+                evidence=["Which Companies Will Actually Win From AI?"],
+                next_steps=["lychee research run --symbol QQQ --force"],
+                drilldown_targets=[
+                    OpportunityDrilldownTarget(
+                        symbol="NVDA",
+                        market="US",
+                        display_name="NVIDIA",
+                        category="算力芯片锚点",
+                        reason="用算力芯片龙头校验 AI 主题是否扩散。",
+                        evidence_gap="缺少该标的的主题新闻缓存，需补新闻验证。",
+                        next_steps=[
+                            (
+                                "lychee data pull news --symbols NVDA "
+                                '--query "AI chip data center" --force'
+                            ),
+                            "lychee research run --symbol NVDA --force",
+                        ],
+                    )
+                ],
+            )
+        ],
+        warnings=[],
+        disclaimer="非投资建议。",
+    )
+    data_request = ResearchDataRequest(
+        request_id="memo:test:qqq:data-request:1",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        confidence="medium",
+        request_text="请补充 QQQ 行情。",
+        suggested_commands=["lychee data pull market --symbols QQQ --force"],
+        memo_path=str(tmp_path / "research" / "memo-qqq.json"),
+        verification_path=str(tmp_path / "research" / "verify-qqq.json"),
+        suggested_actions=[
+            ResearchDataRequestAction(
+                "market",
+                "lychee data pull market --symbols QQQ --force",
+            )
+        ],
+    )
+    provider_gap = ProviderBacklogItem(
+        request_id="memo:test:data-request:2",
+        created_at="2026-07-05T10:03:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        confidence="medium",
+        request_text="请补充 QQQ 市场广度。",
+        data_domain="市场广度",
+        plugin_type="market_breadth",
+        coverage_gap="当前缺少市场广度 provider。",
+        suggested_provider_examples=["行业/子行业表现数据源"],
+        suggested_commands=[
+            "lychee data set metric --symbol QQQ --domain market_breadth "
+            '--name "<填入指标名称>" --value "<填入核验后的读数>" '
+            '--as-of YYYY-MM-DD --source-url "<资料来源URL>"'
+        ],
+        next_step="先写入 source-backed 研究指标。",
+        memo_path=str(tmp_path / "research" / "memo-qqq.json"),
+        verification_path=str(tmp_path / "research" / "verify-qqq.json"),
+    )
+
+    queue = build_action_queue(
+        tmp_path,
+        workbench_runner=lambda **kwargs: workbench_result,
+        pending_reader=lambda **kwargs: [],
+        data_request_reader=lambda **kwargs: [data_request],
+        provider_backlog_reader=lambda **kwargs: [provider_gap],
+        radar_reader=lambda **kwargs: radar_report,
+    )
+
+    assert [item.area for item in queue] == ["机会雷达", "研究数据请求", "数据源缺口"]
+    assert queue[0].title == "下钻 NVIDIA: AI 基础设施扩散"
+    assert "来自 QQQ 雷达信号" in queue[0].detail
+    assert "缺少该标的的主题新闻缓存" in queue[0].detail
+    assert queue[0].command.startswith("lychee data pull news --symbols NVDA")
+    assert queue[0].source == "opportunity-radar"
+    assert all("买入" not in item.detail for item in queue)

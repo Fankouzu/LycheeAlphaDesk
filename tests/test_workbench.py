@@ -13,6 +13,9 @@ from lychee_alphadesk.core.research import ResearchPacket
 from lychee_alphadesk.core.research_db import write_discovery_research_run
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
+    ResearchDeepenResult,
+    ResearchGapFillResult,
+    WorkbenchCheckResult,
     _packet_related_news_count,
     beginner_research_brief,
     build_research_evidence_change,
@@ -20,6 +23,7 @@ from lychee_alphadesk.core.workbench import (
     render_research_task_detail,
     run_research_task,
     run_workbench_check,
+    select_research_candidate_index,
     suggest_pending_evidence_review,
     verify_research_task,
 )
@@ -79,6 +83,220 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
         payload["candidates"][0]["next_command"]
         == 'lychee research run --name "恒生指数压力观察" --force'
     )
+
+
+def test_workbench_next_commands_preserve_expanded_selection_limit(
+    tmp_path: Path,
+) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["HK"],
+        sources=[DiscoverySource(provider="test-llm", market="HK", description="测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="港股轮动观察",
+                markets=["HK"],
+                summary="多条港股线索需要扩大扫描范围才会显示。",
+                evidence=["news_001"],
+                sectors=["Market"],
+                risk_flags=[],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="后排候选",
+                symbol="LATE.HK",
+                market="HK",
+                asset_type="stock",
+                related_theme="港股轮动观察",
+                why_watch="用于复现扩大 limit 后的命令可执行性。",
+                evidence=["news_001"],
+                risk_flags=[],
+                next_actions=["下钻核验证据板"],
+                confidence="medium",
+                recommendation="research",
+            ),
+            *[
+                DiscoveryCandidate(
+                    display_name=f"前排候选 {index}",
+                    symbol=f"FAST{index}.HK",
+                    market="HK",
+                    asset_type="stock",
+                    related_theme="港股轮动观察",
+                    why_watch="用于占据默认前五个研究位置。",
+                    evidence=["news_001"],
+                    risk_flags=[],
+                    next_actions=["下钻核验证据板"],
+                    confidence="medium",
+                    recommendation="research",
+                )
+                for index in range(1, 6)
+            ],
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(report, tmp_path, tmp_path / "data" / "discovery-today.json")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "Hong Kong stocks rotate into smaller technology names",
+                        "summary": "Market breadth improved across Hong Kong stocks.",
+                        "symbols": ["MARKET"],
+                        "source_url": "https://example.com/hk-rotation",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "auto",
+                "rows": [
+                    {
+                        "symbol": symbol,
+                        "date": "2026-07-05",
+                        "close": 10 + index,
+                        "volume": 1000000 + index,
+                        "currency": "HKD",
+                    }
+                    for index, symbol in enumerate(
+                        ["LATE.HK", "FAST1.HK", "FAST2.HK", "FAST3.HK", "FAST4.HK", "FAST5.HK"]
+                    )
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_workbench_check(
+        output_dir=tmp_path,
+        limit=6,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    late_candidate = next(
+        candidate for candidate in result.candidates if candidate.symbol == "LATE.HK"
+    )
+    assert late_candidate.next_command == "lychee research verify --symbol LATE.HK --limit 6"
+    assert "执行: lychee research verify --symbol LATE.HK --limit 6" in result.beginner_brief
+    assert (
+        json.loads(result.artifact_path.read_text(encoding="utf-8"))["candidates"][-1][
+            "next_command"
+        ]
+        == "lychee research verify --symbol LATE.HK --limit 6"
+    )
+
+
+def test_research_candidate_selection_prefers_direct_symbol_over_proxy(
+    tmp_path: Path,
+) -> None:
+    proxy_theme = CandidateCheck(
+        display_name="中国半导体设备观察",
+        market="CN",
+        symbol=None,
+        proxy_symbols=["512480.SH"],
+        evidence_count=2,
+        gap_count=0,
+        data_gaps=[],
+        status="ready",
+        explanation="主题代理。",
+        beginner_question="AI 数据中心主题是否扩散？",
+        why_it_matters="需要先用 ETF 代理观察。",
+        observation_entry="512480.SH",
+        what_to_check="核验代理。",
+        next_step="核验证据板。",
+        priority="P2",
+        evidence_status="证据 2 条",
+    )
+    direct_candidate = CandidateCheck(
+        display_name="半导体 ETF",
+        market="CN",
+        symbol="512480.SH",
+        proxy_symbols=[],
+        evidence_count=1,
+        gap_count=0,
+        data_gaps=[],
+        status="ready",
+        explanation="直接候选。",
+        beginner_question="这个 ETF 自身是否有研究价值？",
+        why_it_matters="这是用户命令指定的直接入口。",
+        observation_entry="512480.SH",
+        what_to_check="核验行情和新闻。",
+        next_step="核验证据板。",
+        priority="P2",
+        evidence_status="证据 1 条",
+    )
+    result = WorkbenchCheckResult(
+        created_at="2026-07-05T11:00:00+00:00",
+        status="ready",
+        packets_checked=2,
+        ready_count=2,
+        blocked_count=0,
+        proxy_price_count=1,
+        proxy_total=1,
+        gates=[],
+        candidates=[proxy_theme, direct_candidate],
+        beginner_brief="",
+        artifact_path=None,
+        fill_result=ResearchGapFillResult(0, [], [], [], []),
+        deepen_result=ResearchDeepenResult(
+            created_at="2026-07-05T11:00:00+00:00",
+            packets=[],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        ),
+    )
+
+    selected = select_research_candidate_index(
+        result,
+        symbol="512480.SH",
+        name=None,
+    )
+
+    assert selected == 1
+
+
+def test_proxy_theme_detail_commands_use_task_name_not_proxy_symbol() -> None:
+    candidate = CandidateCheck(
+        display_name="中国半导体设备观察",
+        market="CN",
+        symbol=None,
+        proxy_symbols=["512480.SH"],
+        evidence_count=2,
+        gap_count=0,
+        data_gaps=[],
+        status="ready",
+        explanation="主题代理。",
+        beginner_question="AI 数据中心主题是否扩散？",
+        why_it_matters="需要先用 ETF 代理观察。",
+        observation_entry="512480.SH",
+        what_to_check="核验代理。",
+        next_step="核验证据板。",
+        priority="P2",
+        evidence_status="证据 2 条",
+        command_limit=25,
+    )
+
+    detail = render_research_task_detail(candidate, None)
+
+    assert 'lychee research verify --name "中国半导体设备观察" --limit 25' in detail
+    assert 'lychee research memo --name "中国半导体设备观察" --limit 25' in detail
+    assert "lychee research verify --symbol 512480.SH" not in detail
+    assert "lychee research memo --symbol 512480.SH" not in detail
 
 
 def test_pending_evidence_suggestion_uses_research_question_context() -> None:

@@ -1766,6 +1766,7 @@ def _print_pending_evidence_review_commands(
     if not pending_items:
         return
     selector = _research_selector(result.candidate.symbol, result.candidate.display_name)
+    limit_arg = _research_limit_arg(result.candidate.command_limit)
     console.print("待判定证据处理")
     console.print(
         f"- 查看队列: lychee research pending-evidence {selector}",
@@ -1783,13 +1784,13 @@ def _print_pending_evidence_review_commands(
         )
         console.print(
             "- 复核命令: "
-            f"lychee research evidence-review {selector} "
+            f"lychee research evidence-review {selector}{limit_arg} "
             f"--text {_quote_cli_value(evidence_text)} "
             f"--verdict {verdict} --note {_quote_cli_value(reason)}",
             soft_wrap=True,
         )
     console.print(
-        f"- 分类后重新运行: lychee research verify {selector}",
+        f"- 分类后重新运行: lychee research verify {selector}{limit_arg}",
         soft_wrap=True,
     )
     console.print("边界: 待判定证据处理不是买卖建议。", soft_wrap=True)
@@ -1841,6 +1842,12 @@ def _research_selector(symbol: str | None, display_name: str) -> str:
     if symbol:
         return f"--symbol {symbol}"
     return f"--name {_quote_cli_value(display_name)}"
+
+
+def _research_limit_arg(limit: int) -> str:
+    if limit > 5:
+        return f" --limit {limit}"
+    return ""
 
 
 def _quote_cli_value(value: str) -> str:
@@ -1925,28 +1932,29 @@ def _print_research_review(result: ResearchReviewResult) -> None:
 def _print_research_review_next_steps(result: ResearchReviewResult) -> None:
     candidate = result.verification.candidate
     selector = _research_selector(candidate.symbol, candidate.display_name)
+    limit_arg = _research_limit_arg(candidate.command_limit)
     console.print("工作台下一步")
     if result.verdict == "continue_research":
         console.print(
-            f"- 生成研究备忘录: lychee research memo {selector}",
+            f"- 生成研究备忘录: lychee research memo {selector}{limit_arg}",
             soft_wrap=True,
         )
         console.print(
-            f"- 重新下钻核验: lychee research verify {selector}",
+            f"- 重新下钻核验: lychee research verify {selector}{limit_arg}",
             soft_wrap=True,
         )
     elif result.verdict == "needs_more_evidence":
         console.print(
-            f"- 刷新并补强证据: lychee research run {selector} --force",
+            f"- 刷新并补强证据: lychee research run {selector}{limit_arg} --force",
             soft_wrap=True,
         )
         console.print(
-            f"- 重新下钻核验: lychee research verify {selector}",
+            f"- 重新下钻核验: lychee research verify {selector}{limit_arg}",
             soft_wrap=True,
         )
     elif result.verdict == "pause_watch":
         console.print(
-            f"- 保持观察并重新核验: lychee research verify {selector}",
+            f"- 保持观察并重新核验: lychee research verify {selector}{limit_arg}",
             soft_wrap=True,
         )
     else:

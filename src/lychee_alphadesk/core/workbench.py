@@ -29,6 +29,8 @@ PullMarket = Callable[..., PullResult]
 PullNews = Callable[..., PullResult]
 PullFilings = Callable[..., PullResult]
 
+DEFAULT_RESEARCH_SELECTION_LIMIT = 5
+
 
 @dataclass(frozen=True)
 class WorkbenchGate:
@@ -60,6 +62,7 @@ class CandidateCheck:
     next_command: str = ""
     topic_news_exhausted: bool = False
     topic_news_review_ready: bool = False
+    command_limit: int = DEFAULT_RESEARCH_SELECTION_LIMIT
 
 
 @dataclass(frozen=True)
@@ -292,7 +295,11 @@ def run_workbench_check(
         limit=limit,
         now=now,
     )
-    candidates = _candidate_checks(output_dir, deepen_result.packets)
+    candidates = _candidate_checks(
+        output_dir,
+        deepen_result.packets,
+        command_limit=limit,
+    )
     proxy_price_count, proxy_total = _proxy_price_coverage(deepen_result.packets)
     gates = _workbench_gates(candidates, proxy_price_count, proxy_total)
     result_status = "blocked" if any(gate.status == "fail" for gate in gates) else "ready"
@@ -428,6 +435,10 @@ def list_pending_evidence_reviews(
         display_name = _string_value(candidate.get("display_name")) or "未知研究任务"
         symbol = _string_value(candidate.get("symbol")) or None
         market = _string_value(candidate.get("market")) or "-"
+        command_limit = (
+            _int_value(candidate.get("command_limit"))
+            or DEFAULT_RESEARCH_SELECTION_LIMIT
+        )
         decision_board = _dict_value(payload.get("decision_board"))
         primary_question = (
             _string_value(decision_board.get("primary_question"))
@@ -476,6 +487,7 @@ def list_pending_evidence_reviews(
                         evidence_text=evidence_text,
                         verdict=suggestion[0],
                         note=suggestion[1],
+                        command_limit=command_limit,
                     ),
                 )
             )
@@ -1389,6 +1401,7 @@ def _decision_board_next_commands(
     suggested_verdict: str,
 ) -> list[str]:
     selector = _research_selector(candidate.symbol, candidate.display_name)
+    limit_arg = _research_limit_arg(candidate.command_limit)
     commands: list[str] = []
     should_refresh = suggested_verdict in {"needs_more_evidence", "blocked"}
     if suggested_verdict == "needs_more_evidence" and (
@@ -1396,18 +1409,18 @@ def _decision_board_next_commands(
     ):
         should_refresh = False
     if should_refresh:
-        commands.append(f"lychee research run {selector} --force")
+        commands.append(f"lychee research run {selector}{limit_arg} --force")
     if suggested_verdict == "needs_more_evidence" and candidate.topic_news_review_ready:
         commands.append(f"lychee research pending-evidence {selector}")
     if suggested_verdict == "continue_research":
-        commands.append(f"lychee research memo {selector}")
+        commands.append(f"lychee research memo {selector}{limit_arg}")
     note = _quote_cli_value("证据仍需补强，继续研究流程复核。")
     if suggested_verdict == "continue_research":
         note = _quote_cli_value("证据通过下钻核验，进入人工一致性复核。")
     elif suggested_verdict == "blocked":
         note = _quote_cli_value("存在阻塞，先记录阻塞并补齐数据。")
     commands.append(
-        f"lychee research review {selector} "
+        f"lychee research review {selector}{limit_arg} "
         f"--verdict {suggested_verdict} --note {note}"
     )
     return commands
@@ -1418,8 +1431,12 @@ def _research_review_command(
     verdict: str,
 ) -> str:
     selector = _research_selector(candidate.symbol, candidate.display_name)
+    limit_arg = _research_limit_arg(candidate.command_limit)
     note = _quote_cli_value("证据仍需补强，继续研究流程复核。")
-    return f"lychee research review {selector} --verdict {verdict} --note {note}"
+    return (
+        f"lychee research review {selector}{limit_arg} "
+        f"--verdict {verdict} --note {note}"
+    )
 
 
 def _fund_metadata_set_command(candidate: CandidateCheck) -> str:
@@ -1619,14 +1636,16 @@ def _pending_evidence_review_command(
     evidence_text: str,
     verdict: str,
     note: str,
+    command_limit: int = DEFAULT_RESEARCH_SELECTION_LIMIT,
 ) -> str:
     selector = (
         f"--symbol {symbol}"
         if symbol
         else f"--name {_quote_cli_value(display_name)}"
     )
+    limit_arg = _research_limit_arg(command_limit)
     return (
-        f"lychee research evidence-review {selector} "
+        f"lychee research evidence-review {selector}{limit_arg} "
         f"--text {_quote_cli_value(evidence_text)} "
         f"--verdict {verdict} --note {_quote_cli_value(note)}"
     )
@@ -2185,8 +2204,10 @@ def select_research_candidate_index(
     if symbol:
         target = symbol.strip().upper()
         for index, candidate in enumerate(result.candidates):
-            symbols = [candidate.symbol or "", *candidate.proxy_symbols]
-            if any(item.upper() == target for item in symbols):
+            if (candidate.symbol or "").upper() == target:
+                return index
+        for index, candidate in enumerate(result.candidates):
+            if any(item.upper() == target for item in candidate.proxy_symbols):
                 return index
         return None
     if name:
@@ -2471,6 +2492,7 @@ _FINANCIAL_MARKET_CONTEXT_TERMS = [
 
 def _research_start_lines(candidate: CandidateCheck) -> list[str]:
     selector = _research_selector_arg(candidate)
+    limit_arg = _research_limit_arg(candidate.command_limit)
     lines = [
         "本次研究要解决的问题",
         f"- {candidate.beginner_question}",
@@ -2484,22 +2506,21 @@ def _research_start_lines(candidate: CandidateCheck) -> list[str]:
         )
     lines.extend(
         [
-            f"- 第一步: lychee research verify {selector}",
+            f"- 第一步: lychee research verify {selector}{limit_arg}",
             "- 看证据板: 支持证据 / 风险或反向待查 / 待补证据 / 离题或已过滤",
             (
-                f"- 记录判断: lychee research review {selector} "
+                f"- 记录判断: lychee research review {selector}{limit_arg} "
                 '--verdict needs_more_evidence --note "写下还缺什么"'
             ),
-            f"- 可选 LLM: lychee research memo {selector}",
+            f"- 可选 LLM: lychee research memo {selector}{limit_arg}",
         ]
     )
     return lines
 
 
 def _research_selector_arg(candidate: CandidateCheck) -> str:
-    symbols = research_action_symbols(candidate)
-    if symbols:
-        return f"--symbol {symbols[0]}"
+    if candidate.symbol:
+        return f"--symbol {candidate.symbol}"
     safe_name = candidate.display_name.replace('"', '\\"')
     return f'--name "{safe_name}"'
 
@@ -2632,6 +2653,7 @@ def research_action_commands(
     packet: ResearchPacket | None,
 ) -> list[str]:
     symbols = research_action_symbols(candidate)
+    limit_arg = _research_limit_arg(candidate.command_limit)
     commands: list[str] = []
     if symbols:
         symbol_text = ",".join(symbols)
@@ -2657,11 +2679,19 @@ def research_action_commands(
             f"刷新美股公告/财报: lychee data pull filings --symbols "
             f"{','.join(filing_symbols)}"
         )
-    if symbols:
-        commands.append(f"下钻核验: lychee research verify --symbol {symbols[0]}")
-        commands.append(f"研究备忘录: lychee research memo --symbol {symbols[0]}")
+    if candidate.symbol:
+        commands.append(
+            f"下钻核验: lychee research verify --symbol {candidate.symbol}{limit_arg}"
+        )
+        commands.append(
+            f"研究备忘录: lychee research memo --symbol {candidate.symbol}{limit_arg}"
+        )
     else:
-        commands.append(f'研究备忘录: lychee research memo --name "{candidate.display_name}"')
+        selector = _research_selector(candidate.symbol, candidate.display_name)
+        commands.append(f"下钻核验: lychee research verify {selector}{limit_arg}")
+        commands.append(
+            f"研究备忘录: lychee research memo {selector}{limit_arg}"
+        )
     return commands
 
 
@@ -3206,6 +3236,8 @@ def _research_run_action_to_dict(action: ResearchRunAction) -> dict[str, object]
 def _candidate_checks(
     output_dir: Path | None,
     packets: list[ResearchPacket],
+    *,
+    command_limit: int = DEFAULT_RESEARCH_SELECTION_LIMIT,
 ) -> list[CandidateCheck]:
     checks: list[CandidateCheck] = []
     for packet in packets:
@@ -3260,6 +3292,7 @@ def _candidate_checks(
             next_step="",
             priority="",
             evidence_status="",
+            command_limit=command_limit,
         )
         evidence_quality = _candidate_evidence_quality(base_candidate, packet)
         candidate_check = replace(
@@ -3294,6 +3327,7 @@ def _candidate_checks(
                 display_name=packet.display_name,
                 data_gaps=data_gaps,
                 evidence_quality=evidence_quality,
+                command_limit=command_limit,
             ),
         )
         if output_dir is not None and _latest_verification_requires_fund_metadata(
@@ -3446,6 +3480,7 @@ def _latest_research_run_refreshed_topic_news(
 
 def _mark_topic_news_exhausted(candidate: CandidateCheck) -> CandidateCheck:
     selector = _research_selector(candidate.symbol, candidate.display_name)
+    limit_arg = _research_limit_arg(candidate.command_limit)
     return replace(
         candidate,
         topic_news_exhausted=True,
@@ -3455,12 +3490,13 @@ def _mark_topic_news_exhausted(candidate: CandidateCheck) -> CandidateCheck:
             "主题新闻已刷新但没有可用材料；先下钻核验证据板，"
             "处理待判定/反向证据，必要时更换数据源。"
         ),
-        next_command=f"lychee research verify {selector}",
+        next_command=f"lychee research verify {selector}{limit_arg}",
     )
 
 
 def _mark_topic_news_review_ready(candidate: CandidateCheck) -> CandidateCheck:
     selector = _research_selector(candidate.symbol, candidate.display_name)
+    limit_arg = _research_limit_arg(candidate.command_limit)
     return replace(
         candidate,
         topic_news_review_ready=True,
@@ -3469,7 +3505,7 @@ def _mark_topic_news_review_ready(candidate: CandidateCheck) -> CandidateCheck:
         next_step=(
             "主题新闻已刷新；先下钻核验证据板，处理支持、反向和待判定证据。"
         ),
-        next_command=f"lychee research verify {selector}",
+        next_command=f"lychee research verify {selector}{limit_arg}",
     )
 
 
@@ -3844,6 +3880,12 @@ def _research_selector(symbol: str | None, display_name: str) -> str:
     return f"--name {_quote_cli_value(display_name)}"
 
 
+def _research_limit_arg(limit: int) -> str:
+    if limit > DEFAULT_RESEARCH_SELECTION_LIMIT:
+        return f" --limit {limit}"
+    return ""
+
+
 def _next_command(
     *,
     status: str,
@@ -3851,11 +3893,13 @@ def _next_command(
     display_name: str,
     data_gaps: list[str],
     evidence_quality: CandidateEvidenceQuality,
+    command_limit: int = DEFAULT_RESEARCH_SELECTION_LIMIT,
 ) -> str:
     selector = _research_selector(symbol, display_name)
+    limit_arg = _research_limit_arg(command_limit)
     if status == "blocked" or data_gaps or evidence_quality.needs_review:
-        return f"lychee research run {selector} --force"
-    return f"lychee research verify {selector}"
+        return f"lychee research run {selector}{limit_arg} --force"
+    return f"lychee research verify {selector}{limit_arg}"
 
 
 def _beginner_question(

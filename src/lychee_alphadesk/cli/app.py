@@ -2187,7 +2187,7 @@ def _print_action_queue_execution(result: ActionQueueExecution) -> None:
     )
     console.print(f"{count_label}: {result.count}")
     if result.output_path is not None:
-        console.print(f"缓存: {result.output_path}", soft_wrap=True)
+        console.print(f"输出: {result.output_path}", soft_wrap=True)
     for warning in result.warnings:
         console.print(f"警告: {warning}", soft_wrap=True)
     if result.next_command:
@@ -2342,6 +2342,8 @@ def _display_data_request_action(action_type: str) -> str:
 def _display_data_request_execution_status(status: str) -> str:
     return {
         "completed": "已完成",
+        "cached": "缓存命中",
+        "no-data": "无数据",
         "failed": "失败",
         "skipped": "跳过",
         "manual_required": "需人工",

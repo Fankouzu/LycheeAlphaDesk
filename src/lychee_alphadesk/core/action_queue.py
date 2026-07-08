@@ -15,6 +15,8 @@ from lychee_alphadesk.core.research_db import write_opportunity_radar_candidate
 from lychee_alphadesk.core.research_requests import (
     ProviderBacklogItem,
     ResearchDataRequest,
+    ResearchDataRequestFulfillment,
+    fulfill_research_data_request,
     list_provider_backlog_items,
     list_research_data_requests,
     research_data_request_needs_manual_source,
@@ -36,6 +38,7 @@ RadarReader = Callable[..., OpportunityRadarReport]
 PullNews = Callable[..., PullResult]
 RunResearch = Callable[..., Any]
 RecordEvidenceReview = Callable[..., Any]
+FulfillDataRequest = Callable[..., ResearchDataRequestFulfillment]
 RadarCandidateWriter = Callable[..., Path]
 ActionQueueBuilder = Callable[..., list["ActionQueueItem"]]
 
@@ -125,6 +128,7 @@ def execute_action_queue_item(
     pull_news: PullNews = pull_news_events,
     run_research: RunResearch = run_research_task,
     record_evidence_review: RecordEvidenceReview = record_research_evidence_review,
+    fulfill_data_request: FulfillDataRequest = fulfill_research_data_request,
     radar_candidate_writer: RadarCandidateWriter = write_opportunity_radar_candidate,
 ) -> ActionQueueExecution:
     queue = queue_builder(output_dir, limit=limit)
@@ -167,6 +171,17 @@ def execute_action_queue_item(
             payload=evidence_review_payload,
             limit=limit,
             record_evidence_review=record_evidence_review,
+        )
+
+    data_request_payload = _parse_run_data_request_command(item.command)
+    if data_request_payload is not None:
+        return _execute_research_data_request_action(
+            output_dir=output_dir,
+            item=item,
+            payload=data_request_payload,
+            limit=limit,
+            force=force,
+            fulfill_data_request=fulfill_data_request,
         )
 
     raise ValueError(
@@ -316,6 +331,50 @@ def _execute_evidence_review_action(
     )
 
 
+def _execute_research_data_request_action(
+    *,
+    output_dir: Path,
+    item: ActionQueueItem,
+    payload: dict[str, str | int | None],
+    limit: int,
+    force: bool,
+    fulfill_data_request: FulfillDataRequest,
+) -> ActionQueueExecution:
+    try:
+        result = fulfill_data_request(
+            output_dir,
+            request_index=payload["request_index"],
+            symbol=payload["symbol"],
+            name=payload["name"],
+            limit=limit,
+            force=force,
+        )
+    except (RuntimeError, ValueError) as error:
+        return ActionQueueExecution(
+            item=item,
+            status="failed",
+            message=str(error),
+            count=0,
+            output_path=None,
+            next_command="",
+            warnings=[],
+        )
+    status = _data_request_execution_status(result)
+    return ActionQueueExecution(
+        item=item,
+        status=status,
+        message=_data_request_execution_message(result),
+        count=sum(execution.count for execution in result.executions),
+        output_path=result.artifact_path or _latest_execution_output_path(result),
+        next_command=_data_request_next_command(result, status),
+        warnings=[
+            warning
+            for execution in result.executions
+            for warning in execution.warnings
+        ],
+    )
+
+
 def _pending_evidence_action(item: PendingEvidenceReviewItem) -> ActionQueueItem:
     return ActionQueueItem(
         priority=10,
@@ -347,7 +406,7 @@ def _data_request_action(index: int, item: ResearchDataRequest) -> ActionQueueIt
     return ActionQueueItem(
         priority=30,
         area="研究数据请求",
-        title=f"执行 {item.display_name} 的补数据请求",
+        title=f"{_data_request_action_label(item)}: {item.display_name}",
         detail=item.request_text,
         command=f"lychee research run-data-request --request {index} {_research_selector(item)}",
         source=item.memo_path,
@@ -428,6 +487,28 @@ def _parse_evidence_review_command(command: str) -> dict[str, str | None] | None
     }
 
 
+def _parse_run_data_request_command(
+    command: str,
+) -> dict[str, str | int | None] | None:
+    parts = shlex.split(command)
+    if parts[:3] != ["lychee", "research", "run-data-request"]:
+        return None
+    raw_request_index = _option_value(parts, "--request") or "1"
+    try:
+        request_index = int(raw_request_index)
+    except ValueError:
+        return None
+    symbol = _option_value(parts, "--symbol")
+    name = _option_value(parts, "--name")
+    if not symbol and not name:
+        return None
+    return {
+        "request_index": request_index,
+        "symbol": symbol.upper() if symbol else None,
+        "name": name or None,
+    }
+
+
 def _option_value(parts: list[str], option: str) -> str:
     try:
         index = parts.index(option)
@@ -452,6 +533,61 @@ def _next_verify_command(symbol: str | None, name: str | None) -> str:
     if name:
         return f'lychee research verify --name "{name}"'
     return ""
+
+
+def _data_request_execution_status(result: ResearchDataRequestFulfillment) -> str:
+    if result.status:
+        return result.status
+    statuses = [execution.status for execution in result.executions]
+    if any(status == "failed" for status in statuses):
+        return "failed"
+    if any(status == "completed" for status in statuses):
+        return "completed"
+    if any(status == "cached" for status in statuses):
+        return "cached"
+    if any(status == "no-data" for status in statuses):
+        return "no-data"
+    if any(status == "manual_required" for status in statuses):
+        return "manual_required"
+    return "skipped"
+
+
+def _data_request_execution_message(result: ResearchDataRequestFulfillment) -> str:
+    messages = [
+        execution.message
+        for execution in result.executions
+        if execution.message
+        and execution.status not in {"skipped"}
+    ]
+    if not messages:
+        messages = [execution.message for execution in result.executions if execution.message]
+    if not messages:
+        return "已执行研究数据请求。"
+    return "已执行研究数据请求: " + "；".join(messages)
+
+
+def _latest_execution_output_path(
+    result: ResearchDataRequestFulfillment,
+) -> Path | None:
+    for execution in reversed(result.executions):
+        if execution.output_path is not None:
+            return execution.output_path
+    return None
+
+
+def _data_request_next_command(
+    result: ResearchDataRequestFulfillment,
+    status: str,
+) -> str:
+    if status in {"failed", "no-data", "manual_required", "skipped"}:
+        return ""
+    for execution in result.executions:
+        if execution.action_type == "verify" and execution.status == "completed":
+            return ""
+    return _next_verify_command(
+        result.request.symbol,
+        None if result.request.symbol else result.request.display_name,
+    )
 
 
 def _radar_title_parts(
@@ -483,6 +619,25 @@ def _data_request_key(item: ResearchDataRequest) -> tuple[str, str]:
     if item.symbol:
         return ("symbol", item.symbol.upper())
     return ("name", item.display_name.casefold())
+
+
+def _data_request_action_label(item: ResearchDataRequest) -> str:
+    action_types = {
+        action.action_type
+        for action in item.suggested_actions
+        if action.action_type not in {"verify", "fund_metadata_import"}
+    }
+    if "fund_metadata_guide" in action_types:
+        return "补基金资料"
+    if "filings" in action_types:
+        return "补公告财报"
+    if action_types == {"market", "news"}:
+        return "补行情和新闻"
+    if "market" in action_types:
+        return "补行情数据"
+    if "news" in action_types:
+        return "补新闻资料"
+    return "执行补数据请求"
 
 
 def _dedupe_actions(items: list[ActionQueueItem]) -> list[ActionQueueItem]:

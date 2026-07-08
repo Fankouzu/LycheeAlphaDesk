@@ -16,6 +16,8 @@ from lychee_alphadesk.core.research_requests import (
     ProviderBacklogItem,
     ResearchDataRequest,
     ResearchDataRequestAction,
+    ResearchDataRequestExecution,
+    ResearchDataRequestFulfillment,
 )
 from lychee_alphadesk.core.workbench import CandidateCheck, PendingEvidenceReviewItem
 
@@ -127,6 +129,7 @@ def test_action_queue_prioritizes_concrete_next_steps(tmp_path: Path) -> None:
         "数据源缺口",
     ]
     assert queue[0].command.startswith("lychee research evidence-review --symbol STX")
+    assert queue[1].title == "补行情数据: Seagate"
     assert queue[1].command == "lychee research run-data-request --request 1 --symbol STX"
     assert queue[2].command == "lychee research verify --symbol STX"
     assert queue[3].command.startswith("lychee data set metric --symbol STX")
@@ -505,6 +508,145 @@ def test_execute_action_queue_records_pending_evidence_review(
     assert result.output_path == tmp_path / "research" / "research-evidence-review-nvda.json"
     assert result.next_command == "lychee research verify --symbol NVDA"
     assert "已记录证据复核" in result.message
+
+
+def test_execute_action_queue_runs_research_data_request(tmp_path: Path) -> None:
+    item = action_queue.ActionQueueItem(
+        priority=30,
+        area="研究数据请求",
+        title="执行 Invesco QQQ Trust 的补数据请求",
+        detail="请提供 QQQ 行情和成交量。",
+        command="lychee research run-data-request --request 2 --symbol QQQ",
+        source="research-memo-test.json",
+    )
+    request = ResearchDataRequest(
+        request_id="memo:test:data-request:2",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        confidence="medium",
+        request_text="请提供 QQQ 行情和成交量。",
+        suggested_commands=["lychee data pull market --symbols QQQ"],
+        memo_path="research-memo-test.json",
+        verification_path="research-verification-test.json",
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_fulfill_data_request(
+        output_dir: Path,
+        **kwargs: object,
+    ) -> ResearchDataRequestFulfillment:
+        calls.append({"output_dir": output_dir, **kwargs})
+        return ResearchDataRequestFulfillment(
+            request=request,
+            executions=[
+                ResearchDataRequestExecution(
+                    action_type="market",
+                    status="completed",
+                    command="lychee data pull market --symbols QQQ",
+                    count=2,
+                    output_path=tmp_path / "data" / "market-prices.json",
+                    message="行情已刷新。",
+                ),
+                ResearchDataRequestExecution(
+                    action_type="verify",
+                    status="completed",
+                    command="lychee research verify --symbol QQQ",
+                    count=1,
+                    output_path=tmp_path / "research" / "verify-qqq.json",
+                    message="已重新下钻核验。",
+                ),
+            ],
+        )
+
+    result = action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        limit=7,
+        force=False,
+        queue_builder=lambda *args, **kwargs: [item],
+        fulfill_data_request=fake_fulfill_data_request,
+    )
+
+    assert calls == [
+        {
+            "output_dir": tmp_path,
+            "request_index": 2,
+            "symbol": "QQQ",
+            "name": None,
+            "limit": 7,
+            "force": False,
+        }
+    ]
+    assert result.status == "completed"
+    assert result.count == 3
+    assert result.output_path == tmp_path / "research" / "verify-qqq.json"
+    assert result.next_command == ""
+    assert "已执行研究数据请求" in result.message
+
+
+def test_execute_action_queue_data_request_no_data_does_not_advance(
+    tmp_path: Path,
+) -> None:
+    item = action_queue.ActionQueueItem(
+        priority=30,
+        area="研究数据请求",
+        title="执行 Invesco QQQ Trust 的补数据请求",
+        detail="请提供 QQQ 行情和成交量。",
+        command="lychee research run-data-request --request 1 --symbol QQQ",
+        source="research-memo-test.json",
+    )
+    request = ResearchDataRequest(
+        request_id="memo:test:data-request:1",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        confidence="medium",
+        request_text="请提供 QQQ 行情和成交量。",
+        suggested_commands=["lychee data pull market --symbols QQQ"],
+        memo_path="research-memo-test.json",
+        verification_path="research-verification-test.json",
+    )
+
+    def fake_fulfill_data_request(
+        output_dir: Path,
+        **kwargs: object,
+    ) -> ResearchDataRequestFulfillment:
+        return ResearchDataRequestFulfillment(
+            request=request,
+            executions=[
+                ResearchDataRequestExecution(
+                    action_type="market",
+                    status="no-data",
+                    command="lychee data pull market --symbols QQQ",
+                    count=0,
+                    output_path=tmp_path / "data" / "market-prices.json",
+                    message="没有获取到匹配数据，未改变本地研究证据。",
+                ),
+                ResearchDataRequestExecution(
+                    action_type="verify",
+                    status="skipped",
+                    command="lychee research verify --symbol QQQ",
+                    count=0,
+                    output_path=None,
+                    message="本次没有改变本地数据，未重新核验。",
+                ),
+            ],
+        )
+
+    result = action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        queue_builder=lambda *args, **kwargs: [item],
+        fulfill_data_request=fake_fulfill_data_request,
+    )
+
+    assert result.status == "no-data"
+    assert result.count == 0
+    assert result.next_command == ""
+    assert "没有获取到匹配数据" in result.message
 
 
 def test_execute_action_queue_seeds_radar_target_before_research_run(

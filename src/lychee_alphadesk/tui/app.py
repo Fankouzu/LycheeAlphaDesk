@@ -1679,7 +1679,7 @@ def _action_queue_execution_text(result: ActionQueueExecution) -> str:
         f"{count_label}: {result.count}",
     ]
     if result.output_path is not None:
-        lines.append(f"缓存: {result.output_path}")
+        lines.append(f"输出: {result.output_path}")
     lines.extend(f"警告: {warning}" for warning in result.warnings)
     if result.next_command:
         lines.append(f"下一步核验: {result.next_command}")
@@ -1814,6 +1814,8 @@ def _display_data_request_action(action_type: str) -> str:
 def _display_data_request_execution_status(status: str) -> str:
     return {
         "completed": "已完成",
+        "cached": "缓存命中",
+        "no-data": "无数据",
         "failed": "失败",
         "skipped": "跳过",
         "manual_required": "需人工",

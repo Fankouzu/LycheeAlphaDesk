@@ -1,6 +1,8 @@
+import json
 import shlex
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from lychee_alphadesk.core.live_data import (
@@ -11,7 +13,12 @@ from lychee_alphadesk.core.live_data import (
     pull_sec_filings,
     write_fund_metadata_guide,
 )
-from lychee_alphadesk.core.research_db import ResearchMemoRecord, list_research_memos
+from lychee_alphadesk.core.research_db import (
+    ResearchMemoRecord,
+    list_research_data_request_fulfillments,
+    list_research_memos,
+    write_research_data_request_fulfillment_record,
+)
 from lychee_alphadesk.core.workbench import verify_research_task
 
 PullMarket = Callable[..., PullResult]
@@ -77,6 +84,8 @@ class ResearchDataRequestExecution:
 class ResearchDataRequestFulfillment:
     request: ResearchDataRequest
     executions: list[ResearchDataRequestExecution]
+    status: str = ""
+    artifact_path: Path | None = None
 
 
 def list_research_data_requests(
@@ -95,6 +104,7 @@ def list_research_data_requests(
     )
     requests: list[ResearchDataRequest] = []
     seen_tasks: set[tuple[str, str, str]] = set()
+    handled_request_ids = _handled_data_request_ids(output_dir)
     for record in records:
         task_key = _memo_task_key(record)
         if latest_per_task and task_key in seen_tasks:
@@ -102,10 +112,13 @@ def list_research_data_requests(
         seen_tasks.add(task_key)
         request_texts = _memo_data_requests(record)
         for index, request_text in enumerate(request_texts, start=1):
+            request_id = f"{record.memo_id}:data-request:{index}"
+            if request_id in handled_request_ids:
+                continue
             suggested_actions = _suggest_data_request_actions(record, request_text)
             requests.append(
                 ResearchDataRequest(
-                    request_id=f"{record.memo_id}:data-request:{index}",
+                    request_id=request_id,
                     created_at=record.created_at,
                     display_name=record.display_name,
                     symbol=record.symbol,
@@ -175,11 +188,16 @@ def fulfill_research_data_request(
             write_fund_guide=write_fund_guide,
         )
         executions.append(execution)
-        if execution.status == "completed" and action.action_type in {
-            "market",
-            "news",
-            "filings",
-        }:
+        if (
+            execution.status == "completed"
+            and execution.count > 0
+            and action.action_type
+            in {
+                "market",
+                "news",
+                "filings",
+            }
+        ):
             data_changed = True
 
     if data_changed and verify_action is not None:
@@ -207,7 +225,19 @@ def fulfill_research_data_request(
                 message=message,
             )
         )
-    return ResearchDataRequestFulfillment(request=request, executions=executions)
+    status = _fulfillment_status(executions)
+    artifact_path = _write_fulfillment_artifact(
+        output_dir=output_dir,
+        request=request,
+        executions=executions,
+        status=status,
+    )
+    return ResearchDataRequestFulfillment(
+        request=request,
+        executions=executions,
+        status=status,
+        artifact_path=artifact_path,
+    )
 
 
 def research_data_request_needs_manual_source(item: ResearchDataRequest) -> bool:
@@ -222,6 +252,113 @@ def research_data_request_needs_manual_source(item: ResearchDataRequest) -> bool
         len(item.suggested_commands) == 1
         and item.suggested_commands[0].startswith("lychee research verify ")
     )
+
+
+def _handled_data_request_ids(output_dir: Path) -> set[str]:
+    handled_statuses = {"completed", "cached", "manual_required"}
+    return {
+        record.request_id
+        for record in list_research_data_request_fulfillments(output_dir, limit=500)
+        if record.status in handled_statuses
+    }
+
+
+def _fulfillment_status(executions: list[ResearchDataRequestExecution]) -> str:
+    statuses = [execution.status for execution in executions]
+    if any(status == "failed" for status in statuses):
+        return "failed"
+    if any(status == "no-data" for status in statuses):
+        return "no-data"
+    if any(status == "manual_required" for status in statuses):
+        return "manual_required"
+    if any(status == "completed" for status in statuses):
+        return "completed"
+    if any(status == "cached" for status in statuses):
+        return "cached"
+    return "skipped"
+
+
+def _write_fulfillment_artifact(
+    *,
+    output_dir: Path,
+    request: ResearchDataRequest,
+    executions: list[ResearchDataRequestExecution],
+    status: str,
+) -> Path:
+    created_at = datetime.now(UTC).isoformat(timespec="seconds")
+    fulfillment_id = f"research-data-request-fulfillment:{created_at}:{request.request_id}"
+    output_path = _latest_output_path(executions)
+    payload: dict[str, object] = {
+        "fulfillment_id": fulfillment_id,
+        "created_at": created_at,
+        "request_id": request.request_id,
+        "display_name": request.display_name,
+        "symbol": request.symbol,
+        "market": request.market,
+        "status": status,
+        "request_text": request.request_text,
+        "memo_path": request.memo_path,
+        "verification_path": request.verification_path,
+        "output_path": str(output_path or ""),
+        "executions": [
+            {
+                "action_type": execution.action_type,
+                "status": execution.status,
+                "command": execution.command,
+                "count": execution.count,
+                "output_path": str(execution.output_path or ""),
+                "message": execution.message,
+                "warnings": execution.warnings,
+            }
+            for execution in executions
+        ],
+    }
+    research_dir = output_dir / "research"
+    research_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = _unique_artifact_path(
+        research_dir,
+        "research-data-request-fulfillment",
+        created_at,
+    )
+    payload["fulfillment_path"] = str(artifact_path)
+    artifact_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    write_research_data_request_fulfillment_record(
+        output_dir=output_dir,
+        fulfillment_id=fulfillment_id,
+        created_at=created_at,
+        request_id=request.request_id,
+        display_name=request.display_name,
+        symbol=request.symbol,
+        market=request.market,
+        status=status,
+        action_count=len(executions),
+        fulfillment_path=artifact_path,
+        output_path=output_path,
+        payload=payload,
+    )
+    return artifact_path
+
+
+def _latest_output_path(
+    executions: list[ResearchDataRequestExecution],
+) -> Path | None:
+    for execution in reversed(executions):
+        if execution.output_path is not None:
+            return execution.output_path
+    return None
+
+
+def _unique_artifact_path(directory: Path, prefix: str, created_at: str) -> Path:
+    safe_timestamp = created_at.replace(":", "").replace("+", "Z")
+    candidate = directory / f"{prefix}-{safe_timestamp}.json"
+    counter = 2
+    while candidate.exists():
+        candidate = directory / f"{prefix}-{safe_timestamp}-{counter}.json"
+        counter += 1
+    return candidate
 
 
 def list_provider_backlog_items(
@@ -472,13 +609,23 @@ def _pull_execution(
     result: PullResult,
     message: str,
 ) -> ResearchDataRequestExecution:
+    if result.count == 0:
+        return ResearchDataRequestExecution(
+            action_type=action.action_type,
+            status="no-data",
+            command=action.command,
+            count=0,
+            output_path=result.output_path,
+            message="没有获取到匹配数据，未改变本地研究证据。",
+            warnings=result.warnings,
+        )
     return ResearchDataRequestExecution(
         action_type=action.action_type,
-        status="completed",
+        status="completed" if result.refreshed else "cached",
         command=action.command,
         count=result.count,
         output_path=result.output_path,
-        message=message,
+        message=message if result.refreshed else "已使用未过期缓存。",
         warnings=result.warnings,
     )
 

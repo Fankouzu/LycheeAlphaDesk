@@ -101,6 +101,69 @@ def test_fulfill_research_data_request_runs_market_pull_and_verify(
     ]
 
 
+def test_fulfilled_research_data_request_leaves_queue(tmp_path: Path) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["请提供 QQQ 与更宽市场基准的行情、成交量和相对强弱对比。"],
+    )
+
+    def fake_pull_market(**kwargs: object) -> PullResult:
+        return PullResult("market", "auto", 1, tmp_path / "data" / "market.json", [])
+
+    def fake_verify(**kwargs: object) -> object:
+        return SimpleNamespace(artifact_path=tmp_path / "research" / "verify.json")
+
+    result = fulfill_research_data_request(
+        tmp_path,
+        request_index=1,
+        symbol="QQQ",
+        pull_market=fake_pull_market,
+        verify_task=fake_verify,
+    )
+
+    assert result.status == "completed"
+    assert result.artifact_path is not None
+    assert result.artifact_path.exists()
+    assert list_research_data_requests(tmp_path, symbol="QQQ") == []
+
+
+def test_fulfill_research_data_request_no_data_does_not_verify(
+    tmp_path: Path,
+) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["请提供 QQQ 与更宽市场基准的行情、成交量和相对强弱对比。"],
+    )
+    verify_calls: list[dict[str, object]] = []
+
+    def fake_pull_market(**kwargs: object) -> PullResult:
+        return PullResult("market", "auto", 0, tmp_path / "data" / "market.json", [])
+
+    def fake_verify(**kwargs: object) -> object:
+        verify_calls.append(kwargs)
+        return SimpleNamespace(artifact_path=tmp_path / "research" / "verify.json")
+
+    result = fulfill_research_data_request(
+        tmp_path,
+        request_index=1,
+        symbol="QQQ",
+        pull_market=fake_pull_market,
+        verify_task=fake_verify,
+    )
+
+    assert verify_calls == []
+    assert [execution.action_type for execution in result.executions] == [
+        "market",
+        "verify",
+    ]
+    assert [execution.status for execution in result.executions] == [
+        "no-data",
+        "skipped",
+    ]
+    assert "没有获取到匹配数据" in result.executions[0].message
+    assert "未重新核验" in result.executions[1].message
+
+
 def test_fulfill_research_data_request_prepares_fund_template_without_verify(
     tmp_path: Path,
 ) -> None:

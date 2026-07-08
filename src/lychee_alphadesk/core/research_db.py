@@ -88,6 +88,21 @@ class ResearchMemoRecord:
     payload: dict[str, object]
 
 
+@dataclass(frozen=True)
+class ResearchDataRequestFulfillmentRecord:
+    fulfillment_id: str
+    created_at: str
+    request_id: str
+    display_name: str
+    symbol: str | None
+    market: str
+    status: str
+    action_count: int
+    fulfillment_path: str
+    output_path: str
+    payload: dict[str, object]
+
+
 def research_db_path(output_dir: Path) -> Path:
     return output_dir / "research.sqlite3"
 
@@ -232,6 +247,29 @@ def init_research_db(output_dir: Path) -> Path:
             """
             CREATE INDEX IF NOT EXISTS idx_research_memos_created
             ON research_memos(created_at DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_data_request_fulfillments (
+                fulfillment_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                request_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                symbol TEXT,
+                market TEXT NOT NULL,
+                status TEXT NOT NULL,
+                action_count INTEGER NOT NULL,
+                fulfillment_path TEXT NOT NULL,
+                output_path TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_research_data_request_fulfillments_lookup
+            ON research_data_request_fulfillments(request_id, created_at DESC)
             """
         )
     return db_path
@@ -957,6 +995,111 @@ def list_research_memos(
             memo_path=row[11],
             verification_path=row[12],
             payload=json.loads(row[13]),
+        )
+        for row in rows
+    ]
+
+
+def write_research_data_request_fulfillment_record(
+    *,
+    output_dir: Path,
+    fulfillment_id: str,
+    created_at: str,
+    request_id: str,
+    display_name: str,
+    symbol: str | None,
+    market: str,
+    status: str,
+    action_count: int,
+    fulfillment_path: Path,
+    output_path: Path | None,
+    payload: dict[str, object],
+) -> Path:
+    init_research_db(output_dir)
+    with sqlite3.connect(research_db_path(output_dir)) as connection:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO research_data_request_fulfillments (
+                fulfillment_id,
+                created_at,
+                request_id,
+                display_name,
+                symbol,
+                market,
+                status,
+                action_count,
+                fulfillment_path,
+                output_path,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                fulfillment_id,
+                created_at,
+                request_id,
+                display_name,
+                symbol,
+                market,
+                status,
+                action_count,
+                str(fulfillment_path),
+                str(output_path or ""),
+                json.dumps(payload, ensure_ascii=False),
+            ),
+        )
+    return research_db_path(output_dir)
+
+
+def list_research_data_request_fulfillments(
+    output_dir: Path,
+    *,
+    request_id: str | None = None,
+    limit: int = 100,
+) -> list[ResearchDataRequestFulfillmentRecord]:
+    db_path = init_research_db(output_dir)
+    where_clause = ""
+    parameters: list[object] = []
+    if request_id:
+        where_clause = "WHERE request_id = ?"
+        parameters.append(request_id)
+    parameters.append(limit)
+
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT
+                fulfillment_id,
+                created_at,
+                request_id,
+                display_name,
+                symbol,
+                market,
+                status,
+                action_count,
+                fulfillment_path,
+                output_path,
+                payload_json
+            FROM research_data_request_fulfillments
+            {where_clause}
+            ORDER BY created_at DESC, fulfillment_id DESC
+            LIMIT ?
+            """,
+            parameters,
+        ).fetchall()
+
+    return [
+        ResearchDataRequestFulfillmentRecord(
+            fulfillment_id=row[0],
+            created_at=row[1],
+            request_id=row[2],
+            display_name=row[3],
+            symbol=row[4],
+            market=row[5],
+            status=row[6],
+            action_count=row[7],
+            fulfillment_path=row[8],
+            output_path=row[9],
+            payload=json.loads(row[10]),
         )
         for row in rows
     ]

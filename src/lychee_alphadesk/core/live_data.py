@@ -468,17 +468,38 @@ def pull_news_events(
     )
     if not freshness.should_refresh and freshness.entry is not None:
         cache = _read_cache(output_dir, "news-events.json")
-        return PullResult(
-            "news",
-            freshness.entry.provider,
-            len(cache.rows),
-            freshness.entry.artifact_path,
-            [freshness.reason],
-            refreshed=False,
+        matching_rows = _matching_news_cache_rows(cache.rows, symbols)
+        if freshness.entry.row_count == 0:
+            return PullResult(
+                "news",
+                freshness.entry.provider,
+                0,
+                freshness.entry.artifact_path,
+                [
+                    "新闻缓存记录为空且仍在保质期内，跳过重复刷新；"
+                    "需要重新尝试请使用 --force。"
+                ],
+                refreshed=False,
+            )
+        if _news_cache_covers_symbols(cache.rows, symbols):
+            return PullResult(
+                "news",
+                freshness.entry.provider,
+                len(matching_rows) if symbols else len(cache.rows),
+                freshness.entry.artifact_path,
+                [freshness.reason],
+                refreshed=False,
+            )
+        cache_gap_warning = (
+            "新闻缓存未覆盖本次请求的代码，需要重新刷新。"
+            if symbols
+            else "新闻缓存记录为空，需要重新刷新。"
         )
+    else:
+        cache_gap_warning = ""
 
     fetcher = fetch_json or _fetch_json
-    warnings: list[str] = []
+    warnings: list[str] = [cache_gap_warning] if cache_gap_warning else []
     rows: list[NewsEvent] = []
     selected_provider = ""
     last_error: RuntimeError | None = None
@@ -1316,6 +1337,43 @@ def _news_cache_row_key(row: dict[str, object]) -> str:
     headline = str(row.get("headline") or "").strip().lower()
     timestamp = str(row.get("timestamp") or "").strip()
     return f"headline:{headline}:{timestamp}"
+
+
+def _matching_news_cache_rows(
+    rows: list[dict[str, object]],
+    symbols: list[str],
+) -> list[dict[str, object]]:
+    if not symbols:
+        return rows
+    requested = {symbol.upper() for symbol in symbols}
+    return [
+        row
+        for row in rows
+        if requested.intersection(_news_cache_row_symbols(row))
+    ]
+
+
+def _news_cache_covers_symbols(
+    rows: list[dict[str, object]],
+    symbols: list[str],
+) -> bool:
+    if not symbols:
+        return bool(rows)
+    cached_symbols: set[str] = set()
+    for row in rows:
+        cached_symbols.update(_news_cache_row_symbols(row))
+    return all(symbol.upper() in cached_symbols for symbol in symbols)
+
+
+def _news_cache_row_symbols(row: dict[str, object]) -> set[str]:
+    raw_symbols = row.get("symbols")
+    if not isinstance(raw_symbols, list):
+        return set()
+    return {
+        str(symbol).strip().upper()
+        for symbol in raw_symbols
+        if str(symbol).strip()
+    }
 
 
 def _market_cache_covers_symbols(

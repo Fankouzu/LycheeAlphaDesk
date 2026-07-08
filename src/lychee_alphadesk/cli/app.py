@@ -7,7 +7,12 @@ from rich.console import Console
 from rich.table import Table
 
 from lychee_alphadesk.core import setup as setup_helpers
-from lychee_alphadesk.core.action_queue import ActionQueueItem, build_action_queue
+from lychee_alphadesk.core.action_queue import (
+    ActionQueueExecution,
+    ActionQueueItem,
+    build_action_queue,
+    execute_action_queue_item,
+)
 from lychee_alphadesk.core.audit import init_audit_db, list_audit_records
 from lychee_alphadesk.core.cache_freshness import (
     cache_entry_status,
@@ -1181,6 +1186,39 @@ def research_next(
     _print_action_queue(queue)
 
 
+@research_app.command("run-next")
+def research_run_next(
+    action_index: Annotated[
+        int,
+        typer.Option("--action", help="要执行的下一步行动序号，从 1 开始。"),
+    ],
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="生成行动队列时最多扫描多少条。"),
+    ] = 10,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force/--no-force", help="执行数据拉取动作时是否强制刷新。"),
+    ] = True,
+) -> None:
+    """执行下一步行动队列中的一条白名单自动动作。"""
+    try:
+        result = execute_action_queue_item(
+            output_dir,
+            action_index=action_index,
+            limit=limit,
+            force=force,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    _print_action_queue_execution(result)
+
+
 @research_app.command("provider-backlog")
 def research_provider_backlog(
     symbol: Annotated[
@@ -2135,6 +2173,26 @@ def _print_action_queue(items: list[ActionQueueItem]) -> None:
         console.print(f"   执行: {item.command}", soft_wrap=True)
         console.print(f"   来源: {item.source}", soft_wrap=True)
     console.print("边界: 行动队列只推进研究流程，不是买卖建议。", soft_wrap=True)
+
+
+def _print_action_queue_execution(result: ActionQueueExecution) -> None:
+    console.print("下一步行动已执行")
+    console.print(f"行动: [{result.item.area}] {result.item.title}", soft_wrap=True)
+    console.print(f"状态: {result.status}")
+    console.print(f"结果: {result.message}", soft_wrap=True)
+    count_label = (
+        "新闻行数"
+        if result.item.command.startswith("lychee data pull news")
+        else "处理数量"
+    )
+    console.print(f"{count_label}: {result.count}")
+    if result.output_path is not None:
+        console.print(f"缓存: {result.output_path}", soft_wrap=True)
+    for warning in result.warnings:
+        console.print(f"警告: {warning}", soft_wrap=True)
+    if result.next_command:
+        console.print(f"下一步核验: {result.next_command}", soft_wrap=True)
+    console.print("边界: 自动行动只补研究证据，不是买卖建议。", soft_wrap=True)
 
 
 def _print_opportunity_radar(report: OpportunityRadarReport) -> None:

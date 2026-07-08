@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 
 import lychee_alphadesk.cli.app as cli_app
 from lychee_alphadesk.cli.app import app
-from lychee_alphadesk.core.action_queue import ActionQueueItem
+from lychee_alphadesk.core.action_queue import ActionQueueExecution, ActionQueueItem
 from lychee_alphadesk.core.cache_freshness import record_cache_entry
 from lychee_alphadesk.core.config import set_openai_compatible_llm
 from lychee_alphadesk.core.discovery import (
@@ -2425,6 +2425,68 @@ def test_research_next_command_lists_unified_action_queue(
     assert "lychee data set metric --symbol STX --domain market_breadth" in result.stdout
     assert "lychee data pull news --symbols NVDA" in result.stdout
     assert "行动队列只推进研究流程，不是买卖建议" in result.stdout
+
+
+def test_research_run_next_command_executes_selected_action(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    item = ActionQueueItem(
+        priority=20,
+        area="机会雷达",
+        title="下钻 NVIDIA: AI 基础设施扩散",
+        detail="来自 QQQ 雷达信号；缺少该标的的主题新闻缓存。",
+        command=(
+            "lychee data pull news --symbols NVDA "
+            '--query "AI chip data center" --force'
+        ),
+        source="opportunity-radar",
+    )
+
+    def fake_execute_action_queue_item(
+        output_dir: Path, **kwargs: object
+    ) -> ActionQueueExecution:
+        assert output_dir == tmp_path
+        assert kwargs["action_index"] == 3
+        assert kwargs["limit"] == 8
+        assert kwargs["force"] is True
+        return ActionQueueExecution(
+            item=item,
+            status="completed",
+            message="已执行机会雷达补新闻动作。",
+            count=3,
+            output_path=tmp_path / "data" / "news-events.json",
+            next_command="lychee research run --symbol NVDA --force",
+            warnings=[],
+        )
+
+    monkeypatch.setattr(
+        cli_app,
+        "execute_action_queue_item",
+        fake_execute_action_queue_item,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "run-next",
+            "--action",
+            "3",
+            "--limit",
+            "8",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "下一步行动已执行" in result.stdout
+    assert "下钻 NVIDIA: AI 基础设施扩散" in result.stdout
+    assert "已执行机会雷达补新闻动作" in result.stdout
+    assert "新闻行数: 3" in result.stdout
+    assert "lychee research run --symbol NVDA --force" in result.stdout
+    assert "不是买卖建议" in result.stdout
 
 
 def test_research_provider_backlog_command_lists_manual_provider_gaps(

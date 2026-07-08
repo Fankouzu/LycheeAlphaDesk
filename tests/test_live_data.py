@@ -946,6 +946,158 @@ def test_pull_news_events_skips_fresh_cache(tmp_path: Path) -> None:
     assert "新闻缓存仍在保质期内" in result.warnings[0]
 
 
+def test_pull_news_events_reports_zero_row_fresh_cache_without_global_count(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["newsapi"].value = "demo-newsapi-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    cache_path = data_dir / "news-events.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "created_at": "2026-07-06T10:00:00+00:00",
+                "warnings": [],
+                "rows": [
+                    {
+                        "timestamp": "2026-07-06T09:30:00+00:00",
+                        "headline": "Broad market news",
+                        "summary": "This cache row does not cover Alibaba.",
+                        "symbols": ["MARKET"],
+                        "source_url": "https://example.com/market-news",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    record_cache_entry(
+        output_dir=tmp_path,
+        layer="news",
+        cache_key=(
+            "news:auto:BABA:2026-07-01:2026-07-03:"
+            "AI cloud revenue Alibaba data center"
+        ),
+        provider="newsapi",
+        artifact_path=cache_path,
+        created_at=datetime(2026, 7, 6, 10, 0, tzinfo=UTC),
+        expires_at=datetime(2026, 7, 6, 11, 0, tzinfo=UTC),
+        ttl_seconds=3600,
+        row_count=0,
+        market="US",
+        session_state="ttl",
+        is_final_for_session=False,
+    )
+    fetched: list[str] = []
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        fetched.append(url)
+        return {
+            "articles": [
+                {
+                    "publishedAt": "2026-07-06T10:05:00Z",
+                    "title": "Alibaba AI cloud revenue improves",
+                    "description": "Data center demand supports Alibaba cloud growth.",
+                    "url": "https://example.com/baba-ai-cloud",
+                }
+            ]
+        }
+
+    result = pull_news_events(
+        symbols=["BABA"],
+        query="AI cloud revenue Alibaba data center",
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        start_date="2026-07-01",
+        end_date="2026-07-03",
+        fetch_json=fetch_json,
+        now=datetime(2026, 7, 6, 10, 30, tzinfo=UTC),
+    )
+
+    assert fetched == []
+    assert result.refreshed is False
+    assert result.count == 0
+    assert "新闻缓存记录为空" in result.warnings[0]
+
+
+def test_pull_news_events_refreshes_when_fresh_cache_misses_symbol(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["newsapi"].value = "demo-newsapi-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    cache_path = data_dir / "news-events.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "created_at": "2026-07-06T10:00:00+00:00",
+                "warnings": [],
+                "rows": [
+                    {
+                        "timestamp": "2026-07-06T09:30:00+00:00",
+                        "headline": "Cached Apple news",
+                        "summary": "This row covers Apple, not Alibaba.",
+                        "symbols": ["AAPL"],
+                        "source_url": "https://example.com/aapl-news",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    record_cache_entry(
+        output_dir=tmp_path,
+        layer="news",
+        cache_key="news:auto:BABA:2026-07-01:2026-07-03:AI cloud",
+        provider="newsapi",
+        artifact_path=cache_path,
+        created_at=datetime(2026, 7, 6, 10, 0, tzinfo=UTC),
+        expires_at=datetime(2026, 7, 6, 11, 0, tzinfo=UTC),
+        ttl_seconds=3600,
+        row_count=1,
+        market="US",
+        session_state="ttl",
+        is_final_for_session=False,
+    )
+    fetched: list[str] = []
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        fetched.append(url)
+        return {
+            "articles": [
+                {
+                    "publishedAt": "2026-07-06T10:05:00Z",
+                    "title": "Alibaba AI cloud update",
+                    "description": "Alibaba cloud demand remains in focus.",
+                    "url": "https://example.com/baba-cloud",
+                }
+            ]
+        }
+
+    result = pull_news_events(
+        symbols=["BABA"],
+        query="AI cloud",
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        start_date="2026-07-01",
+        end_date="2026-07-03",
+        fetch_json=fetch_json,
+        now=datetime(2026, 7, 6, 10, 30, tzinfo=UTC),
+    )
+
+    assert fetched
+    assert result.refreshed is True
+    assert result.count == 1
+
+
 def test_auto_news_provider_falls_back_when_first_configured_provider_fails(
     tmp_path: Path,
 ) -> None:

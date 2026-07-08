@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from lychee_alphadesk.core.discovery import DiscoveryReport
@@ -309,6 +310,83 @@ def write_discovery_research_run(
     return research_db_path(output_dir)
 
 
+def write_opportunity_radar_candidate(
+    *,
+    output_dir: Path,
+    display_name: str,
+    symbol: str,
+    market: str,
+    related_theme: str,
+    why_watch: str,
+    next_actions: list[str],
+) -> Path:
+    init_research_db(output_dir)
+    created_at = datetime.now(UTC).isoformat(timespec="seconds")
+    run_id = f"opportunity-radar:{market}:{symbol}:{created_at}"
+    with sqlite3.connect(research_db_path(output_dir)) as connection:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO discovery_runs (
+                run_id,
+                created_at,
+                mode,
+                markets_json,
+                report_path,
+                warnings_json,
+                next_actions_json,
+                disclaimer
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                created_at,
+                "opportunity-radar",
+                json.dumps([market], ensure_ascii=False),
+                "opportunity-radar",
+                "[]",
+                json.dumps(next_actions, ensure_ascii=False),
+                "非投资建议。机会雷达候选只用于决定下一步研究什么。",
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO research_candidates (
+                run_id,
+                created_at,
+                display_name,
+                symbol,
+                market,
+                asset_type,
+                related_theme,
+                why_watch,
+                evidence_json,
+                risk_flags_json,
+                next_actions_json,
+                confidence,
+                recommendation,
+                status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                created_at,
+                display_name,
+                symbol,
+                market,
+                _radar_asset_type(symbol, display_name),
+                related_theme,
+                why_watch,
+                json.dumps(["opportunity-radar"], ensure_ascii=False),
+                "[]",
+                json.dumps(next_actions, ensure_ascii=False),
+                "medium",
+                "watch",
+                "new",
+            ),
+        )
+    return research_db_path(output_dir)
+
+
 def list_research_queue(
     output_dir: Path,
     *,
@@ -431,6 +509,13 @@ def _symbolless_topic_key(item: ResearchQueueItem) -> str:
 
 def _contains_any(text: str, values: list[str]) -> bool:
     return any(value in text for value in values)
+
+
+def _radar_asset_type(symbol: str, display_name: str) -> str:
+    text = f"{symbol} {display_name}".upper()
+    if "ETF" in text:
+        return "ETF"
+    return "Stock"
 
 
 def write_research_packet(

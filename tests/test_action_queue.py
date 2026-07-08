@@ -1,7 +1,11 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+import lychee_alphadesk.core.action_queue as action_queue
 from lychee_alphadesk.core.action_queue import build_action_queue
+from lychee_alphadesk.core.live_data import PullResult
 from lychee_alphadesk.core.opportunity_radar import (
     OpportunityDrilldownTarget,
     OpportunityRadarReport,
@@ -300,3 +304,195 @@ def test_action_queue_includes_opportunity_radar_drilldown_targets(
     assert queue[0].command.startswith("lychee data pull news --symbols NVDA")
     assert queue[0].source == "opportunity-radar"
     assert all("买入" not in item.detail for item in queue)
+
+
+def test_execute_action_queue_runs_radar_news_refresh(tmp_path: Path) -> None:
+    item = action_queue.ActionQueueItem(
+        priority=20,
+        area="机会雷达",
+        title="下钻 NVIDIA: AI 基础设施扩散",
+        detail="来自 QQQ 雷达信号；缺少该标的的主题新闻缓存。",
+        command=(
+            "lychee data pull news --symbols NVDA "
+            '--query "AI chip data center semiconductor demand" --force'
+        ),
+        source="opportunity-radar",
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_pull_news(**kwargs: object) -> PullResult:
+        calls.append(kwargs)
+        return PullResult(
+            domain="news",
+            provider="test-news",
+            count=3,
+            output_path=tmp_path / "data" / "news-events.json",
+            warnings=[],
+        )
+
+    result = action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        limit=5,
+        queue_builder=lambda *args, **kwargs: [item],
+        pull_news=fake_pull_news,
+    )
+
+    assert calls == [
+        {
+            "symbols": ["NVDA"],
+            "query": "AI chip data center semiconductor demand",
+            "output_dir": tmp_path,
+            "provider_id": "auto",
+            "force": True,
+        }
+    ]
+    assert result.status == "completed"
+    assert result.item.title == "下钻 NVIDIA: AI 基础设施扩散"
+    assert result.count == 3
+    assert result.output_path == tmp_path / "data" / "news-events.json"
+    assert result.next_command == "lychee research run --symbol NVDA --force"
+
+
+def test_execute_action_queue_does_not_advance_empty_news_refresh(
+    tmp_path: Path,
+) -> None:
+    item = action_queue.ActionQueueItem(
+        priority=20,
+        area="机会雷达",
+        title="下钻 Alibaba: AI 基础设施扩散",
+        detail="来自 NVDA 雷达信号；缺少该标的的主题新闻缓存。",
+        command=(
+            "lychee data pull news --symbols BABA "
+            '--query "AI cloud revenue Alibaba data center" --force'
+        ),
+        source="opportunity-radar",
+    )
+
+    def fake_pull_news(**kwargs: object) -> PullResult:
+        return PullResult(
+            domain="news",
+            provider="test-news",
+            count=0,
+            output_path=tmp_path / "data" / "news-events.json",
+            warnings=["provider 返回 0 条新闻"],
+        )
+
+    result = action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        limit=5,
+        queue_builder=lambda *args, **kwargs: [item],
+        pull_news=fake_pull_news,
+    )
+
+    assert result.status == "no-data"
+    assert "没有获取到" in result.message
+    assert result.next_command == ""
+    assert result.warnings == ["provider 返回 0 条新闻"]
+
+
+def test_execute_action_queue_rejects_unsupported_commands(tmp_path: Path) -> None:
+    item = action_queue.ActionQueueItem(
+        priority=10,
+        area="待判定证据",
+        title="复核 QQQ 的待判定证据",
+        detail="需要人工判断证据方向。",
+        command="lychee research evidence-review --symbol QQQ --verdict support",
+        source="research-verification-test.json",
+    )
+
+    with pytest.raises(ValueError, match="暂不支持自动执行"):
+        action_queue.execute_action_queue_item(
+            tmp_path,
+            action_index=1,
+            queue_builder=lambda *args, **kwargs: [item],
+        )
+
+
+def test_execute_action_queue_runs_research_task(tmp_path: Path) -> None:
+    item = action_queue.ActionQueueItem(
+        priority=20,
+        area="机会雷达",
+        title="下钻 NVIDIA: AI 基础设施扩散",
+        detail="已有行情和主题新闻，可进入下钻核验。",
+        command="lychee research run --symbol NVDA --force",
+        source="opportunity-radar",
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_run_research(**kwargs: object) -> SimpleNamespace:
+        calls.append(kwargs)
+        return SimpleNamespace(
+            status="completed",
+            actions=[SimpleNamespace(status="completed")],
+            artifact_path=tmp_path / "research" / "research-run-nvda.json",
+            candidate=SimpleNamespace(symbol="NVDA", display_name="NVIDIA"),
+        )
+
+    result = action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        limit=5,
+        queue_builder=lambda *args, **kwargs: [item],
+        run_research=fake_run_research,
+    )
+
+    assert calls == [
+        {
+            "output_dir": tmp_path,
+            "symbol": "NVDA",
+            "name": None,
+            "limit": 5,
+            "force": True,
+        }
+    ]
+    assert result.status == "completed"
+    assert result.count == 1
+    assert result.output_path == tmp_path / "research" / "research-run-nvda.json"
+    assert result.next_command == "lychee research verify --symbol NVDA"
+
+
+def test_execute_action_queue_seeds_radar_target_before_research_run(
+    tmp_path: Path,
+) -> None:
+    item = action_queue.ActionQueueItem(
+        priority=20,
+        area="机会雷达",
+        title="下钻 NVIDIA: AI 基础设施扩散",
+        detail="来自 QQQ 雷达信号；已有行情和主题新闻，可进入下钻核验。",
+        command="lychee research run --symbol NVDA --force",
+        source="opportunity-radar",
+    )
+    seeded: list[dict[str, object]] = []
+
+    def fake_seed_candidate(**kwargs: object) -> Path:
+        seeded.append(kwargs)
+        return tmp_path / "research.sqlite3"
+
+    def fake_run_research(**kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            status="completed",
+            actions=[],
+            artifact_path=tmp_path / "research" / "research-run-nvda.json",
+        )
+
+    action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        queue_builder=lambda *args, **kwargs: [item],
+        run_research=fake_run_research,
+        radar_candidate_writer=fake_seed_candidate,
+    )
+
+    assert seeded == [
+        {
+            "output_dir": tmp_path,
+            "display_name": "NVIDIA",
+            "symbol": "NVDA",
+            "market": "US",
+            "related_theme": "AI 基础设施扩散",
+            "why_watch": item.detail,
+            "next_actions": [item.command],
+        }
+    ]

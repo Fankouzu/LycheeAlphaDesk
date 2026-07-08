@@ -647,10 +647,11 @@ def run_research_task(
     pull_filings: PullFilings | None = None,
 ) -> ResearchRunResult:
     created_at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
+    candidate_limit = limit
     initial = run_workbench_check(
         output_dir=output_dir,
         status=status,
-        limit=limit,
+        limit=candidate_limit,
         force=False,
         now=now,
         pull_market=pull_market,
@@ -661,6 +662,22 @@ def run_research_task(
         symbol=symbol,
         name=name,
     )
+    if selected_index is None and (symbol or name):
+        candidate_limit = max(limit, 50)
+        initial = run_workbench_check(
+            output_dir=output_dir,
+            status=status,
+            limit=candidate_limit,
+            force=False,
+            now=now,
+            pull_market=pull_market,
+            pull_filings=pull_filings,
+        )
+        selected_index = select_research_candidate_index(
+            initial,
+            symbol=symbol,
+            name=name,
+        )
     if selected_index is None:
         raise ValueError("没有找到匹配的研究任务。")
 
@@ -682,7 +699,7 @@ def run_research_task(
     refreshed = run_workbench_check(
         output_dir=output_dir,
         status=status,
-        limit=limit,
+        limit=candidate_limit,
         force=False,
         now=now,
         pull_market=pull_market,

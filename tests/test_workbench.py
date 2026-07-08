@@ -739,6 +739,119 @@ def test_research_run_stops_repeating_topic_refresh_after_exhausted_news(
     assert "- 刷新主题新闻: lychee data pull news" not in result.detail
 
 
+def test_research_run_expands_pool_for_explicit_symbol(tmp_path: Path) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["US"],
+        sources=[DiscoverySource(provider="test-llm", market="US", description="测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="AI 基础设施扩散",
+                markets=["US"],
+                summary="AI 基础设施主题需要下钻多个公司。",
+                evidence=["news_001"],
+                sectors=["Technology"],
+                risk_flags=[],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="NVIDIA",
+                symbol="NVDA",
+                market="US",
+                asset_type="stock",
+                related_theme="AI 基础设施扩散",
+                why_watch="用算力芯片龙头校验主题。",
+                evidence=["news_001"],
+                risk_flags=[],
+                next_actions=["下钻 NVDA"],
+                confidence="medium",
+                recommendation="research",
+            ),
+            DiscoveryCandidate(
+                display_name="Seagate",
+                symbol="STX",
+                market="US",
+                asset_type="stock",
+                related_theme="AI 存储需求",
+                why_watch="硬盘供需可能改善。",
+                evidence=["news_001"],
+                risk_flags=[],
+                next_actions=["下钻 STX"],
+                confidence="medium",
+                recommendation="research",
+            ),
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(report, tmp_path, tmp_path / "data" / "discovery.json")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "auto",
+                "rows": [
+                    {
+                        "symbol": "NVDA",
+                        "date": "2026-07-02",
+                        "close": 194.83,
+                        "volume": 142068700,
+                        "currency": "USD",
+                    },
+                    {
+                        "symbol": "STX",
+                        "date": "2026-07-02",
+                        "close": 110.5,
+                        "volume": 3210000,
+                        "currency": "USD",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T09:00:00+00:00",
+                        "headline": "AI chip data center demand supports Nvidia",
+                        "summary": (
+                            "Artificial intelligence infrastructure demand remains "
+                            "relevant."
+                        ),
+                        "symbols": ["NVDA"],
+                        "source_url": "https://example.com/nvda",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_research_task(
+        output_dir=tmp_path,
+        symbol="NVDA",
+        limit=1,
+        force=False,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+        pull_market=_fake_market_pull,
+        pull_news=_fake_news_pull,
+        pull_filings=_fake_filings_pull,
+    )
+
+    assert result.candidate.symbol == "NVDA"
+
+
 def test_workbench_check_remembers_exhausted_topic_news_run(tmp_path: Path) -> None:
     _write_stock_seed(tmp_path)
     _write_live_caches(

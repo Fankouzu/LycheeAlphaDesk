@@ -1865,6 +1865,18 @@ def _research_verification_text(result: ResearchVerificationResult) -> str:
             ),
             *_evidence_change_detail_lines(result),
             "",
+            result.analyst_readout.title,
+            result.analyst_readout.signal,
+            result.analyst_readout.pressure,
+            result.analyst_readout.gap,
+            result.analyst_readout.evidence_change,
+            result.analyst_readout.next_action,
+            *(
+                [f"执行命令: {result.analyst_readout.next_command}"]
+                if result.analyst_readout.next_command
+                else []
+            ),
+            "",
             "研究决策板",
             f"状态: {result.decision_board.workflow_label}",
             f"要回答的问题: {result.decision_board.primary_question}",

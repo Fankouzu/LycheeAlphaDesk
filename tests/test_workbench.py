@@ -451,6 +451,31 @@ def test_verify_research_task_uses_proxy_prices_for_symbolless_themes(
     )
 
 
+def test_verify_research_task_builds_analyst_readout_for_beginners(
+    tmp_path: Path,
+) -> None:
+    _write_symbolless_seed(tmp_path)
+    _write_live_caches(tmp_path, include_proxy_price=True)
+
+    result = verify_research_task(
+        output_dir=tmp_path,
+        name="恒生指数压力观察",
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    assert result.analyst_readout.title == "分析师读数"
+    assert "当前信号:" in result.analyst_readout.signal
+    assert "支持" in result.analyst_readout.signal
+    assert "反向压力:" in result.analyst_readout.pressure
+    assert "证据缺口:" in result.analyst_readout.gap
+    assert "工作台动作:" in result.analyst_readout.next_action
+    assert result.analyst_readout.next_command == result.decision_board.next_commands[0]
+
+    payload = json.loads(result.artifact_path.read_text(encoding="utf-8"))
+    assert payload["analyst_readout"]["title"] == "分析师读数"
+    assert payload["analyst_readout"]["next_command"] == result.analyst_readout.next_command
+
+
 def test_verify_research_task_uses_source_backed_research_metrics(
     tmp_path: Path,
 ) -> None:

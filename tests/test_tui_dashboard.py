@@ -36,6 +36,7 @@ from lychee_alphadesk.core.research_requests import (
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
     PendingEvidenceReviewItem,
+    ResearchAnalystReadout,
     ResearchDecisionBoard,
     ResearchEvidenceChange,
     ResearchEvidenceReviewResult,
@@ -129,6 +130,15 @@ def test_research_verification_text_shows_evidence_change(tmp_path: Path) -> Non
             ),
             previous_created_at="2026-07-04T10:00:00+00:00",
         ),
+        analyst_readout=ResearchAnalystReadout(
+            title="分析师读数",
+            signal="当前信号: 支持证据 1 条，先判断它是否回答同一个研究问题。",
+            pressure="反向压力: 当前证据板暂无反向证据或离题噪音。",
+            gap="证据缺口: 暂无待补证据，下一步只做一致性复核，不生成买卖结论。",
+            evidence_change="证据变化: 证据增强；支持证据增加 1。",
+            next_action="工作台动作: 可进入人工一致性复核；记录继续研究。",
+            next_command="lychee research memo --symbol QQQ",
+        ),
         conclusion="一致性结论: 待人工核验。",
         next_actions=["记录支持证据、反向证据和仍需补充的数据。"],
         artifact_path=tmp_path / "research" / "research-verification-test.json",
@@ -144,6 +154,10 @@ def test_research_verification_text_shows_evidence_change(tmp_path: Path) -> Non
     assert "新增支持证据" in text
     assert "已补掉待补证据" in text
     assert "上一份核验:" in text
+    assert "分析师读数" in text
+    assert "当前信号: 支持证据 1 条" in text
+    assert "工作台动作: 可进入人工一致性复核" in text
+    assert "执行命令: lychee research memo --symbol QQQ" in text
 
 
 def test_research_review_followup_actions_continue_research_offer_memo() -> None:

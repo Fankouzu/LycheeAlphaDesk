@@ -159,6 +159,17 @@ class ResearchEvidenceChange:
 
 
 @dataclass(frozen=True)
+class ResearchAnalystReadout:
+    title: str
+    signal: str
+    pressure: str
+    gap: str
+    evidence_change: str
+    next_action: str
+    next_command: str
+
+
+@dataclass(frozen=True)
 class ResearchVerificationResult:
     created_at: str
     status: str
@@ -174,6 +185,9 @@ class ResearchVerificationResult:
     workbench_result: WorkbenchCheckResult
     evidence_change: ResearchEvidenceChange = field(
         default_factory=lambda: _first_research_evidence_change()
+    )
+    analyst_readout: ResearchAnalystReadout = field(
+        default_factory=lambda: _empty_research_analyst_readout()
     )
 
 
@@ -389,6 +403,11 @@ def verify_research_task(
         candidate=candidate,
         evidence_board=evidence_board,
     )
+    analyst_readout = build_research_analyst_readout(
+        evidence_board=evidence_board,
+        decision_board=decision_board,
+        evidence_change=evidence_change,
+    )
     verify_status = _verification_status(checks)
     status_label = _verification_status_label(verify_status)
     conclusion = _verification_conclusion(verify_status)
@@ -403,6 +422,7 @@ def verify_research_task(
         evidence_board=evidence_board,
         decision_board=decision_board,
         evidence_change=evidence_change,
+        analyst_readout=analyst_readout,
         conclusion=conclusion,
         next_actions=next_actions,
     )
@@ -416,6 +436,7 @@ def verify_research_task(
         evidence_board=evidence_board,
         decision_board=decision_board,
         evidence_change=evidence_change,
+        analyst_readout=analyst_readout,
         conclusion=conclusion,
         next_actions=next_actions,
         artifact_path=artifact_path,
@@ -1536,6 +1557,64 @@ def research_evidence_change_detail_groups(
         ("新增待补证据", change.added["missing"]),
         ("已补掉待补证据", change.removed["missing"]),
     ]
+
+
+def build_research_analyst_readout(
+    *,
+    evidence_board: dict[str, list[str]],
+    decision_board: ResearchDecisionBoard,
+    evidence_change: ResearchEvidenceChange,
+) -> ResearchAnalystReadout:
+    support_count = len(evidence_board.get("support", []))
+    risk_count = len(evidence_board.get("risk", []))
+    off_topic_count = len(evidence_board.get("off_topic", []))
+    missing_count = len(evidence_board.get("missing", []))
+    first_step = decision_board.next_steps[0] if decision_board.next_steps else "继续复核证据板。"
+    next_command = decision_board.next_commands[0] if decision_board.next_commands else ""
+    return ResearchAnalystReadout(
+        title="分析师读数",
+        signal=_analyst_signal_line(support_count),
+        pressure=_analyst_pressure_line(risk_count, off_topic_count),
+        gap=_analyst_gap_line(missing_count),
+        evidence_change=f"证据变化: {evidence_change.status_label}；{evidence_change.summary}",
+        next_action=f"工作台动作: {decision_board.workflow_label}；{first_step}",
+        next_command=next_command,
+    )
+
+
+def _empty_research_analyst_readout() -> ResearchAnalystReadout:
+    return ResearchAnalystReadout(
+        title="分析师读数",
+        signal="当前信号: 尚未生成证据读数。",
+        pressure="反向压力: 尚未生成风险读数。",
+        gap="证据缺口: 尚未生成缺口读数。",
+        evidence_change="证据变化: 尚未生成变化读数。",
+        next_action="工作台动作: 尚未生成下一步动作。",
+        next_command="",
+    )
+
+
+def _analyst_signal_line(support_count: int) -> str:
+    if support_count:
+        return f"当前信号: 支持证据 {support_count} 条，先判断它们是否回答同一个研究问题。"
+    return "当前信号: 暂无可用支持证据，不应把这条线索推进到研究结论。"
+
+
+def _analyst_pressure_line(risk_count: int, off_topic_count: int) -> str:
+    if risk_count:
+        return (
+            f"反向压力: 风险/反向待查 {risk_count} 条，先解释压力来源，"
+            f"并剔除离题噪音 {off_topic_count} 条。"
+        )
+    if off_topic_count:
+        return f"反向压力: 暂无明确反向证据，但已过滤离题噪音 {off_topic_count} 条。"
+    return "反向压力: 当前证据板暂无反向证据或离题噪音。"
+
+
+def _analyst_gap_line(missing_count: int) -> str:
+    if missing_count:
+        return f"证据缺口: 待补 {missing_count} 条，先补数据或记录阻塞，不生成买卖结论。"
+    return "证据缺口: 暂无待补证据，下一步只做一致性复核，不生成买卖结论。"
 
 
 def _latest_matching_verification_artifact(
@@ -3080,6 +3159,7 @@ def _write_research_verification_artifact(
     evidence_board: dict[str, list[str]],
     decision_board: ResearchDecisionBoard,
     evidence_change: ResearchEvidenceChange,
+    analyst_readout: ResearchAnalystReadout,
     conclusion: str,
     next_actions: list[str],
 ) -> Path:
@@ -3101,6 +3181,7 @@ def _write_research_verification_artifact(
                 "evidence_board": evidence_board,
                 "decision_board": asdict(decision_board),
                 "evidence_change": asdict(evidence_change),
+                "analyst_readout": asdict(analyst_readout),
                 "conclusion": conclusion,
                 "next_actions": next_actions,
                 "disclaimer": "下钻核验只检查证据完整度和待核验项，不构成买卖建议。",
@@ -3177,6 +3258,7 @@ def _research_verification_payload(
         "evidence_board": result.evidence_board,
         "decision_board": asdict(result.decision_board),
         "evidence_change": asdict(result.evidence_change),
+        "analyst_readout": asdict(result.analyst_readout),
         "conclusion": result.conclusion,
         "next_actions": result.next_actions,
         "artifact_path": str(result.artifact_path),

@@ -1748,6 +1748,7 @@ def _print_research_verification(result: ResearchVerificationResult) -> None:
     )
     _print_evidence_board_column("待补证据", result.evidence_board["missing"])
     _print_research_evidence_change(result)
+    _print_research_analyst_readout(result)
     _print_research_decision_board(result)
     _print_pending_evidence_review_commands(result)
     console.print(result.conclusion, soft_wrap=True)
@@ -1888,6 +1889,18 @@ def _print_research_evidence_change(result: ResearchVerificationResult) -> None:
         console.print("证据变化明细")
         for title, rows in detail_groups:
             _print_evidence_board_column(title, rows[:5])
+
+
+def _print_research_analyst_readout(result: ResearchVerificationResult) -> None:
+    readout = result.analyst_readout
+    console.print(readout.title)
+    console.print(readout.signal, soft_wrap=True)
+    console.print(readout.pressure, soft_wrap=True)
+    console.print(readout.gap, soft_wrap=True)
+    console.print(readout.evidence_change, soft_wrap=True)
+    console.print(readout.next_action, soft_wrap=True)
+    if readout.next_command:
+        console.print(f"执行命令: {readout.next_command}", soft_wrap=True)
 
 
 def _print_research_review(result: ResearchReviewResult) -> None:

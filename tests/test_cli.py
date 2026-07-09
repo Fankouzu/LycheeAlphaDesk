@@ -948,6 +948,11 @@ def test_research_verify_command_writes_drilldown_checklist(
     assert "支持证据" in result.stdout
     assert "风险/反向待查" in result.stdout
     assert "待补证据" in result.stdout
+    assert "分析师读数" in result.stdout
+    assert "当前信号:" in result.stdout
+    assert "反向压力:" in result.stdout
+    assert "证据缺口:" in result.stdout
+    assert "工作台动作:" in result.stdout
     assert "研究决策板" in result.stdout
     assert "状态: 可进入人工一致性复核" in result.stdout
     assert "建议记录: continue_research" in result.stdout
@@ -961,6 +966,8 @@ def test_research_verify_command_writes_drilldown_checklist(
     assert payload["evidence_board"]["support"]
     assert payload["evidence_board"]["risk"]
     assert payload["evidence_board"]["missing"] == []
+    assert payload["analyst_readout"]["title"] == "分析师读数"
+    assert "当前信号:" in payload["analyst_readout"]["signal"]
     assert payload["decision_board"]["workflow_state"] == "ready_for_review"
     assert payload["decision_board"]["suggested_verdict"] == "continue_research"
     assert "证据可以进入人工一致性复核" in payload["decision_board"]["decision_rule"]

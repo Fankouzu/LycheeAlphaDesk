@@ -127,14 +127,12 @@ def test_action_queue_prioritizes_concrete_next_steps(tmp_path: Path) -> None:
     assert [item.area for item in queue] == [
         "待判定证据",
         "研究数据请求",
-        "研究任务",
         "数据源缺口",
     ]
     assert queue[0].command.startswith("lychee research evidence-review --symbol STX")
     assert queue[1].title == "补行情数据: Seagate"
     assert queue[1].command == "lychee research run-data-request --request 1 --symbol STX"
-    assert queue[2].command == "lychee research verify --symbol STX"
-    assert queue[3].command.startswith("lychee data set metric --symbol STX")
+    assert queue[2].command.startswith("lychee data set metric --symbol STX")
     assert all("买入" not in item.detail for item in queue)
 
 
@@ -199,6 +197,104 @@ def test_action_queue_numbers_data_requests_within_selected_task(
     assert [item.command for item in queue] == [
         "lychee research run-data-request --request 1 --symbol QQQ",
         "lychee research run-data-request --request 1 --symbol STX",
+    ]
+
+
+def test_action_queue_hides_generic_task_when_data_request_exists(
+    tmp_path: Path,
+) -> None:
+    stx_candidate = CandidateCheck(
+        display_name="Seagate",
+        market="US",
+        symbol="STX",
+        proxy_symbols=[],
+        evidence_count=1,
+        gap_count=1,
+        data_gaps=["缺少 STX 本地行情缓存。"],
+        status="blocked",
+        explanation="需要先补行情。",
+        beginner_question="AI 存储需求是否反映到公司和供应链？",
+        why_it_matters="需要避免只看热门叙事。",
+        observation_entry="STX",
+        what_to_check="行情、新闻、公告和研究指标是否同向。",
+        next_step="先补行情。",
+        priority="P2 证据不足",
+        evidence_status="支持 1 | 待补 1",
+        ranking_reason="缺少行情证据。",
+        next_command="lychee research run --symbol STX --limit 10 --force",
+    )
+    qqq_candidate = CandidateCheck(
+        display_name="Invesco QQQ Trust",
+        market="US",
+        symbol="QQQ",
+        proxy_symbols=[],
+        evidence_count=1,
+        gap_count=1,
+        data_gaps=["缺少 QQQ 本地行情缓存。"],
+        status="blocked",
+        explanation="需要先补行情。",
+        beginner_question="科技反弹是否扩散？",
+        why_it_matters="需要区分个股驱动和市场驱动。",
+        observation_entry="QQQ",
+        what_to_check="行情和成交量是否配合。",
+        next_step="先补行情。",
+        priority="P2 证据不足",
+        evidence_status="支持 1 | 待补 1",
+        ranking_reason="缺少行情证据。",
+        next_command="lychee research run --symbol QQQ --limit 10 --force",
+    )
+    workbench_result = SimpleNamespace(
+        candidates=[stx_candidate, qqq_candidate],
+        deepen_result=ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        ),
+        fill_result=ResearchGapFillResult(1, [], [], [], []),
+    )
+    data_request = ResearchDataRequest(
+        request_id="research-verification-test:hypothesis-data-request:1",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Seagate",
+        symbol="STX",
+        market="US",
+        confidence="需要补证据",
+        request_text="补齐最高优先级缺口: 数据缺口: 缺少 STX 本地行情缓存。",
+        suggested_commands=[
+            "lychee data pull market --symbols STX --provider auto --force",
+            "lychee research verify --symbol STX",
+        ],
+        memo_path="",
+        verification_path=str(tmp_path / "research" / "research-verification-test.json"),
+        suggested_actions=[
+            ResearchDataRequestAction(
+                "market",
+                "lychee data pull market --symbols STX --provider auto --force",
+            ),
+            ResearchDataRequestAction("verify", "lychee research verify --symbol STX"),
+        ],
+        source_type="verification",
+    )
+
+    queue = build_action_queue(
+        tmp_path,
+        workbench_runner=lambda **kwargs: workbench_result,
+        pending_reader=lambda **kwargs: [],
+        data_request_reader=lambda **kwargs: [data_request],
+        provider_backlog_reader=lambda **kwargs: [],
+        radar_reader=lambda **kwargs: OpportunityRadarReport(
+            created_at="2026-07-05T10:00:00+00:00",
+            status="empty",
+            signals=[],
+            warnings=[],
+            disclaimer="非投资建议。",
+        ),
+    )
+
+    assert [item.command for item in queue] == [
+        "lychee research run-data-request --request 1 --symbol STX",
+        "lychee research run --symbol QQQ --limit 10 --force",
     ]
 
 

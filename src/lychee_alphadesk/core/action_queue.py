@@ -118,11 +118,13 @@ def build_action_queue(
             items.append(action)
 
     request_indexes: dict[tuple[str, str], int] = {}
+    concrete_data_request_keys: set[tuple[str, str]] = set()
     for request in data_request_reader(output_dir=output_dir, limit=limit):
         request_key = _data_request_key(request)
         request_indexes[request_key] = request_indexes.get(request_key, 0) + 1
         action = _data_request_action(request_indexes[request_key], request)
         if action is not None:
+            concrete_data_request_keys.add(request_key)
             items.append(action)
 
     radar = radar_reader(output_dir=output_dir, limit=limit)
@@ -133,6 +135,11 @@ def build_action_queue(
 
     for candidate in workbench.candidates:
         if candidate.next_command:
+            if _candidate_has_concrete_data_request(
+                candidate,
+                concrete_data_request_keys,
+            ):
+                continue
             items.append(_workbench_candidate_action(output_dir, candidate))
 
     return _dedupe_actions(sorted(items, key=lambda item: item.priority))[:limit]
@@ -781,6 +788,19 @@ def _data_request_key(item: ResearchDataRequest) -> tuple[str, str]:
     if item.symbol:
         return ("symbol", item.symbol.upper())
     return ("name", item.display_name.casefold())
+
+
+def _candidate_has_concrete_data_request(
+    candidate: Any,
+    data_request_keys: set[tuple[str, str]],
+) -> bool:
+    symbol = getattr(candidate, "symbol", None)
+    if isinstance(symbol, str) and symbol:
+        return ("symbol", symbol.upper()) in data_request_keys
+    display_name = getattr(candidate, "display_name", "")
+    if isinstance(display_name, str) and display_name:
+        return ("name", display_name.casefold()) in data_request_keys
+    return False
 
 
 def _data_request_action_label(item: ResearchDataRequest) -> str:

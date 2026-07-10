@@ -2564,6 +2564,64 @@ def test_research_run_next_command_executes_selected_action(
     assert "不是买卖建议" in result.stdout
 
 
+def test_research_run_next_command_explains_network_failures(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    item = ActionQueueItem(
+        priority=30,
+        area="研究数据请求",
+        title="补行情和新闻: Tencent",
+        detail="缺少本地行情和新闻缓存。",
+        command="lychee research run-data-request --request 1 --symbol 0700.HK",
+        source="research-verification-test.json",
+    )
+
+    def fake_execute_action_queue_item(
+        output_dir: Path, **kwargs: object
+    ) -> ActionQueueExecution:
+        assert output_dir == tmp_path
+        return ActionQueueExecution(
+            item=item,
+            status="failed",
+            message=(
+                "无法从 https://newsapi.org/v2/everything 获取 JSON: "
+                "<urlopen error [Errno 1] Operation not permitted>"
+            ),
+            count=0,
+            output_path=tmp_path / "research" / "fulfillment.json",
+            next_command="",
+            warnings=[
+                "0700.HK Eastmoney 行情拉取失败: "
+                "<urlopen error [Errno 1] Operation not permitted>"
+            ],
+        )
+
+    monkeypatch.setattr(
+        cli_app,
+        "execute_action_queue_item",
+        fake_execute_action_queue_item,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "run-next",
+            "--action",
+            "1",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "状态: failed" in result.stdout
+    assert "数据源诊断:" in result.stdout
+    assert "网络连接或系统权限阻止了数据源请求" in result.stdout
+    assert "检查网络、代理、防火墙或当前运行环境的联网权限" in result.stdout
+
+
 def test_research_run_next_command_executes_batch(
     monkeypatch: object,
     tmp_path: Path,
@@ -2787,6 +2845,70 @@ def test_research_run_data_request_command_executes_supported_actions(
     assert "行情已刷新" in result.stdout
     assert "已重新下钻核验" in result.stdout
     assert "数据请求执行只补证据，不是买卖建议" in result.stdout
+
+
+def test_research_run_data_request_command_explains_provider_failures(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    def fake_fulfill_research_data_request(
+        output_dir: Path,
+        **kwargs: object,
+    ) -> ResearchDataRequestFulfillment:
+        assert output_dir == tmp_path
+        return ResearchDataRequestFulfillment(
+            request=ResearchDataRequest(
+                request_id="research-verification-test:hypothesis-data-request:1",
+                created_at="2026-07-05T10:02:00+00:00",
+                display_name="Tencent",
+                symbol="0700.HK",
+                market="HK",
+                confidence="存在阻塞",
+                request_text="补齐 0700.HK 本地行情缓存和新闻缓存。",
+                suggested_commands=["lychee data pull market --symbols 0700.HK"],
+                memo_path="",
+                verification_path=str(tmp_path / "research" / "verify.json"),
+            ),
+            executions=[
+                ResearchDataRequestExecution(
+                    action_type="market",
+                    status="failed",
+                    command="lychee data pull market --symbols 0700.HK",
+                    count=0,
+                    output_path=None,
+                    message=(
+                        "无法从 https://query1.finance.yahoo.com 获取 JSON: "
+                        "<urlopen error [Errno 1] Operation not permitted>"
+                    ),
+                )
+            ],
+            status="failed",
+        )
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        cli_app,
+        "fulfill_research_data_request",
+        fake_fulfill_research_data_request,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "run-data-request",
+            "--request",
+            "1",
+            "--symbol",
+            "0700.HK",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "研究数据请求执行结果" in result.stdout
+    assert "数据源诊断:" in result.stdout
+    assert "网络连接或系统权限阻止了数据源请求" in result.stdout
 
 
 def test_research_memo_command_rejects_investment_advice_language(

@@ -2252,6 +2252,9 @@ def _print_action_queue_execution(result: ActionQueueExecution) -> None:
         console.print(f"输出: {result.output_path}", soft_wrap=True)
     for warning in result.warnings:
         console.print(f"警告: {warning}", soft_wrap=True)
+    diagnostic = _data_source_diagnostic([result.message, *result.warnings])
+    if diagnostic:
+        console.print(f"数据源诊断: {diagnostic}", soft_wrap=True)
     if result.next_command:
         console.print(f"下一步核验: {result.next_command}", soft_wrap=True)
     console.print("边界: 自动行动只补研究证据，不是买卖建议。", soft_wrap=True)
@@ -2293,6 +2296,12 @@ def _print_action_queue_batch_execution(result: ActionQueueBatchExecution) -> No
             )
         for warning in execution.warnings:
             console.print(f"警告: {warning}", soft_wrap=True)
+        diagnostic = _data_source_diagnostic([execution.message, *execution.warnings])
+        if diagnostic:
+            console.print(
+                f"数据源诊断: [{execution.item.area}] {execution.item.title}: {diagnostic}",
+                soft_wrap=True,
+            )
         if execution.next_command:
             console.print(f"下一步核验: {execution.next_command}", soft_wrap=True)
     console.print("边界: 自动行动只补研究证据，不是买卖建议。", soft_wrap=True)
@@ -2384,7 +2393,37 @@ def _print_research_data_request_fulfillment(
     for execution in result.executions:
         for warning in execution.warnings:
             console.print(f"警告: {warning}", soft_wrap=True)
+    diagnostic = _data_source_diagnostic(
+        [
+            detail
+            for execution in result.executions
+            for detail in [execution.message, *execution.warnings]
+        ]
+    )
+    if diagnostic:
+        console.print(f"数据源诊断: {diagnostic}", soft_wrap=True)
     console.print("边界: 数据请求执行只补证据，不是买卖建议。", soft_wrap=True)
+
+
+def _data_source_diagnostic(details: list[str]) -> str:
+    text = " ".join(detail for detail in details if detail).casefold()
+    if not text:
+        return ""
+    if "operation not permitted" in text or "errno 1" in text:
+        return (
+            "网络连接或系统权限阻止了数据源请求。请检查网络、代理、防火墙或"
+            "当前运行环境的联网权限；如果在沙盒或 CI 中运行，请换到允许联网"
+            "的本地终端后重试。"
+        )
+    if "timed out" in text or "timeout" in text:
+        return "数据源请求超时。请稍后重试，或检查 provider 服务状态、网络代理和超时设置。"
+    if "http error 401" in text or "unauthorized" in text:
+        return "数据源认证失败。请检查对应 provider 的 API key 是否已配置、是否过期或额度不足。"
+    if "http error 403" in text or "forbidden" in text:
+        return "数据源拒绝访问。请检查 provider 权限、访问频率、地区限制或请求标识设置。"
+    if "urlopen error" in text or "failed to establish" in text:
+        return "数据源连接失败。请检查网络、代理、防火墙、DNS 或 provider 服务状态。"
+    return ""
 
 
 def _print_evidence_board_column(title: str, rows: list[str]) -> None:

@@ -535,7 +535,7 @@ def _provider_backlog_action(item: ProviderBacklogItem) -> ActionQueueItem | Non
         title=f"补充 {item.display_name} 的{item.data_domain}",
         detail=f"{item.coverage_gap} 下一步: {item.next_step}",
         command=command,
-        source=item.memo_path,
+        source=_research_request_source(item.memo_path, item.verification_path),
     )
 
 
@@ -548,7 +548,7 @@ def _data_request_action(index: int, item: ResearchDataRequest) -> ActionQueueIt
         title=f"{_data_request_action_label(item)}: {item.display_name}",
         detail=item.request_text,
         command=f"lychee research run-data-request --request {index} {_research_selector(item)}",
-        source=item.memo_path,
+        source=_research_request_source(item.memo_path, item.verification_path),
     )
 
 
@@ -771,6 +771,10 @@ def _research_selector(item: ResearchDataRequest) -> str:
     if item.symbol:
         return f"--symbol {item.symbol}"
     return f'--name "{item.display_name}"'
+
+
+def _research_request_source(memo_path: str, verification_path: str) -> str:
+    return memo_path or verification_path
 
 
 def _data_request_key(item: ResearchDataRequest) -> tuple[str, str]:

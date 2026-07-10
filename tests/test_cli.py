@@ -2395,6 +2395,58 @@ def test_research_data_requests_command_lists_actionable_requests(tmp_path: Path
     assert "数据请求队列只用于补证据，不是买卖建议" in result.stdout
 
 
+def test_research_data_requests_command_lists_verification_hypothesis_requests(
+    tmp_path: Path,
+) -> None:
+    research_dir = tmp_path / "research"
+    research_dir.mkdir(parents=True, exist_ok=True)
+    verification_path = research_dir / "research-verification-test.json"
+    verification_path.write_text(
+        json.dumps(
+            {
+                "created_at": "2026-07-05T10:00:00+00:00",
+                "candidate": {
+                    "display_name": "Invesco QQQ Trust",
+                    "symbol": "QQQ",
+                    "market": "US",
+                },
+                "status_label": "需要补证据",
+                "hypothesis_panel": {
+                    "next_data_requests": [
+                        "补齐最高优先级缺口: 数据缺口: 缺少 QQQ 本地行情缓存。"
+                    ]
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "data-requests",
+            "--symbol",
+            "QQQ",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Lychee AlphaDesk 研究数据请求" in result.stdout
+    assert "Invesco QQQ Trust" in result.stdout
+    assert "缺少 QQQ 本地行情缓存" in result.stdout
+    assert "lychee data pull market --symbols QQQ --provider auto --force" in (
+        result.stdout
+    )
+    assert "lychee research verify --symbol QQQ" in result.stdout
+    assert "来源核验:" in result.stdout
+    assert str(verification_path) in result.stdout
+    assert "数据请求队列只用于补证据，不是买卖建议" in result.stdout
+
+
 def test_research_next_command_lists_unified_action_queue(
     monkeypatch: object,
     tmp_path: Path,

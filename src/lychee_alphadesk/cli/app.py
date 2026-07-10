@@ -1155,14 +1155,14 @@ def research_data_requests(
     ] = None,
     limit: Annotated[
         int,
-        typer.Option("--limit", help="最多扫描多少条最新研究备忘录。"),
+        typer.Option("--limit", help="最多扫描多少条最新研究记录。"),
     ] = 20,
     output_dir: Annotated[
         Path,
         typer.Option("--output-dir", help="研究库所在输出目录。"),
     ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
-    """查看 LLM 研究备忘录提出的下一批数据请求。"""
+    """查看下钻核验或 LLM 研究备忘录提出的下一批数据请求。"""
     requests = list_research_data_requests(
         output_dir,
         symbol=symbol,
@@ -2115,7 +2115,9 @@ def _research_memo_review_note(verdict: str) -> str:
 
 def _print_research_data_requests(requests: list[ResearchDataRequest]) -> None:
     if not requests:
-        console.print("暂无研究数据请求。请先运行 `lychee research memo`。")
+        console.print(
+            "暂无研究数据请求。请先运行 `lychee research verify` 或 `lychee research memo`。"
+        )
         return
     table = Table(title="Lychee AlphaDesk 研究数据请求")
     table.add_column("时间")
@@ -2156,8 +2158,11 @@ def _print_research_data_requests(requests: list[ResearchDataRequest]) -> None:
             f"{_research_selector(item.symbol, item.display_name)}",
             soft_wrap=True,
         )
-        console.print(f"   来源备忘录: {item.memo_path}", soft_wrap=True)
-        console.print(f"   下钻核验: {item.verification_path}", soft_wrap=True)
+        if item.source_type == "verification":
+            console.print(f"   来源核验: {item.verification_path}", soft_wrap=True)
+        else:
+            console.print(f"   来源备忘录: {item.memo_path}", soft_wrap=True)
+            console.print(f"   下钻核验: {item.verification_path}", soft_wrap=True)
     console.print("边界: 数据请求队列只用于补证据，不是买卖建议。", soft_wrap=True)
 
 
@@ -2201,7 +2206,10 @@ def _print_provider_backlog(items: list[ProviderBacklogItem]) -> None:
         for command in item.suggested_commands:
             console.print(f"   - {command}", soft_wrap=True)
         console.print(f"   下一步: {item.next_step}", soft_wrap=True)
-        console.print(f"   来源备忘录: {item.memo_path}", soft_wrap=True)
+        if item.memo_path:
+            console.print(f"   来源备忘录: {item.memo_path}", soft_wrap=True)
+        else:
+            console.print(f"   来源核验: {item.verification_path}", soft_wrap=True)
         console.print(f"   下钻核验: {item.verification_path}", soft_wrap=True)
     console.print("边界: 数据源缺口队列只用于规划补数据能力，不是买卖建议。", soft_wrap=True)
 

@@ -1613,7 +1613,7 @@ def _research_data_requests_text(requests: list[ResearchDataRequest]) -> str:
         return "\n".join(
             [
                 "研究数据请求",
-                "暂无研究数据请求。先在研究任务面板中生成研究备忘录。",
+                "暂无研究数据请求。先在研究任务面板中运行下钻核验或生成研究备忘录。",
                 "边界: 数据请求队列只用于补证据，不是买卖建议。",
             ]
         )
@@ -1634,8 +1634,14 @@ def _research_data_requests_text(requests: list[ResearchDataRequest]) -> str:
                 ),
                 "  建议命令:",
                 *[f"  - {command}" for command in item.suggested_commands],
-                f"  来源备忘录: {item.memo_path}",
-                f"  下钻核验: {item.verification_path}",
+                *(
+                    [f"  来源核验: {item.verification_path}"]
+                    if item.source_type == "verification"
+                    else [
+                        f"  来源备忘录: {item.memo_path}",
+                        f"  下钻核验: {item.verification_path}",
+                    ]
+                ),
             ]
         )
     lines.append("边界: 数据请求队列只用于补证据，不是买卖建议。")
@@ -1756,7 +1762,11 @@ def _provider_backlog_text(items: list[ProviderBacklogItem]) -> str:
                 "  建议命令:",
                 *[f"  - {command}" for command in item.suggested_commands],
                 f"  下一步: {item.next_step}",
-                f"  来源备忘录: {item.memo_path}",
+                *(
+                    [f"  来源核验: {item.verification_path}"]
+                    if not item.memo_path
+                    else [f"  来源备忘录: {item.memo_path}"]
+                ),
                 f"  下钻核验: {item.verification_path}",
             ]
         )

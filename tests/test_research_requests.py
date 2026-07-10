@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -54,6 +55,56 @@ def test_research_data_requests_map_memo_requests_to_precise_commands(
     assert not any("data guide fund" in command for command in breadth_commands)
     assert breadth_commands == ["lychee research verify --symbol QQQ"]
     assert research_data_request_needs_manual_source(requests[2])
+
+
+def test_research_data_requests_include_verification_hypothesis_requests(
+    tmp_path: Path,
+) -> None:
+    verification_path = _write_verification_with_hypothesis_requests(
+        tmp_path,
+        [
+            "补齐最高优先级缺口: 数据缺口: 缺少 QQQ 本地行情缓存。",
+            "复核最强反证来源: 反向证据: AI capex slows.",
+            "执行工作台下一步命令: lychee research run --symbol QQQ --force",
+        ],
+    )
+
+    requests = list_research_data_requests(tmp_path, symbol="QQQ")
+
+    assert len(requests) == 2
+    assert requests[0].request_id == (
+        f"{verification_path.stem}:hypothesis-data-request:1"
+    )
+    assert requests[0].source_type == "verification"
+    assert requests[0].display_name == "Invesco QQQ Trust"
+    assert requests[0].symbol == "QQQ"
+    assert requests[0].market == "US"
+    assert requests[0].memo_path == ""
+    assert requests[0].verification_path == str(verification_path)
+    assert requests[0].suggested_commands == [
+        "lychee data pull market --symbols QQQ --provider auto --force",
+        "lychee research verify --symbol QQQ",
+    ]
+    assert requests[1].suggested_commands == ["lychee research verify --symbol QQQ"]
+
+
+def test_research_data_requests_prefer_latest_memo_over_verification_hypothesis(
+    tmp_path: Path,
+) -> None:
+    _write_verification_with_hypothesis_requests(
+        tmp_path,
+        ["补齐最高优先级缺口: 数据缺口: 缺少 QQQ 本地行情缓存。"],
+    )
+    _write_request_memo(
+        tmp_path,
+        ["请补齐 QQQ 的基金资料：跟踪指数、费用率、成分摘要和资料来源 URL。"],
+    )
+
+    requests = list_research_data_requests(tmp_path, symbol="QQQ")
+
+    assert len(requests) == 1
+    assert requests[0].source_type == "memo"
+    assert requests[0].request_text.startswith("请补齐 QQQ 的基金资料")
 
 
 def test_fulfill_research_data_request_runs_market_pull_and_verify(
@@ -309,3 +360,26 @@ def _write_request_memo(tmp_path: Path, requests: list[str]) -> None:
         verification_path=tmp_path / "research" / "research-verification-test.json",
         payload={"memo": {"next_data_requests": requests}},
     )
+
+
+def _write_verification_with_hypothesis_requests(
+    tmp_path: Path,
+    requests: list[str],
+) -> Path:
+    research_dir = tmp_path / "research"
+    research_dir.mkdir(parents=True, exist_ok=True)
+    path = research_dir / "research-verification-test.json"
+    payload = {
+        "created_at": "2026-07-05T10:00:00+00:00",
+        "candidate": {
+            "display_name": "Invesco QQQ Trust",
+            "symbol": "QQQ",
+            "market": "US",
+        },
+        "status_label": "需要补证据",
+        "hypothesis_panel": {
+            "next_data_requests": requests,
+        },
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return path

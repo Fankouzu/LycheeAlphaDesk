@@ -202,6 +202,63 @@ def test_action_queue_numbers_data_requests_within_selected_task(
     ]
 
 
+def test_action_queue_uses_verification_source_for_hypothesis_data_requests(
+    tmp_path: Path,
+) -> None:
+    data_request = ResearchDataRequest(
+        request_id="research-verification-test:hypothesis-data-request:1",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        confidence="需要补证据",
+        request_text="补齐最高优先级缺口: 数据缺口: 缺少 QQQ 本地行情缓存。",
+        suggested_commands=[
+            "lychee data pull market --symbols QQQ --provider auto --force",
+            "lychee research verify --symbol QQQ",
+        ],
+        memo_path="",
+        verification_path=str(tmp_path / "research" / "research-verification-test.json"),
+        suggested_actions=[
+            ResearchDataRequestAction(
+                "market",
+                "lychee data pull market --symbols QQQ --provider auto --force",
+            ),
+            ResearchDataRequestAction("verify", "lychee research verify --symbol QQQ"),
+        ],
+        source_type="verification",
+    )
+    workbench_result = SimpleNamespace(
+        candidates=[],
+        deepen_result=ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        ),
+        fill_result=ResearchGapFillResult(1, [], [], [], []),
+    )
+
+    queue = build_action_queue(
+        tmp_path,
+        workbench_runner=lambda **kwargs: workbench_result,
+        pending_reader=lambda **kwargs: [],
+        data_request_reader=lambda **kwargs: [data_request],
+        provider_backlog_reader=lambda **kwargs: [],
+        radar_reader=lambda **kwargs: OpportunityRadarReport(
+            created_at="2026-07-05T10:00:00+00:00",
+            status="empty",
+            signals=[],
+            warnings=[],
+            disclaimer="非投资建议。",
+        ),
+    )
+
+    assert len(queue) == 1
+    assert queue[0].area == "研究数据请求"
+    assert queue[0].source == data_request.verification_path
+
+
 def test_action_queue_passes_limit_into_workbench_scan(tmp_path: Path) -> None:
     scanned_limits: list[int | None] = []
     candidate = CandidateCheck(

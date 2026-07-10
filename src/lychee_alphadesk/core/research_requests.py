@@ -48,6 +48,7 @@ class ResearchDataRequest:
     memo_path: str
     verification_path: str
     suggested_actions: list[ResearchDataRequestAction] = field(default_factory=list)
+    source_type: str = "memo"
 
 
 @dataclass(frozen=True)
@@ -129,8 +130,20 @@ def list_research_data_requests(
                     memo_path=record.memo_path,
                     verification_path=record.verification_path,
                     suggested_actions=suggested_actions,
+                    source_type="memo",
                 )
             )
+    requests.extend(
+        _verification_hypothesis_data_requests(
+            output_dir,
+            symbol=symbol,
+            name=name,
+            limit=limit,
+            latest_per_task=latest_per_task,
+            seen_tasks=seen_tasks,
+            handled_request_ids=handled_request_ids,
+        )
+    )
     return requests
 
 
@@ -416,6 +429,174 @@ def _memo_data_requests(record: ResearchMemoRecord) -> list[str]:
     if not isinstance(raw_requests, list):
         return []
     return [item.strip() for item in raw_requests if isinstance(item, str) and item.strip()]
+
+
+def _verification_hypothesis_data_requests(
+    output_dir: Path,
+    *,
+    symbol: str | None,
+    name: str | None,
+    limit: int,
+    latest_per_task: bool,
+    seen_tasks: set[tuple[str, str, str]],
+    handled_request_ids: set[str],
+) -> list[ResearchDataRequest]:
+    requests: list[ResearchDataRequest] = []
+    for payload, path in _latest_verification_artifacts(output_dir, limit=limit):
+        record = _verification_artifact_record(payload, path)
+        if record is None:
+            continue
+        if not _record_matches_filters(record, symbol=symbol, name=name):
+            continue
+        task_key = _memo_task_key(record)
+        if latest_per_task and task_key in seen_tasks:
+            continue
+        seen_tasks.add(task_key)
+        for index, request_text in enumerate(
+            _verification_hypothesis_request_texts(payload),
+            start=1,
+        ):
+            request_id = f"{path.stem}:hypothesis-data-request:{index}"
+            if request_id in handled_request_ids:
+                continue
+            suggested_actions = _suggest_data_request_actions(record, request_text)
+            requests.append(
+                ResearchDataRequest(
+                    request_id=request_id,
+                    created_at=record.created_at,
+                    display_name=record.display_name,
+                    symbol=record.symbol,
+                    market=record.market,
+                    confidence=record.confidence,
+                    request_text=request_text,
+                    suggested_commands=[action.command for action in suggested_actions],
+                    memo_path="",
+                    verification_path=str(path),
+                    suggested_actions=suggested_actions,
+                    source_type="verification",
+                )
+            )
+    return requests
+
+
+def _latest_verification_artifacts(
+    output_dir: Path,
+    *,
+    limit: int,
+) -> list[tuple[dict[str, object], Path]]:
+    research_dir = output_dir / "research"
+    if not research_dir.exists():
+        return []
+    latest: dict[str, tuple[str, dict[str, object], Path]] = {}
+    for path in sorted(research_dir.glob("research-verification-*.json")):
+        payload = _read_json_dict(path)
+        candidate = _dict_value(payload.get("candidate"))
+        key = _verification_candidate_key(candidate)
+        if not key:
+            continue
+        created_at = _string_value(payload.get("created_at"))
+        current = latest.get(key)
+        if current is None or created_at >= current[0]:
+            latest[key] = (created_at, payload, path)
+    return [
+        (payload, path)
+        for created_at, payload, path in sorted(
+            latest.values(),
+            key=lambda item: item[0],
+            reverse=True,
+        )[:limit]
+    ]
+
+
+def _verification_artifact_record(
+    payload: dict[str, object],
+    path: Path,
+) -> ResearchMemoRecord | None:
+    candidate = _dict_value(payload.get("candidate"))
+    display_name = _string_value(candidate.get("display_name"))
+    market = _string_value(candidate.get("market")).upper()
+    if not display_name or not market:
+        return None
+    symbol = _string_value(candidate.get("symbol")) or None
+    created_at = _string_value(payload.get("created_at")) or path.stem
+    confidence = _string_value(payload.get("status_label")) or "待补证据"
+    request_texts = _verification_hypothesis_request_texts(payload)
+    return ResearchMemoRecord(
+        memo_id=f"{path.stem}:hypothesis",
+        created_at=created_at,
+        display_name=display_name,
+        symbol=symbol,
+        market=market,
+        confidence=confidence,
+        summary="下钻核验假设面板提出的下一批数据请求。",
+        support_count=0,
+        skeptic_count=0,
+        missing_count=len(request_texts),
+        next_step_count=len(request_texts),
+        memo_path="",
+        verification_path=str(path),
+        payload={},
+    )
+
+
+def _verification_hypothesis_request_texts(payload: dict[str, object]) -> list[str]:
+    hypothesis_panel = _dict_value(payload.get("hypothesis_panel"))
+    raw_requests = hypothesis_panel.get("next_data_requests")
+    if not isinstance(raw_requests, list):
+        return []
+    return [
+        item.strip()
+        for item in raw_requests
+        if isinstance(item, str) and _is_verification_data_request_text(item.strip())
+    ]
+
+
+def _is_verification_data_request_text(text: str) -> bool:
+    if not text or text == "暂无下一批数据请求。":
+        return False
+    if text.startswith("执行工作台下一步命令"):
+        return False
+    return True
+
+
+def _record_matches_filters(
+    record: ResearchMemoRecord,
+    *,
+    symbol: str | None,
+    name: str | None,
+) -> bool:
+    if symbol and (record.symbol or "").strip().upper() != symbol.strip().upper():
+        return False
+    if name and name.strip().lower() not in record.display_name.strip().lower():
+        return False
+    return True
+
+
+def _read_json_dict(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _dict_value(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
+
+
+def _string_value(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _verification_candidate_key(candidate: dict[str, object]) -> str:
+    market = _string_value(candidate.get("market")).upper()
+    symbol = _string_value(candidate.get("symbol")).upper()
+    if symbol:
+        return f"{market}:symbol:{symbol}"
+    display_name = _string_value(candidate.get("display_name")).lower()
+    if display_name:
+        return f"{market}:name:{display_name}"
+    return ""
 
 
 def _select_request(

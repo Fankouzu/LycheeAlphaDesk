@@ -372,13 +372,13 @@ lychee research memos
 
 `research memos` reads memo history from the SQLite research database and shows the summary, confidence, support-point count, skeptic-review count, missing-evidence count, next-step count, memo artifact path, and linked drilldown verification artifact. The TUI home screen also exposes `研究备忘录历史`.
 
-List the next data requests extracted from the latest research memos:
+List the next data requests extracted from the latest research records:
 
 ```bash
 lychee research data-requests
 ```
 
-`research data-requests` reads each task's latest memo, extracts `next_data_requests`, and turns them into a workbench queue with suggested commands. Fund/ETF requests point to `data guide fund` and `data set fund --from-file`, market requests point to `data pull market`, news requests point to `data pull news`, US filing requests point to `data pull filings`, and every request ends with a `research verify` command so the user can close the evidence loop. Run `lychee research run-data-request --symbol QQQ --request 1` to execute the supported actions for one request: it can generate fund templates, refresh market/news/filing data, and rerun verification when local data changed. If a request has no supported automatic provider yet, the queue says it needs a manual source instead of pretending it was covered. The TUI home screen exposes the same queue as `研究数据请求` and lets the user execute a listed request with Enter. It is a data-collection queue, not an investment-decision list.
+`research data-requests` reads each task's latest memo first, extracts `next_data_requests`, and turns them into a workbench queue with suggested commands. If a task has no memo yet, the queue falls back to the latest drilldown verification artifact's `hypothesis_panel.next_data_requests`, so `research verify` can already produce actionable data requests before an LLM memo exists. Fund/ETF requests point to `data guide fund` and `data set fund --from-file`, market requests point to `data pull market`, news requests point to `data pull news`, US filing requests point to `data pull filings`, and every request ends with a `research verify` command so the user can close the evidence loop. Run `lychee research run-data-request --symbol QQQ --request 1` to execute the supported actions for one request: it can generate fund templates, refresh market/news/filing data, and rerun verification when local data changed. If a request has no supported automatic provider yet, the queue says it needs a manual source instead of pretending it was covered. The TUI home screen exposes the same queue as `研究数据请求` and lets the user execute a listed request with Enter. It is a data-collection queue, not an investment-decision list.
 
 List data-provider gaps extracted from manual-source research requests:
 
@@ -386,7 +386,7 @@ List data-provider gaps extracted from manual-source research requests:
 lychee research provider-backlog
 ```
 
-`research provider-backlog` turns unsupported data requests into an auditable provider/plugin backlog. For example, market breadth requests such as index constituent advancers, equal-weight comparisons, sector breadth, volatility metrics, or fund-flow requests are classified by data domain, plugin type, current coverage gap, candidate source shape, suggested local metric command, source memo, and linked verification artifact. The TUI home screen exposes the same view as `数据源缺口队列`. This keeps AlphaDesk from stopping at "find a manual source yourself"; unsupported requests become explicit provider work items. It is a data-capability planning queue, not a buy/sell list.
+`research provider-backlog` turns unsupported data requests into an auditable provider/plugin backlog. For example, market breadth requests such as index constituent advancers, equal-weight comparisons, sector breadth, volatility metrics, or fund-flow requests are classified by data domain, plugin type, current coverage gap, candidate source shape, suggested local metric command, source memo or verification artifact, and linked verification artifact. The TUI home screen exposes the same view as `数据源缺口队列`. This keeps AlphaDesk from stopping at "find a manual source yourself"; unsupported requests become explicit provider work items. It is a data-capability planning queue, not a buy/sell list.
 
 Write a verified local research metric when a provider gap can be filled from an audited source:
 

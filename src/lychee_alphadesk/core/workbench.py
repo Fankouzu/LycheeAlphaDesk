@@ -170,6 +170,17 @@ class ResearchAnalystReadout:
 
 
 @dataclass(frozen=True)
+class ResearchHypothesisPanel:
+    title: str
+    core_question: str
+    working_hypothesis: str
+    support_chain: list[str]
+    counter_chain: list[str]
+    gap_priorities: list[str]
+    next_data_requests: list[str]
+
+
+@dataclass(frozen=True)
 class ResearchVerificationResult:
     created_at: str
     status: str
@@ -188,6 +199,9 @@ class ResearchVerificationResult:
     )
     analyst_readout: ResearchAnalystReadout = field(
         default_factory=lambda: _empty_research_analyst_readout()
+    )
+    hypothesis_panel: ResearchHypothesisPanel = field(
+        default_factory=lambda: _empty_research_hypothesis_panel()
     )
 
 
@@ -408,6 +422,11 @@ def verify_research_task(
         decision_board=decision_board,
         evidence_change=evidence_change,
     )
+    hypothesis_panel = build_research_hypothesis_panel(
+        candidate=candidate,
+        evidence_board=evidence_board,
+        decision_board=decision_board,
+    )
     verify_status = _verification_status(checks)
     status_label = _verification_status_label(verify_status)
     conclusion = _verification_conclusion(verify_status)
@@ -423,6 +442,7 @@ def verify_research_task(
         decision_board=decision_board,
         evidence_change=evidence_change,
         analyst_readout=analyst_readout,
+        hypothesis_panel=hypothesis_panel,
         conclusion=conclusion,
         next_actions=next_actions,
     )
@@ -437,6 +457,7 @@ def verify_research_task(
         decision_board=decision_board,
         evidence_change=evidence_change,
         analyst_readout=analyst_readout,
+        hypothesis_panel=hypothesis_panel,
         conclusion=conclusion,
         next_actions=next_actions,
         artifact_path=artifact_path,
@@ -1615,6 +1636,115 @@ def _analyst_gap_line(missing_count: int) -> str:
     if missing_count:
         return f"证据缺口: 待补 {missing_count} 条，先补数据或记录阻塞，不生成买卖结论。"
     return "证据缺口: 暂无待补证据，下一步只做一致性复核，不生成买卖结论。"
+
+
+def build_research_hypothesis_panel(
+    *,
+    candidate: CandidateCheck,
+    evidence_board: dict[str, list[str]],
+    decision_board: ResearchDecisionBoard,
+) -> ResearchHypothesisPanel:
+    support = evidence_board.get("support", [])
+    risk = evidence_board.get("risk", [])
+    missing = evidence_board.get("missing", [])
+    off_topic = evidence_board.get("off_topic", [])
+    return ResearchHypothesisPanel(
+        title="研究假设面板",
+        core_question=f"核心问题: {decision_board.primary_question}",
+        working_hypothesis=_research_working_hypothesis(candidate, decision_board),
+        support_chain=_first_or_placeholder(
+            support,
+            "暂无支持链；先补行情、成交量、主题新闻或公告/财报证据。",
+        ),
+        counter_chain=_counter_chain(risk, off_topic),
+        gap_priorities=_gap_priorities(missing, decision_board),
+        next_data_requests=_next_hypothesis_data_requests(
+            candidate=candidate,
+            evidence_board=evidence_board,
+            decision_board=decision_board,
+        ),
+    )
+
+
+def _empty_research_hypothesis_panel() -> ResearchHypothesisPanel:
+    return ResearchHypothesisPanel(
+        title="研究假设面板",
+        core_question="核心问题: 尚未生成。",
+        working_hypothesis="工作假设: 尚未生成。",
+        support_chain=["暂无支持链。"],
+        counter_chain=["暂无反证链。"],
+        gap_priorities=["暂无缺口优先级。"],
+        next_data_requests=["暂无下一批数据请求。"],
+    )
+
+
+def _research_working_hypothesis(
+    candidate: CandidateCheck,
+    decision_board: ResearchDecisionBoard,
+) -> str:
+    if decision_board.suggested_verdict == "blocked":
+        return (
+            f"工作假设: {candidate.display_name} 当前仍被关键缺口阻塞；"
+            "只有先补齐阻塞证据，才能判断这条线索是否值得继续研究。"
+        )
+    if decision_board.suggested_verdict == "continue_research":
+        return (
+            f"工作假设: 如果 {candidate.display_name} 这条线索值得继续研究，"
+            "支持链应持续回答核心问题，且反证链不能推翻同一主题。"
+        )
+    return (
+        f"工作假设: {candidate.display_name} 仍处于证据建设阶段；"
+        "下一步要把支持证据、反向证据和待补缺口放到同一个核心问题下核对。"
+    )
+
+
+def _first_or_placeholder(rows: list[str], placeholder: str) -> list[str]:
+    return rows[:3] if rows else [placeholder]
+
+
+def _counter_chain(risk: list[str], off_topic: list[str]) -> list[str]:
+    if risk:
+        return risk[:3]
+    if off_topic:
+        return [f"离题噪音已过滤: {item}" for item in off_topic[:2]]
+    return ["暂无明确反证；继续监控风险栏和离题噪音。"]
+
+
+def _gap_priorities(
+    missing: list[str],
+    decision_board: ResearchDecisionBoard,
+) -> list[str]:
+    if missing:
+        return missing[:3]
+    if decision_board.next_steps:
+        return [f"流程缺口: {decision_board.next_steps[0]}"]
+    return ["暂无待补证据；优先做人工一致性复核。"]
+
+
+def _next_hypothesis_data_requests(
+    *,
+    candidate: CandidateCheck,
+    evidence_board: dict[str, list[str]],
+    decision_board: ResearchDecisionBoard,
+) -> list[str]:
+    requests: list[str] = []
+    support = evidence_board.get("support", [])
+    risk = evidence_board.get("risk", [])
+    missing = evidence_board.get("missing", [])
+    if missing:
+        requests.append(f"补齐最高优先级缺口: {missing[0]}")
+    if risk:
+        requests.append(f"复核最强反证来源: {risk[0]}")
+    if support and risk:
+        requests.append("对照支持链和反证链是否回答同一个核心问题。")
+    if not requests:
+        requests.append(
+            f"补充 {candidate.display_name} 的最新行情、成交量、主题新闻或公告/财报，"
+            "验证支持链是否延续。"
+        )
+    if decision_board.next_commands:
+        requests.append(f"执行工作台下一步命令: {decision_board.next_commands[0]}")
+    return requests[:4]
 
 
 def _latest_matching_verification_artifact(
@@ -3160,6 +3290,7 @@ def _write_research_verification_artifact(
     decision_board: ResearchDecisionBoard,
     evidence_change: ResearchEvidenceChange,
     analyst_readout: ResearchAnalystReadout,
+    hypothesis_panel: ResearchHypothesisPanel,
     conclusion: str,
     next_actions: list[str],
 ) -> Path:
@@ -3182,6 +3313,7 @@ def _write_research_verification_artifact(
                 "decision_board": asdict(decision_board),
                 "evidence_change": asdict(evidence_change),
                 "analyst_readout": asdict(analyst_readout),
+                "hypothesis_panel": asdict(hypothesis_panel),
                 "conclusion": conclusion,
                 "next_actions": next_actions,
                 "disclaimer": "下钻核验只检查证据完整度和待核验项，不构成买卖建议。",
@@ -3259,6 +3391,7 @@ def _research_verification_payload(
         "decision_board": asdict(result.decision_board),
         "evidence_change": asdict(result.evidence_change),
         "analyst_readout": asdict(result.analyst_readout),
+        "hypothesis_panel": asdict(result.hypothesis_panel),
         "conclusion": result.conclusion,
         "next_actions": result.next_actions,
         "artifact_path": str(result.artifact_path),

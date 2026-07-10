@@ -476,6 +476,34 @@ def test_verify_research_task_builds_analyst_readout_for_beginners(
     assert payload["analyst_readout"]["next_command"] == result.analyst_readout.next_command
 
 
+def test_verify_research_task_builds_research_hypothesis_panel(
+    tmp_path: Path,
+) -> None:
+    _write_symbolless_seed(tmp_path)
+    _write_live_caches(tmp_path, include_proxy_price=True)
+
+    result = verify_research_task(
+        output_dir=tmp_path,
+        name="恒生指数压力观察",
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    assert result.hypothesis_panel.title == "研究假设面板"
+    assert result.hypothesis_panel.core_question.startswith("核心问题:")
+    assert "恒生指数压力观察" in result.hypothesis_panel.working_hypothesis
+    assert result.hypothesis_panel.support_chain
+    assert result.hypothesis_panel.counter_chain
+    assert result.hypothesis_panel.gap_priorities
+    assert result.hypothesis_panel.next_data_requests
+    assert all("买入" not in item for item in result.hypothesis_panel.next_data_requests)
+
+    payload = json.loads(result.artifact_path.read_text(encoding="utf-8"))
+    assert payload["hypothesis_panel"]["title"] == "研究假设面板"
+    assert payload["hypothesis_panel"]["next_data_requests"] == (
+        result.hypothesis_panel.next_data_requests
+    )
+
+
 def test_verify_research_task_uses_source_backed_research_metrics(
     tmp_path: Path,
 ) -> None:

@@ -40,6 +40,7 @@ from lychee_alphadesk.core.workbench import (
     ResearchDecisionBoard,
     ResearchEvidenceChange,
     ResearchEvidenceReviewResult,
+    ResearchHypothesisPanel,
     ResearchReviewResult,
     ResearchVerificationCheck,
     ResearchVerificationResult,
@@ -139,6 +140,15 @@ def test_research_verification_text_shows_evidence_change(tmp_path: Path) -> Non
             next_action="工作台动作: 可进入人工一致性复核；记录继续研究。",
             next_command="lychee research memo --symbol QQQ",
         ),
+        hypothesis_panel=ResearchHypothesisPanel(
+            title="研究假设面板",
+            core_question="核心问题: 科技反弹是否独立于大盘？",
+            working_hypothesis="工作假设: 如果 QQQ 线索值得继续研究，支持链应持续回答核心问题。",
+            support_chain=["行情: QQQ 530.26 USD"],
+            counter_chain=["暂无明确反证；继续监控风险栏。"],
+            gap_priorities=["暂无待补证据；优先做人工一致性复核。"],
+            next_data_requests=["补充 QQQ 与 SPY 的相对强弱和成交量数据。"],
+        ),
         conclusion="一致性结论: 待人工核验。",
         next_actions=["记录支持证据、反向证据和仍需补充的数据。"],
         artifact_path=tmp_path / "research" / "research-verification-test.json",
@@ -158,6 +168,13 @@ def test_research_verification_text_shows_evidence_change(tmp_path: Path) -> Non
     assert "当前信号: 支持证据 1 条" in text
     assert "工作台动作: 可进入人工一致性复核" in text
     assert "执行命令: lychee research memo --symbol QQQ" in text
+    assert "研究假设面板" in text
+    assert "核心问题: 科技反弹是否独立于大盘？" in text
+    assert "工作假设: 如果 QQQ 线索值得继续研究" in text
+    assert "支持链" in text
+    assert "反证链" in text
+    assert "缺口优先级" in text
+    assert "下一批数据请求" in text
 
 
 def test_research_review_followup_actions_continue_research_offer_memo() -> None:

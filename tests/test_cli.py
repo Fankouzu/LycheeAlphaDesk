@@ -953,6 +953,13 @@ def test_research_verify_command_writes_drilldown_checklist(
     assert "反向压力:" in result.stdout
     assert "证据缺口:" in result.stdout
     assert "工作台动作:" in result.stdout
+    assert "研究假设面板" in result.stdout
+    assert "核心问题:" in result.stdout
+    assert "工作假设:" in result.stdout
+    assert "支持链" in result.stdout
+    assert "反证链" in result.stdout
+    assert "缺口优先级" in result.stdout
+    assert "下一批数据请求" in result.stdout
     assert "研究决策板" in result.stdout
     assert "状态: 可进入人工一致性复核" in result.stdout
     assert "建议记录: continue_research" in result.stdout
@@ -968,6 +975,9 @@ def test_research_verify_command_writes_drilldown_checklist(
     assert payload["evidence_board"]["missing"] == []
     assert payload["analyst_readout"]["title"] == "分析师读数"
     assert "当前信号:" in payload["analyst_readout"]["signal"]
+    assert payload["hypothesis_panel"]["title"] == "研究假设面板"
+    assert payload["hypothesis_panel"]["support_chain"]
+    assert payload["hypothesis_panel"]["next_data_requests"]
     assert payload["decision_board"]["workflow_state"] == "ready_for_review"
     assert payload["decision_board"]["suggested_verdict"] == "continue_research"
     assert "证据可以进入人工一致性复核" in payload["decision_board"]["decision_rule"]
@@ -1955,6 +1965,8 @@ def test_research_memo_command_writes_llm_research_memo(
         assert "STX" in prompt
         assert "AI storage demand rises" in prompt
         assert "证据板" in prompt
+        assert "hypothesis_panel" in prompt
+        assert "研究假设面板" in prompt
         assert "working_hypothesis" in prompt
         assert "falsification_checks" in prompt
         assert "next_data_requests" in prompt

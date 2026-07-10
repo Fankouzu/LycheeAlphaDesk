@@ -124,6 +124,8 @@ def _build_research_memo_messages(
         "证据板": verification.evidence_board,
         "decision_board": asdict(verification.decision_board),
         "evidence_change": asdict(verification.evidence_change),
+        "analyst_readout": asdict(verification.analyst_readout),
+        "hypothesis_panel": asdict(verification.hypothesis_panel),
         "conclusion": verification.conclusion,
         "verification_next_actions": verification.next_actions,
     }

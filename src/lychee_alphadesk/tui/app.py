@@ -1877,6 +1877,20 @@ def _research_verification_text(result: ResearchVerificationResult) -> str:
                 else []
             ),
             "",
+            result.hypothesis_panel.title,
+            result.hypothesis_panel.core_question,
+            result.hypothesis_panel.working_hypothesis,
+            *_evidence_board_lines("支持链", result.hypothesis_panel.support_chain),
+            *_evidence_board_lines("反证链", result.hypothesis_panel.counter_chain),
+            *_evidence_board_lines(
+                "缺口优先级",
+                result.hypothesis_panel.gap_priorities,
+            ),
+            *_evidence_board_lines(
+                "下一批数据请求",
+                result.hypothesis_panel.next_data_requests,
+            ),
+            "",
             "研究决策板",
             f"状态: {result.decision_board.workflow_label}",
             f"要回答的问题: {result.decision_board.primary_question}",

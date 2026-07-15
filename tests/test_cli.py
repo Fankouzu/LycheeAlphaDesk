@@ -3579,6 +3579,34 @@ def test_data_pull_news_command_writes_live_cache(monkeypatch, tmp_path: Path) -
     assert "已拉取新闻事件: 1" in result.stdout
 
 
+def test_data_pull_news_command_offers_setup_for_access_denied_provider(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    def fake_pull_news_events(**kwargs: object) -> PullResult:
+        return PullResult(
+            domain="news",
+            provider="newsapi",
+            count=1,
+            output_path=tmp_path / "data" / "news-events.json",
+            warnings=[
+                "Marketaux 被拒绝访问（HTTP 403）；请检查 API Key、套餐权限或地区限制，"
+                "正在尝试下一个已配置新闻数据源"
+            ],
+        )
+
+    monkeypatch.setattr(cli_app, "pull_news_events", fake_pull_news_events)
+
+    result = runner.invoke(
+        app,
+        ["data", "pull", "news", "--symbols", "0700.HK", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "数据源诊断: 数据源拒绝访问" in result.stdout
+    assert "恢复配置: lychee setup" in result.stdout
+
+
 def test_data_pull_news_command_passes_topic_query(
     monkeypatch,
     tmp_path: Path,

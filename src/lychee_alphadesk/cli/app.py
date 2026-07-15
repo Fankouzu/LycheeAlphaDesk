@@ -1697,6 +1697,10 @@ def _print_pull_result(*, result_label: str, count: int, result: PullResult) -> 
     console.print(f"缓存: {output_path}", soft_wrap=True)
     for warning in warnings:
         console.print(f"警告: {warning}", soft_wrap=True)
+    diagnostic = _data_source_diagnostic(warnings)
+    if diagnostic:
+        console.print(f"数据源诊断: {diagnostic}", soft_wrap=True)
+    _print_provider_setup_recovery(warnings)
 
 
 def _display_mode(mode: str) -> str:
@@ -1798,6 +1802,13 @@ def _print_workbench_auto_fill_diagnostics(result: WorkbenchCheckResult) -> None
     for action in actions:
         for warning in action.warnings:
             console.print(f"- {_compact_provider_warning(warning)}", soft_wrap=True)
+    warning_details = [
+        warning for action in actions for warning in action.warnings
+    ]
+    diagnostic = _data_source_diagnostic(warning_details)
+    if diagnostic:
+        console.print(f"数据源诊断: {diagnostic}", soft_wrap=True)
+    _print_provider_setup_recovery(warning_details)
     console.print("未补齐的数据不会进入研究结论；完整诊断已写入自检报告。")
 
 
@@ -2561,13 +2572,41 @@ def _data_source_diagnostic(details: list[str]) -> str:
         )
     if "timed out" in text or "timeout" in text:
         return "数据源请求超时。请稍后重试，或检查 provider 服务状态、网络代理和超时设置。"
-    if "http error 401" in text or "unauthorized" in text:
+    if (
+        "http error 401" in text
+        or "http 401" in text
+        or "unauthorized" in text
+        or "认证失败" in text
+    ):
         return "数据源认证失败。请检查对应 provider 的 API key 是否已配置、是否过期或额度不足。"
-    if "http error 403" in text or "forbidden" in text:
+    if (
+        "http error 403" in text
+        or "http 403" in text
+        or "forbidden" in text
+        or "被拒绝访问" in text
+    ):
         return "数据源拒绝访问。请检查 provider 权限、访问频率、地区限制或请求标识设置。"
     if "urlopen error" in text or "failed to establish" in text:
         return "数据源连接失败。请检查网络、代理、防火墙、DNS 或 provider 服务状态。"
     return ""
+
+
+def _print_provider_setup_recovery(details: list[str]) -> None:
+    text = " ".join(detail for detail in details if detail).casefold()
+    if any(
+        marker in text
+        for marker in (
+            "http error 401",
+            "http 401",
+            "unauthorized",
+            "认证失败",
+            "http error 403",
+            "http 403",
+            "forbidden",
+            "被拒绝访问",
+        )
+    ):
+        console.print("恢复配置: lychee setup", soft_wrap=True)
 
 
 def _print_evidence_board_column(title: str, rows: list[str]) -> None:

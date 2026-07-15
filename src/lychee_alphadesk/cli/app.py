@@ -2654,6 +2654,7 @@ def _display_workbench_gate_status(status: str) -> str:
 def _display_gap_action_type(action_type: str) -> str:
     return {
         "market_prices": "行情",
+        "news_events": "新闻",
         "sec_filings": "SEC 公告",
         "symbol_mapping": "代码映射",
     }.get(action_type, action_type)

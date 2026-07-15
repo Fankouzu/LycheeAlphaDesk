@@ -354,6 +354,129 @@ def test_fill_research_data_gaps_reduces_missing_price_and_filing_gaps(
     assert "缺少 STX SEC 公告缓存。" not in after_gaps
 
 
+def test_fill_research_data_gaps_refreshes_missing_symbol_news(
+    tmp_path: Path,
+) -> None:
+    _write_discovery_seed(tmp_path, symbol="STX")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    _write_market_cache(tmp_path, ["STX"])
+    _write_filings_cache(tmp_path, ["STX"])
+
+    before = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+    assert "部分 discovery 证据 ID 未在当前本地新闻缓存中找到。" in (
+        before.packets[0].packet["data_gaps"]
+    )
+    assert "缺少可审计新闻证据，需先刷新市场级或个股新闻缓存。" in (
+        before.packets[0].packet["data_gaps"]
+    )
+
+    def fake_news_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        assert kwargs["symbols"] == ["STX"]
+        assert kwargs["provider_id"] == "auto"
+        (output_dir / "data" / "news-events.json").write_text(
+            json.dumps(
+                {
+                    "provider": "finnhub",
+                    "rows": [
+                        {
+                            "timestamp": "2026-07-05T10:00:00+00:00",
+                            "headline": "AI storage demand improves for hard drive makers",
+                            "summary": "Storage demand improved for STX suppliers.",
+                            "symbols": ["STX"],
+                            "source_url": "https://example.com/stx-news",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult(
+            "news",
+            "finnhub",
+            1,
+            output_dir / "data" / "news-events.json",
+            [],
+        )
+
+    result = fill_research_data_gaps(
+        output_dir=tmp_path,
+        pull_news=fake_news_pull,
+    )
+    after = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 5, tzinfo=UTC),
+    )
+
+    news_action = next(
+        action for action in result.actions if action.action_type == "news_events"
+    )
+    assert result.news_symbols == ["STX"]
+    assert result.unresolved_news_symbols == []
+    assert news_action.status == "pulled"
+    assert news_action.count == 1
+    assert after.packets[0].packet["data_gaps"] == []
+
+
+def test_fill_research_data_gaps_marks_off_topic_news_as_unresolved(
+    tmp_path: Path,
+) -> None:
+    _write_discovery_seed(tmp_path, symbol="STX")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    _write_market_cache(tmp_path, ["STX"])
+    _write_filings_cache(tmp_path, ["STX"])
+
+    def fake_news_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        (output_dir / "data" / "news-events.json").write_text(
+            json.dumps(
+                {
+                    "provider": "newsapi",
+                    "rows": [
+                        {
+                            "timestamp": "2026-07-05T10:00:00+00:00",
+                            "headline": "Unrelated developer tool repository update",
+                            "summary": "A code project published a new release.",
+                            "symbols": ["STX"],
+                            "source_url": "https://example.com/off-topic",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult(
+            "news",
+            "newsapi",
+            1,
+            output_dir / "data" / "news-events.json",
+            [],
+        )
+
+    result = fill_research_data_gaps(
+        output_dir=tmp_path,
+        pull_news=fake_news_pull,
+    )
+
+    news_action = next(
+        action for action in result.actions if action.action_type == "news_events"
+    )
+    assert result.news_symbols == ["STX"]
+    assert result.unresolved_news_symbols == ["STX"]
+    assert news_action.status == "partial"
+    assert "STX" in news_action.message
+    assert any("主题新闻证据" in warning for warning in news_action.warnings)
+
+
 def test_fill_research_data_gaps_marks_empty_warning_pull_as_failed(
     tmp_path: Path,
 ) -> None:

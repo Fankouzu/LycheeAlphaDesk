@@ -304,8 +304,10 @@ def run_workbench_check(
     status: str | None = "new",
     limit: int = 5,
     force: bool = False,
+    fill_news: bool = True,
     now: datetime | None = None,
     pull_market: PullMarket | None = None,
+    pull_news: PullNews | None = None,
     pull_filings: PullFilings | None = None,
 ) -> WorkbenchCheckResult:
     created_at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
@@ -314,7 +316,9 @@ def run_workbench_check(
         status=status,
         limit=limit,
         force=force,
+        fill_news=fill_news,
         pull_market=pull_market or pull_market_prices,
+        pull_news=pull_news or pull_news_events,
         pull_filings=pull_filings or pull_sec_filings,
     )
     deepen_result = deepen_research_queue(
@@ -377,6 +381,7 @@ def verify_research_task(
         status=status,
         limit=limit,
         force=False,
+        fill_news=False,
         now=now,
         pull_market=pull_market,
         pull_filings=pull_filings,
@@ -579,6 +584,7 @@ def record_research_evidence_review(
             status=status,
             limit=candidate_limit,
             force=False,
+            fill_news=False,
             now=now,
         )
         selected_index = select_research_candidate_index(
@@ -723,8 +729,10 @@ def run_research_task(
         status=status,
         limit=candidate_limit,
         force=False,
+        fill_news=False,
         now=now,
         pull_market=pull_market,
+        pull_news=pull_news,
         pull_filings=pull_filings,
     )
     selected_index = select_research_candidate_index(
@@ -739,8 +747,10 @@ def run_research_task(
             status=status,
             limit=candidate_limit,
             force=False,
+            fill_news=False,
             now=now,
             pull_market=pull_market,
+            pull_news=pull_news,
             pull_filings=pull_filings,
         )
         selected_index = select_research_candidate_index(
@@ -771,8 +781,10 @@ def run_research_task(
         status=status,
         limit=candidate_limit,
         force=False,
+        fill_news=False,
         now=now,
         pull_market=pull_market,
+        pull_news=pull_news,
         pull_filings=pull_filings,
     )
     refreshed_index = select_research_candidate_index(
@@ -3343,6 +3355,45 @@ def _packet_related_news_count(
     return len(related_news)
 
 
+def _packet_topic_news_count(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> int:
+    if packet is None:
+        return 0
+    packet_payload = packet.packet
+    local_data = _dict_value(packet_payload.get("local_data"))
+    theme_terms = _research_theme_terms(candidate, packet)
+    if not theme_terms:
+        return 0
+    market_terms = _market_context_terms(candidate.market)
+    asset_type = _asset_type(packet)
+    return sum(
+        1
+        for row in _dict_list(local_data.get("related_news"))
+        if _text_matches_any_topic_term(_news_text(row), theme_terms)
+        and _matches_market_context(_news_text(row), market_terms)
+        and _matches_financial_context_for_asset(_news_text(row), asset_type)
+        and _matches_direct_fund_context(candidate, packet, _news_text(row), asset_type)
+    )
+
+
+def _research_theme_terms(
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> list[str]:
+    identity_terms = {
+        term.lower()
+        for term in [candidate.symbol or "", candidate.display_name]
+        if term.strip()
+    }
+    return [
+        term
+        for term in _topic_terms(candidate, packet)
+        if term.lower() not in identity_terms
+    ]
+
+
 def _display_action_status(status: str) -> str:
     return {
         "pulled": "已刷新",
@@ -3736,7 +3787,7 @@ def _actions_exhausted_topic_news(
     packet: ResearchPacket | None,
 ) -> bool:
     return _has_successful_topic_news_refresh(actions) and (
-        _packet_related_news_count(candidate, packet) == 0
+        _packet_topic_news_count(candidate, packet) == 0
     )
 
 
@@ -3748,7 +3799,7 @@ def _actions_refreshed_topic_news_for_review(
     if candidate.evidence_quality not in {"missing", "needs_review", "mixed"}:
         return False
     return _has_successful_topic_news_refresh(actions) and (
-        _packet_related_news_count(candidate, packet) > 0
+        _packet_topic_news_count(candidate, packet) > 0
     )
 
 
@@ -4441,6 +4492,8 @@ def _auto_fill_payload(result: ResearchGapFillResult) -> dict[str, object]:
     return {
         "candidates_checked": result.candidates_checked,
         "market_symbols": result.market_symbols,
+        "news_symbols": result.news_symbols,
+        "unresolved_news_symbols": result.unresolved_news_symbols,
         "filing_symbols": result.filing_symbols,
         "symbol_mapping_candidates": result.symbol_mapping_candidates,
         "actions": [

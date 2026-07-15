@@ -3343,7 +3343,13 @@ def test_research_check_command_strict_fails_when_blocked(
     artifacts = list((tmp_path / "research").glob("workbench-check-*.json"))
     assert artifacts
     payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
-    assert payload["auto_fill"]["actions"][1] == {
+    assert payload["auto_fill"]["unresolved_news_symbols"] == []
+    filings_action = next(
+        action
+        for action in payload["auto_fill"]["actions"]
+        if action["action_type"] == "sec_filings"
+    )
+    assert filings_action == {
         "action_type": "sec_filings",
         "status": "failed",
         "symbols": ["STX"],

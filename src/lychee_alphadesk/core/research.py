@@ -1,7 +1,7 @@
 import json
 import re
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,6 +13,7 @@ from lychee_alphadesk.core.live_data import (
     ResearchMetric,
     build_cached_data_snapshot,
     pull_market_prices,
+    pull_news_events,
     pull_sec_filings,
     read_fund_metadata_cache,
     read_research_metric_cache,
@@ -31,6 +32,7 @@ from lychee_alphadesk.core.symbol_mapping import (
 from lychee_alphadesk.providers.demo import FilingSummary, NewsEvent, PriceRow
 
 PullMarket = Callable[..., PullResult]
+PullNews = Callable[..., PullResult]
 PullFilings = Callable[..., PullResult]
 
 
@@ -75,6 +77,8 @@ class ResearchGapFillResult:
     filing_symbols: list[str]
     symbol_mapping_candidates: list[str]
     actions: list[ResearchGapFillAction]
+    news_symbols: list[str] = field(default_factory=list)
+    unresolved_news_symbols: list[str] = field(default_factory=list)
 
     @property
     def warnings(self) -> list[str]:
@@ -199,7 +203,9 @@ def fill_research_data_gaps(
     limit: int = 5,
     market_provider: str = "auto",
     force: bool = False,
+    fill_news: bool = True,
     pull_market: PullMarket = pull_market_prices,
+    pull_news: PullNews = pull_news_events,
     pull_filings: PullFilings = pull_sec_filings,
 ) -> ResearchGapFillResult:
     queue = list_research_queue(output_dir, status=status, limit=limit)
@@ -208,6 +214,11 @@ def fill_research_data_gaps(
 
     snapshot = build_cached_data_snapshot(output_dir)
     market_symbols = _symbols_missing_prices(queue, snapshot.prices, force=force)
+    news_symbols = (
+        _symbols_missing_news(queue, snapshot.news_events, force=force)
+        if fill_news
+        else []
+    )
     filing_symbols = _symbols_missing_filings(queue, snapshot.filings, force=force)
     symbol_mapping_items = [item for item in queue if not _normalized_symbol(item)]
     symbol_mapping_candidates = [item.display_name for item in symbol_mapping_items]
@@ -222,6 +233,18 @@ def fill_research_data_gaps(
             pull_market=pull_market,
         )
     )
+    news_action = _pull_news_gap_action(
+        symbols=news_symbols,
+        output_dir=output_dir,
+        force=force,
+        pull_news=pull_news,
+    )
+    unresolved_news_symbols = _unresolved_news_symbols_after_fill(
+        queue=queue,
+        output_dir=output_dir,
+        fill_news=fill_news,
+    )
+    actions.append(_mark_news_action_unresolved(news_action, unresolved_news_symbols))
     actions.append(
         _pull_filings_gap_action(
             symbols=filing_symbols,
@@ -238,6 +261,8 @@ def fill_research_data_gaps(
         filing_symbols=filing_symbols,
         symbol_mapping_candidates=symbol_mapping_candidates,
         actions=actions,
+        news_symbols=news_symbols,
+        unresolved_news_symbols=unresolved_news_symbols,
     )
 
 
@@ -275,6 +300,12 @@ def _build_research_packet(
         news_events,
         topic_terms=_research_topic_terms(item),
     )
+    auditable_topic_news = _auditable_topic_news(
+        related_news,
+        market=item.market,
+        asset_type=item.asset_type,
+        topic_terms=_research_topic_terms(item),
+    )
     related_filings = _related_filings(symbol, item.display_name, filings)
     related_financials = _related_financials(symbol, financials)
     related_metrics = _related_research_metrics(symbol, research_metrics)
@@ -285,7 +316,7 @@ def _build_research_packet(
         missing_evidence=missing_evidence,
         price=price,
         symbol_mapping=symbol_mapping,
-        related_news=related_news,
+        auditable_topic_news=auditable_topic_news,
         related_filings=related_filings,
     )
     packet: dict[str, object] = {
@@ -369,6 +400,64 @@ def _symbols_missing_filings(
         ):
             symbols.append(symbol)
     return _unique_preserving_order(symbols)
+
+
+def _symbols_missing_news(
+    queue: list[ResearchQueueItem],
+    news_events: list[NewsEvent],
+    *,
+    force: bool,
+) -> list[str]:
+    symbols: list[str] = []
+    for item in queue:
+        symbol = _normalized_symbol(item)
+        if not symbol:
+            continue
+        related_news = _related_news(
+            symbol,
+            item.display_name,
+            item.market,
+            item.asset_type,
+            news_events,
+            topic_terms=_research_topic_terms(item),
+        )
+        auditable_topic_news = _auditable_topic_news(
+            related_news,
+            market=item.market,
+            asset_type=item.asset_type,
+            topic_terms=_research_topic_terms(item),
+        )
+        if force or not auditable_topic_news:
+            symbols.append(symbol)
+    return _unique_preserving_order(symbols)
+
+
+def _unresolved_news_symbols_after_fill(
+    *,
+    queue: list[ResearchQueueItem],
+    output_dir: Path,
+    fill_news: bool,
+) -> list[str]:
+    if not fill_news:
+        return []
+    snapshot = build_cached_data_snapshot(output_dir)
+    return _symbols_missing_news(queue, snapshot.news_events, force=False)
+
+
+def _mark_news_action_unresolved(
+    action: ResearchGapFillAction,
+    unresolved_symbols: list[str],
+) -> ResearchGapFillAction:
+    if not unresolved_symbols or action.status == "failed":
+        return action
+    symbols_text = ", ".join(unresolved_symbols)
+    warning = f"仍缺乏可审计主题新闻证据: {symbols_text}。"
+    return replace(
+        action,
+        status="partial",
+        warnings=[*action.warnings, warning],
+        message=f"新闻已拉取或命中缓存，但主题新闻证据仍待补齐: {symbols_text}。",
+    )
 
 
 def _pull_market_gap_action(
@@ -464,6 +553,57 @@ def _pull_filings_gap_action(
             success_message="SEC 公告缓存已补齐。",
             partial_message="SEC 公告缓存已部分补齐。",
             failed_message="SEC 公告补齐未完成。",
+        ),
+    )
+
+
+def _pull_news_gap_action(
+    *,
+    symbols: list[str],
+    output_dir: Path,
+    force: bool,
+    pull_news: PullNews,
+) -> ResearchGapFillAction:
+    if not symbols:
+        return ResearchGapFillAction(
+            action_type="news_events",
+            status="skipped",
+            symbols=[],
+            count=0,
+            output_path=None,
+            warnings=[],
+            message="新闻缓存没有需要自动补齐的 symbol。",
+        )
+    try:
+        result = pull_news(
+            symbols=symbols,
+            output_dir=output_dir,
+            provider_id="auto",
+            force=force,
+        )
+    except (RuntimeError, ValueError) as error:
+        return ResearchGapFillAction(
+            action_type="news_events",
+            status="failed",
+            symbols=symbols,
+            count=0,
+            output_path=None,
+            warnings=[str(error)],
+            message="新闻补齐失败。",
+        )
+    return ResearchGapFillAction(
+        action_type="news_events",
+        status=_gap_pull_status(result, requested_count=len(symbols)),
+        symbols=symbols,
+        count=result.count,
+        output_path=result.output_path,
+        warnings=result.warnings,
+        message=_gap_pull_message(
+            result,
+            requested_count=len(symbols),
+            success_message="新闻缓存已补齐。",
+            partial_message="新闻缓存已部分补齐。",
+            failed_message="新闻补齐未完成。",
         ),
     )
 
@@ -729,10 +869,11 @@ def _related_news(
         event_symbols = {event_symbol.upper() for event_symbol in event.symbols}
         matches_symbol = bool(symbol and symbol in event_symbols)
         topic_score = _news_topic_score(text, normalized_topic_terms)
-        matches_topic = (
-            topic_score > 0
-            and _matches_market_context(text, market_terms)
-            and _matches_asset_context(text, asset_type)
+        matches_topic = _matches_auditable_topic_news(
+            text,
+            market_terms=market_terms,
+            asset_type=asset_type,
+            topic_terms=normalized_topic_terms,
         )
         if matches_symbol or any(term in text for term in terms) or matches_topic:
             row = asdict(event)
@@ -742,6 +883,40 @@ def _related_news(
     for row in selected:
         row.pop("_topic_score", None)
     return selected
+
+
+def _auditable_topic_news(
+    rows: list[dict[str, object]],
+    *,
+    market: str,
+    asset_type: str,
+    topic_terms: list[str],
+) -> list[dict[str, object]]:
+    market_terms = _market_context_terms(market)
+    return [
+        row
+        for row in rows
+        if _matches_auditable_topic_news(
+            f"{_string_value(row.get('headline'))} {_string_value(row.get('summary'))}".lower(),
+            market_terms=market_terms,
+            asset_type=asset_type,
+            topic_terms=topic_terms,
+        )
+    ]
+
+
+def _matches_auditable_topic_news(
+    text: str,
+    *,
+    market_terms: list[str],
+    asset_type: str,
+    topic_terms: list[str],
+) -> bool:
+    return (
+        _news_topic_score(text, topic_terms) > 0
+        and _matches_market_context(text, market_terms)
+        and _matches_asset_context(text, asset_type)
+    )
 
 
 def _news_relevance_sort_key(row: dict[str, object]) -> tuple[int, str]:
@@ -903,7 +1078,7 @@ def _data_gaps(
     missing_evidence: list[str],
     price: dict[str, object] | None,
     symbol_mapping: list[dict[str, object]],
-    related_news: list[dict[str, object]],
+    auditable_topic_news: list[dict[str, object]],
     related_filings: list[dict[str, object]],
 ) -> list[str]:
     gaps: list[str] = []
@@ -922,9 +1097,9 @@ def _data_gaps(
                 )
         else:
             gaps.append("缺少可直接拉取的证券代码，需先映射到可交易标的或指数/ETF。")
-    if missing_evidence:
+    if missing_evidence and not auditable_topic_news:
         gaps.append("部分 discovery 证据 ID 未在当前本地新闻缓存中找到。")
-    if not evidence_items and not related_news:
+    if not evidence_items and not auditable_topic_news:
         gaps.append("缺少可审计新闻证据，需先刷新市场级或个股新闻缓存。")
     if symbol and price is None:
         gaps.append(f"缺少 {symbol} 本地行情缓存。")

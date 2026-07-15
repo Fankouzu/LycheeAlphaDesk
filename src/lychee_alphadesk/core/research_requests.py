@@ -11,6 +11,7 @@ from lychee_alphadesk.core.live_data import (
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
+    pull_sec_financials,
     write_fund_metadata_guide,
 )
 from lychee_alphadesk.core.research_db import (
@@ -25,6 +26,7 @@ from lychee_alphadesk.core.workbench import verify_research_task
 PullMarket = Callable[..., PullResult]
 PullNews = Callable[..., PullResult]
 PullFilings = Callable[..., PullResult]
+PullFinancials = Callable[..., PullResult]
 WriteFundGuide = Callable[..., FundMetadataGuide]
 VerifyTask = Callable[..., object]
 
@@ -178,6 +180,7 @@ def fulfill_research_data_request(
     pull_market: PullMarket = pull_market_prices,
     pull_news: PullNews = pull_news_events,
     pull_filings: PullFilings = pull_sec_filings,
+    pull_financials: PullFinancials = pull_sec_financials,
     write_fund_guide: WriteFundGuide = write_fund_metadata_guide,
     verify_task: VerifyTask = verify_research_task,
 ) -> ResearchDataRequestFulfillment:
@@ -217,6 +220,7 @@ def fulfill_research_data_request(
             pull_market=pull_market,
             pull_news=pull_news,
             pull_filings=pull_filings,
+            pull_financials=pull_financials,
             write_fund_guide=write_fund_guide,
         )
         executions.append(execution)
@@ -228,6 +232,7 @@ def fulfill_research_data_request(
                 "market",
                 "news",
                 "filings",
+                "financials",
             }
         ):
             data_changed = True
@@ -698,7 +703,7 @@ def _verification_artifact_record(
         next_step_count=len(request_texts),
         memo_path="",
         verification_path=str(path),
-        payload={},
+        payload={"candidate": candidate},
     )
 
 
@@ -839,6 +844,18 @@ def _suggest_data_request_actions(
                 f"lychee data pull filings --symbols {record.symbol}",
             )
         )
+    if (
+        _looks_like_financial_snapshot_request(lowered)
+        and record.symbol
+        and record.market.upper() == "US"
+        and _supports_financial_snapshot(record)
+    ):
+        actions.append(
+            ResearchDataRequestAction(
+                "financials",
+                f"lychee data pull financials --symbols {record.symbol} --force",
+            )
+        )
     actions.append(ResearchDataRequestAction("verify", f"lychee research verify {selector}"))
     return _dedupe_actions(actions)
 
@@ -852,6 +869,7 @@ def _execute_data_request_action(
     pull_market: PullMarket,
     pull_news: PullNews,
     pull_filings: PullFilings,
+    pull_financials: PullFinancials,
     write_fund_guide: WriteFundGuide,
 ) -> ResearchDataRequestExecution:
     try:
@@ -896,6 +914,15 @@ def _execute_data_request_action(
                 raise ValueError("公告刷新需要证券代码。")
             result = pull_filings(symbols=[request.symbol], output_dir=output_dir)
             return _pull_execution(action, result, "SEC 公告已刷新。")
+        if action.action_type == "financials":
+            if not request.symbol:
+                raise ValueError("财务快照刷新需要证券代码。")
+            result = pull_financials(
+                symbols=[request.symbol],
+                output_dir=output_dir,
+                force=force,
+            )
+            return _pull_execution(action, result, "SEC 财务快照已刷新。")
     except (RuntimeError, ValueError) as error:
         return ResearchDataRequestExecution(
             action_type=action.action_type,
@@ -1040,6 +1067,29 @@ def _looks_like_filing_request(text: str) -> bool:
         "毛利率",
     )
     return any(keyword in text for keyword in keywords)
+
+
+def _looks_like_financial_snapshot_request(text: str) -> bool:
+    keywords = (
+        "财务快照",
+        "营收",
+        "收入",
+        "净利润",
+        "经营现金流",
+        "现金流",
+        "revenue",
+        "net income",
+        "operating cash flow",
+        "companyfacts",
+        "xbrl",
+    )
+    return any(keyword in text for keyword in keywords)
+
+
+def _supports_financial_snapshot(record: ResearchMemoRecord) -> bool:
+    candidate = _dict_value(record.payload.get("candidate"))
+    asset_type = _string_value(candidate.get("asset_type")).casefold()
+    return not asset_type or asset_type == "stock"
 
 
 def _research_selector(record: ResearchMemoRecord) -> str:

@@ -108,6 +108,99 @@ def test_research_data_requests_prefer_latest_memo_over_verification_hypothesis(
     assert requests[0].request_text.startswith("请补齐 QQQ 的基金资料")
 
 
+def test_financial_fact_request_adds_sec_financial_snapshot_action(
+    tmp_path: Path,
+) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["补齐营收、净利润和经营现金流的 SEC XBRL 财务快照。"],
+        display_name="Apple Inc.",
+        symbol="AAPL",
+    )
+
+    requests = list_research_data_requests(tmp_path, symbol="AAPL")
+
+    assert len(requests) == 1
+    assert [action.action_type for action in requests[0].suggested_actions] == [
+        "filings",
+        "financials",
+        "verify",
+    ]
+    assert requests[0].suggested_commands == [
+        "lychee data pull filings --symbols AAPL",
+        "lychee data pull financials --symbols AAPL --force",
+        "lychee research verify --symbol AAPL",
+    ]
+
+
+def test_financial_fact_request_skips_sec_snapshot_for_etf(
+    tmp_path: Path,
+) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["补齐营收、净利润和经营现金流的 SEC XBRL 财务快照。"],
+        asset_type="ETF",
+    )
+
+    requests = list_research_data_requests(tmp_path, symbol="QQQ")
+
+    assert [action.action_type for action in requests[0].suggested_actions] == [
+        "filings",
+        "verify",
+    ]
+
+
+def test_fulfill_financial_fact_request_refreshes_snapshot_then_verifies(
+    tmp_path: Path,
+) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["补齐营收、净利润和经营现金流的 SEC XBRL 财务快照。"],
+        display_name="Apple Inc.",
+        symbol="AAPL",
+    )
+    filings_calls: list[dict[str, object]] = []
+    financials_calls: list[dict[str, object]] = []
+    verify_calls: list[dict[str, object]] = []
+
+    def fake_pull_filings(**kwargs: object) -> PullResult:
+        filings_calls.append(kwargs)
+        return PullResult("filings", "sec_edgar", 1, tmp_path / "data" / "filings.json", [])
+
+    def fake_pull_financials(**kwargs: object) -> PullResult:
+        financials_calls.append(kwargs)
+        return PullResult("financials", "sec_edgar", 1, tmp_path / "data" / "financials.json", [])
+
+    def fake_verify(**kwargs: object) -> object:
+        verify_calls.append(kwargs)
+        return SimpleNamespace(artifact_path=tmp_path / "research" / "verify.json")
+
+    result = fulfill_research_data_request(
+        tmp_path,
+        request_index=1,
+        symbol="AAPL",
+        pull_filings=fake_pull_filings,
+        pull_financials=fake_pull_financials,
+        verify_task=fake_verify,
+    )
+
+    assert filings_calls == [{"symbols": ["AAPL"], "output_dir": tmp_path}]
+    assert financials_calls == [
+        {"symbols": ["AAPL"], "output_dir": tmp_path, "force": True}
+    ]
+    assert verify_calls == [{"output_dir": tmp_path, "symbol": "AAPL", "name": None}]
+    assert [execution.action_type for execution in result.executions] == [
+        "filings",
+        "financials",
+        "verify",
+    ]
+    assert [execution.status for execution in result.executions] == [
+        "completed",
+        "completed",
+        "completed",
+    ]
+
+
 def test_fulfill_research_data_request_runs_market_pull_and_verify(
     tmp_path: Path,
 ) -> None:
@@ -384,14 +477,22 @@ def test_provider_backlog_items_classify_manual_data_requests(tmp_path: Path) ->
     ]
 
 
-def _write_request_memo(tmp_path: Path, requests: list[str]) -> None:
+def _write_request_memo(
+    tmp_path: Path,
+    requests: list[str],
+    *,
+    display_name: str = "Invesco QQQ Trust",
+    symbol: str = "QQQ",
+    market: str = "US",
+    asset_type: str | None = None,
+) -> None:
     write_research_memo_record(
         output_dir=tmp_path,
         memo_id="research-memo:2026-07-05T10:02:00+00:00",
         created_at="2026-07-05T10:02:00+00:00",
-        display_name="Invesco QQQ Trust",
-        symbol="QQQ",
-        market="US",
+        display_name=display_name,
+        symbol=symbol,
+        market=market,
         confidence="low",
         summary="QQQ 仍需补齐数据。",
         support_count=1,
@@ -400,7 +501,10 @@ def _write_request_memo(tmp_path: Path, requests: list[str]) -> None:
         next_step_count=len(requests),
         memo_path=tmp_path / "research" / "research-memo-test.json",
         verification_path=tmp_path / "research" / "research-verification-test.json",
-        payload={"memo": {"next_data_requests": requests}},
+        payload={
+            "memo": {"next_data_requests": requests},
+            **({"candidate": {"asset_type": asset_type}} if asset_type else {}),
+        },
     )
 
 

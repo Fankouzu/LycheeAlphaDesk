@@ -1586,3 +1586,72 @@ def test_cached_data_health_reports_missing_and_present_cache_files(tmp_path: Pa
 
     assert checks["market-cache-present"].status == "warning"
     assert checks["news-cache-present"].status == "error"
+
+
+def test_cached_data_health_reports_market_coverage_and_tushare_entitlement_gap(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "auto",
+                "created_at": "2026-07-15T19:26:28+00:00",
+                "warnings": [
+                    "0700.HK Tushare 行情拉取失败: Tushare hk_daily "
+                    "接口权限不足（40203）: 没有接口(hk_daily)访问权限"
+                ],
+                "rows": [
+                    {
+                        "symbol": "AAPL",
+                        "date": "2026-07-15",
+                        "close": 210.0,
+                        "volume": 100,
+                        "currency": "USD",
+                    },
+                    {
+                        "symbol": "510300.SH",
+                        "date": "2026-07-14",
+                        "close": 4.837,
+                        "volume": 1808440038,
+                        "currency": "CNY",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    checks = {check.name: check for check in run_cached_data_health(tmp_path)}
+
+    assert checks["market-us-coverage"].status == "pass"
+    assert checks["market-cn-coverage"].status == "pass"
+    assert checks["market-hk-coverage"].status == "warning"
+    assert checks["market-hk-coverage"].provider == "Tushare Pro"
+    assert "hk_daily" in checks["market-hk-coverage"].message
+
+
+def test_cached_data_health_does_not_apply_hk_entitlement_to_us_coverage(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "auto",
+                "warnings": [
+                    "0700.HK Tushare 行情拉取失败: Tushare hk_daily "
+                    "接口权限不足（40203）: 没有接口(hk_daily)访问权限"
+                ],
+                "rows": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    checks = {check.name: check for check in run_cached_data_health(tmp_path)}
+
+    assert checks["market-us-coverage"].provider == "auto"
+    assert "hk_daily" not in checks["market-us-coverage"].message

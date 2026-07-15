@@ -103,6 +103,30 @@ def test_data_health_command_shows_provider_quality() -> None:
     assert "通过" in result.stdout
 
 
+def test_data_health_command_shows_market_coverage_gap(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "auto",
+                "warnings": [
+                    "0700.HK Tushare 行情拉取失败: Tushare hk_daily "
+                    "接口权限不足（40203）: 没有接口(hk_daily)访问权限"
+                ],
+                "rows": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["data", "health", "--output-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "market-hk-coverage" in result.stdout
+    assert "hk_daily" in result.stdout
+
+
 def test_data_set_fund_command_writes_proxy_metadata_cache(tmp_path: Path) -> None:
     result = runner.invoke(
         app,

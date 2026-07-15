@@ -822,6 +822,7 @@ def build_cached_data_snapshot(output_dir: Path) -> DataSnapshot:
 
 
 def run_cached_data_health(output_dir: Path) -> list[DataQualityCheck]:
+    market_cache = _read_cache(output_dir, "market-prices.json")
     checks = [
         _cache_health_check(
             output_dir=output_dir,
@@ -848,7 +849,7 @@ def run_cached_data_health(output_dir: Path) -> list[DataQualityCheck]:
             noun="公告",
         ),
     ]
-    return checks
+    return [*checks, *_market_coverage_checks(market_cache)]
 
 
 def parse_symbols(value: str) -> list[str]:
@@ -860,6 +861,7 @@ def parse_symbols(value: str) -> list[str]:
 class _CachePayload:
     provider: str
     rows: list[dict[str, object]]
+    warnings: tuple[str, ...] = ()
 
 
 def _fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
@@ -1979,9 +1981,13 @@ def _read_cache(output_dir: Path, filename: str) -> _CachePayload:
         return _CachePayload(provider="", rows=[])
     provider = payload.get("provider")
     rows = payload.get("rows")
+    warnings = payload.get("warnings")
     return _CachePayload(
         provider=provider if isinstance(provider, str) else "",
         rows=[row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else [],
+        warnings=tuple(item for item in warnings if isinstance(item, str))
+        if isinstance(warnings, list)
+        else (),
     )
 
 
@@ -2139,3 +2145,76 @@ def _cache_health_check(
         provider=payload.provider or "local-cache",
         message=f"已从 {filename} 加载 {len(payload.rows)} 条{noun}。",
     )
+
+
+def _market_coverage_checks(cache: _CachePayload) -> list[DataQualityCheck]:
+    return [
+        _market_coverage_check(cache, market)
+        for market in ("US", "HK", "CN")
+    ]
+
+
+def _market_coverage_check(cache: _CachePayload, market: str) -> DataQualityCheck:
+    market_name = {"US": "美股", "HK": "港股", "CN": "A 股"}[market]
+    market_rows = [
+        row for row in cache.rows if _symbol_market(_cache_row_symbol(row)) == market
+    ]
+    if market_rows:
+        latest_date = max(
+            str(row.get("date") or "") for row in market_rows
+        )
+        date_suffix = f"，最新样本日期 {latest_date}" if latest_date else ""
+        return DataQualityCheck(
+            name=f"market-{market.lower()}-coverage",
+            status="pass",
+            provider=cache.provider or "local-cache",
+            message=f"已缓存 {len(market_rows)} 条{market_name}行情{date_suffix}。",
+        )
+
+    entitlement = _tushare_entitlement_warning(cache.warnings, market)
+    if entitlement:
+        return DataQualityCheck(
+            name=f"market-{market.lower()}-coverage",
+            status="warning",
+            provider="Tushare Pro",
+            message=(
+                f"{market_name}暂无可用行情缓存。Tushare `{entitlement}` 接口权限不足；"
+                "请在 Tushare 后台开通对应接口或配置可用的替代数据源。"
+            ),
+        )
+
+    return DataQualityCheck(
+        name=f"market-{market.lower()}-coverage",
+        status="warning",
+        provider=cache.provider or "local-cache",
+        message=(
+            f"{market_name}暂无可用行情缓存。"
+            "请先通过 `lychee data pull market --provider auto` 拉取一个观察代码。"
+        ),
+    )
+
+
+def _symbol_market(symbol: str) -> str:
+    normalized = symbol.upper()
+    if normalized.endswith(".HK"):
+        return "HK"
+    if normalized.endswith((".SH", ".SS", ".SZ")):
+        return "CN"
+    return "US"
+
+
+def _tushare_entitlement_warning(warnings: tuple[str, ...], market: str) -> str:
+    market_suffixes = {
+        "US": (),
+        "HK": (".HK",),
+        "CN": (".SH", ".SS", ".SZ"),
+    }[market]
+    if not market_suffixes:
+        return ""
+    for warning in warnings:
+        if not any(suffix in warning.upper() for suffix in market_suffixes):
+            continue
+        match = re.search(r"Tushare ([a-z_]+) 接口权限不足", warning)
+        if match:
+            return match.group(1)
+    return ""

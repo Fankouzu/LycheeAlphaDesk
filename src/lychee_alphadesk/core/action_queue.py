@@ -582,11 +582,10 @@ def _workbench_candidate_action(output_dir: Path, candidate: Any) -> ActionQueue
         return ActionQueueItem(
             priority=RADAR_FOLLOWUP_WORKBENCH_PRIORITY,
             area="雷达跟进",
-            title=f"{candidate.display_name}: {candidate.next_step}",
+            title=f"继续研究: {candidate.display_name}",
             detail=(
-                "机会雷达刚推进过这个候选，下一步先核验证据板。 "
-                f"{candidate.ranking_reason or candidate.evidence_status} "
-                f"研究问题: {candidate.beginner_question}"
+                "机会雷达刚推进过这个候选。 "
+                f"{_workbench_action_summary(candidate)}"
             ).strip(),
             command=candidate.next_command,
             source="workbench:opportunity-radar",
@@ -594,14 +593,36 @@ def _workbench_candidate_action(output_dir: Path, candidate: Any) -> ActionQueue
     return ActionQueueItem(
         priority=DEFAULT_WORKBENCH_PRIORITY,
         area="研究任务",
-        title=f"{candidate.display_name}: {candidate.next_step}",
-        detail=(
-            f"{candidate.ranking_reason or candidate.evidence_status} "
-            f"研究问题: {candidate.beginner_question}"
-        ).strip(),
+        title=f"推进研究: {candidate.display_name}",
+        detail=_workbench_action_summary(candidate),
         command=candidate.next_command,
         source="workbench",
     )
+
+
+def _workbench_action_summary(candidate: Any) -> str:
+    next_step = str(getattr(candidate, "next_step", "")).strip()
+    ranking_reason = str(getattr(candidate, "ranking_reason", "")).strip()
+    question = str(getattr(candidate, "beginner_question", "")).strip()
+    gap_count = getattr(candidate, "gap_count", 0)
+    status = ""
+    if isinstance(gap_count, int) and gap_count > 0:
+        status = f"当前状态: 需要补齐 {gap_count} 项基础数据。"
+    elif str(getattr(candidate, "evidence_quality", "")).strip() in {
+        "missing",
+        "needs_review",
+        "mixed",
+    }:
+        status = "当前状态: 证据尚待复核。"
+    else:
+        status = "当前状态: 可进入下钻核验。"
+    parts = [
+        f"当前动作: {next_step}" if next_step else "当前动作: 进入下钻核验。",
+        status,
+        f"研究问题: {question}" if question else "",
+        f"排序原因: {ranking_reason}" if ranking_reason else "",
+    ]
+    return " ".join(part for part in parts if part)
 
 
 def _provider_backlog_action(item: ProviderBacklogItem) -> ActionQueueItem | None:

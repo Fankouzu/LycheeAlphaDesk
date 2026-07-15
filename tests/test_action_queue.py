@@ -27,6 +27,43 @@ from lychee_alphadesk.core.research_requests import (
 from lychee_alphadesk.core.workbench import CandidateCheck, PendingEvidenceReviewItem
 
 
+def test_workbench_action_uses_compact_task_title_and_action_summary(
+    tmp_path: Path,
+) -> None:
+    candidate = CandidateCheck(
+        display_name="Invesco QQQ Trust",
+        market="US",
+        symbol="QQQ",
+        proxy_symbols=[],
+        evidence_count=1,
+        gap_count=3,
+        data_gaps=[
+            "部分 discovery 证据 ID 未在当前本地新闻缓存中找到。",
+            "缺少可审计新闻证据，需先刷新市场级或个股新闻缓存。",
+            "缺少 QQQ 本地行情缓存。",
+        ],
+        status="blocked",
+        explanation="美股科技行情需要更多证据。",
+        beginner_question="美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
+        why_it_matters="QQQ 是科技市场的观察入口。",
+        observation_entry="QQQ",
+        what_to_check="行情、成交量和新闻是否一致。",
+        next_step="先补齐行情、新闻数据，再重新核验。",
+        priority="P0 待补数据",
+        evidence_status="证据 1 条；缺口 3 个",
+        ranking_reason="还有 3 个数据缺口，先补数据再研究。",
+        next_command="lychee research run --symbol QQQ --force",
+    )
+
+    item = action_queue._workbench_candidate_action(tmp_path, candidate)
+
+    assert item.title == "推进研究: Invesco QQQ Trust"
+    assert "当前动作: 先补齐行情、新闻数据，再重新核验。" in item.detail
+    assert "当前状态: 需要补齐 3 项基础数据。" in item.detail
+    assert "研究问题: 美股科技股现在是独立主线" in item.detail
+    assert "discovery" not in item.title
+
+
 def test_action_queue_prioritizes_concrete_next_steps(tmp_path: Path) -> None:
     candidate = CandidateCheck(
         display_name="Seagate",

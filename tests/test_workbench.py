@@ -16,6 +16,7 @@ from lychee_alphadesk.core.workbench import (
     ResearchDeepenResult,
     ResearchGapFillResult,
     WorkbenchCheckResult,
+    _next_step,
     _packet_related_news_count,
     beginner_research_brief,
     build_research_evidence_change,
@@ -27,6 +28,22 @@ from lychee_alphadesk.core.workbench import (
     suggest_pending_evidence_review,
     verify_research_task,
 )
+
+
+def test_next_step_summarizes_raw_data_gaps_as_a_single_user_action() -> None:
+    step = _next_step(
+        [],
+        [
+            "部分 discovery 证据 ID 未在当前本地新闻缓存中找到。",
+            "缺少可审计新闻证据，需先刷新市场级或个股新闻缓存。",
+            "缺少 QQQ 本地行情缓存。",
+        ],
+        object(),
+    )
+
+    assert step == "先补齐行情、新闻数据，再重新核验。"
+    assert "discovery" not in step
+    assert "。；" not in step
 
 
 def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(

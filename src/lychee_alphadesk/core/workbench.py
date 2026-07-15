@@ -4211,7 +4211,7 @@ def _next_step(
     evidence_quality: CandidateEvidenceQuality,
 ) -> str:
     if data_gaps:
-        return f"下一步先补齐 {'；'.join(data_gaps)}。"
+        return _data_gap_action_summary(data_gaps)
     if evidence_quality.needs_review:
         return "先刷新主题新闻并重新下钻核验，确认现有证据是否只是市场噪音。"
     if next_actions:
@@ -4222,6 +4222,25 @@ def _next_step(
         ]
         return "；".join(cleaned_actions)
     return "先查看观察入口的最近行情、成交量、相关新闻和公开资料。"
+
+
+def _data_gap_action_summary(data_gaps: list[str]) -> str:
+    normalized = " ".join(gap.casefold() for gap in data_gaps if gap.strip())
+    if "可直接拉取的证券代码" in normalized:
+        return "先建立可观察的证券或指数入口，再重新核验。"
+    if "代理标的行情" in normalized and "本地行情" not in normalized:
+        return "先补齐代理标的行情，再重新核验。"
+
+    labels: list[str] = []
+    if "本地行情" in normalized:
+        labels.append("行情")
+    if "新闻" in normalized or "discovery" in normalized:
+        labels.append("新闻")
+    if "sec" in normalized or "公告" in normalized or "财报" in normalized:
+        labels.append("公告/财报")
+    if not labels:
+        return "先补齐基础研究数据，再重新核验。"
+    return f"先补齐{'、'.join(labels)}数据，再重新核验。"
 
 
 def _write_workbench_check_artifact(

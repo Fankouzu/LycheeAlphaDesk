@@ -14,7 +14,11 @@ from lychee_alphadesk.core.opportunity_radar import (
     OpportunitySignal,
     build_opportunity_radar,
 )
-from lychee_alphadesk.core.research_db import write_opportunity_radar_candidate
+from lychee_alphadesk.core.research_db import (
+    ResearchDataRequestFulfillmentRecord,
+    list_research_data_request_fulfillments,
+    write_opportunity_radar_candidate,
+)
 from lychee_alphadesk.core.research_requests import (
     ProviderBacklogItem,
     ResearchDataRequest,
@@ -36,6 +40,7 @@ from lychee_alphadesk.core.workbench import (
 WorkbenchRunner = Callable[..., WorkbenchCheckResult]
 PendingReader = Callable[..., list[PendingEvidenceReviewItem]]
 DataRequestReader = Callable[..., list[ResearchDataRequest]]
+DataRequestFulfillmentReader = Callable[..., list[ResearchDataRequestFulfillmentRecord]]
 ProviderBacklogReader = Callable[..., list[ProviderBacklogItem]]
 RadarReader = Callable[..., OpportunityRadarReport]
 PullNews = Callable[..., PullResult]
@@ -103,6 +108,9 @@ def build_action_queue(
     workbench_runner: WorkbenchRunner = run_workbench_check,
     pending_reader: PendingReader = list_pending_evidence_reviews,
     data_request_reader: DataRequestReader = list_research_data_requests,
+    data_request_fulfillment_reader: DataRequestFulfillmentReader = (
+        list_research_data_request_fulfillments
+    ),
     provider_backlog_reader: ProviderBacklogReader = list_provider_backlog_items,
     radar_reader: RadarReader = build_opportunity_radar,
 ) -> list[ActionQueueItem]:
@@ -117,12 +125,19 @@ def build_action_queue(
         if action is not None:
             items.append(action)
 
+    failed_fulfillments = _latest_failed_data_request_fulfillments(
+        data_request_fulfillment_reader(output_dir=output_dir, limit=500)
+    )
     request_indexes: dict[tuple[str, str], int] = {}
     concrete_data_request_keys: set[tuple[str, str]] = set()
     for request in data_request_reader(output_dir=output_dir, limit=limit):
         request_key = _data_request_key(request)
         request_indexes[request_key] = request_indexes.get(request_key, 0) + 1
-        action = _data_request_action(request_indexes[request_key], request)
+        action = _data_request_action(
+            request_indexes[request_key],
+            request,
+            failure=failed_fulfillments.get(request.request_id),
+        )
         if action is not None:
             concrete_data_request_keys.add(request_key)
             items.append(action)
@@ -546,15 +561,35 @@ def _provider_backlog_action(item: ProviderBacklogItem) -> ActionQueueItem | Non
     )
 
 
-def _data_request_action(index: int, item: ResearchDataRequest) -> ActionQueueItem | None:
+def _data_request_action(
+    index: int,
+    item: ResearchDataRequest,
+    *,
+    failure: ResearchDataRequestFulfillmentRecord | None = None,
+) -> ActionQueueItem | None:
     if research_data_request_needs_manual_source(item):
         return None
+    command = f"lychee research run-data-request --request {index} {_research_selector(item)}"
+    if failure is not None:
+        diagnostic = _data_request_failure_diagnostic(failure)
+        detail = (
+            f"上次补数据失败: {diagnostic} "
+            "修复后再重试补数据；失败不会推进研究结论。"
+        )
+        return ActionQueueItem(
+            priority=18,
+            area="数据源诊断",
+            title=f"修复数据源后重试: {item.display_name}",
+            detail=detail,
+            command=command,
+            source=failure.fulfillment_path,
+        )
     return ActionQueueItem(
         priority=30,
         area="研究数据请求",
         title=f"{_data_request_action_label(item)}: {item.display_name}",
         detail=item.request_text,
-        command=f"lychee research run-data-request --request {index} {_research_selector(item)}",
+        command=command,
         source=_research_request_source(item.memo_path, item.verification_path),
     )
 
@@ -782,6 +817,54 @@ def _research_selector(item: ResearchDataRequest) -> str:
 
 def _research_request_source(memo_path: str, verification_path: str) -> str:
     return memo_path or verification_path
+
+
+def _latest_failed_data_request_fulfillments(
+    records: list[ResearchDataRequestFulfillmentRecord],
+) -> dict[str, ResearchDataRequestFulfillmentRecord]:
+    failed: dict[str, ResearchDataRequestFulfillmentRecord] = {}
+    for record in records:
+        if record.status != "failed" or record.request_id in failed:
+            continue
+        failed[record.request_id] = record
+    return failed
+
+
+def _data_request_failure_diagnostic(
+    record: ResearchDataRequestFulfillmentRecord,
+) -> str:
+    details = _fulfillment_failure_details(record)
+    text = " ".join(details).casefold()
+    if "operation not permitted" in text or "errno 1" in text:
+        return "网络连接或系统权限阻止了数据源请求。"
+    if "timed out" in text or "timeout" in text:
+        return "数据源请求超时。"
+    if "http error 401" in text or "unauthorized" in text:
+        return "数据源认证失败，请检查 API key 或额度。"
+    if "http error 403" in text or "forbidden" in text:
+        return "数据源拒绝访问，请检查权限、频率限制、地区限制或请求标识。"
+    if "urlopen error" in text or "failed to establish" in text:
+        return "数据源连接失败，请检查网络、代理、防火墙、DNS 或 provider 状态。"
+    return "上次 provider 执行失败，请查看来源 artifact 中的原始错误。"
+
+
+def _fulfillment_failure_details(
+    record: ResearchDataRequestFulfillmentRecord,
+) -> list[str]:
+    details: list[str] = []
+    executions = record.payload.get("executions")
+    if not isinstance(executions, list):
+        return details
+    for execution in executions:
+        if not isinstance(execution, dict):
+            continue
+        message = execution.get("message")
+        if isinstance(message, str) and message:
+            details.append(message)
+        warnings = execution.get("warnings")
+        if isinstance(warnings, list):
+            details.extend(warning for warning in warnings if isinstance(warning, str))
+    return details
 
 
 def _data_request_key(item: ResearchDataRequest) -> tuple[str, str]:

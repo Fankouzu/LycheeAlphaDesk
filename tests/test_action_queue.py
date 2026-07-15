@@ -14,6 +14,7 @@ from lychee_alphadesk.core.opportunity_radar import (
     OpportunitySignal,
 )
 from lychee_alphadesk.core.research import ResearchDeepenResult, ResearchGapFillResult
+from lychee_alphadesk.core.research_db import ResearchDataRequestFulfillmentRecord
 from lychee_alphadesk.core.research_requests import (
     ProviderBacklogItem,
     ResearchDataRequest,
@@ -353,6 +354,99 @@ def test_action_queue_uses_verification_source_for_hypothesis_data_requests(
     assert len(queue) == 1
     assert queue[0].area == "研究数据请求"
     assert queue[0].source == data_request.verification_path
+
+
+def test_action_queue_turns_failed_data_request_into_provider_diagnostic(
+    tmp_path: Path,
+) -> None:
+    data_request = ResearchDataRequest(
+        request_id="research-verification-test:hypothesis-data-request:1",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Tencent",
+        symbol="0700.HK",
+        market="HK",
+        confidence="存在阻塞",
+        request_text="补齐最高优先级缺口: 缺少 0700.HK 本地行情和新闻缓存。",
+        suggested_commands=[
+            "lychee data pull market --symbols 0700.HK --provider auto --force",
+            "lychee data pull news --symbols 0700.HK --query Tencent --force",
+            "lychee research verify --symbol 0700.HK",
+        ],
+        memo_path="",
+        verification_path=str(tmp_path / "research" / "research-verification-test.json"),
+        suggested_actions=[
+            ResearchDataRequestAction(
+                "market",
+                "lychee data pull market --symbols 0700.HK --provider auto --force",
+            ),
+            ResearchDataRequestAction(
+                "news",
+                "lychee data pull news --symbols 0700.HK --query Tencent --force",
+            ),
+            ResearchDataRequestAction("verify", "lychee research verify --symbol 0700.HK"),
+        ],
+        source_type="verification",
+    )
+    failure = ResearchDataRequestFulfillmentRecord(
+        fulfillment_id="research-data-request-fulfillment:2026-07-05T10:04:00+00:00",
+        created_at="2026-07-05T10:04:00+00:00",
+        request_id=data_request.request_id,
+        display_name="Tencent",
+        symbol="0700.HK",
+        market="HK",
+        status="failed",
+        action_count=2,
+        fulfillment_path=str(tmp_path / "research" / "failed-fulfillment.json"),
+        output_path="",
+        payload={
+            "executions": [
+                {
+                    "message": (
+                        "无法从 https://newsapi.org/v2/everything 获取 JSON: "
+                        "<urlopen error [Errno 1] Operation not permitted>"
+                    ),
+                    "warnings": [
+                        "Yahoo fallback 失败: "
+                        "<urlopen error [Errno 1] Operation not permitted>"
+                    ],
+                }
+            ]
+        },
+    )
+    workbench_result = SimpleNamespace(
+        candidates=[],
+        deepen_result=ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        ),
+        fill_result=ResearchGapFillResult(1, [], [], [], []),
+    )
+
+    queue = build_action_queue(
+        tmp_path,
+        workbench_runner=lambda **kwargs: workbench_result,
+        pending_reader=lambda **kwargs: [],
+        data_request_reader=lambda **kwargs: [data_request],
+        data_request_fulfillment_reader=lambda **kwargs: [failure],
+        provider_backlog_reader=lambda **kwargs: [],
+        radar_reader=lambda **kwargs: OpportunityRadarReport(
+            created_at="2026-07-05T10:00:00+00:00",
+            status="empty",
+            signals=[],
+            warnings=[],
+            disclaimer="非投资建议。",
+        ),
+    )
+
+    assert len(queue) == 1
+    assert queue[0].area == "数据源诊断"
+    assert queue[0].title == "修复数据源后重试: Tencent"
+    assert "网络连接或系统权限阻止了数据源请求" in queue[0].detail
+    assert "修复后再重试补数据" in queue[0].detail
+    assert queue[0].command == "lychee research run-data-request --request 1 --symbol 0700.HK"
+    assert queue[0].source == failure.fulfillment_path
 
 
 def test_action_queue_passes_limit_into_workbench_scan(tmp_path: Path) -> None:

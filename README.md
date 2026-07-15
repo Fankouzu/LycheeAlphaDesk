@@ -233,6 +233,8 @@ The initial LLM setup supports one custom OpenAI-compatible endpoint with a `bas
 
 The live-data path writes provider responses into local JSON cache files under `.alphadesk/data/`. This keeps the workbench auditable and lets the TUI dashboard start from local data instead of repeatedly hitting APIs.
 
+An empty market-price pull is recorded as `no_data` for one hour. During that cooldown, the same request returns the prior sanitized diagnostic without retrying every fallback source; `--force` is the explicit override when a provider entitlement or network condition has changed.
+
 First-slice discovery command:
 
 ```bash
@@ -276,6 +278,8 @@ Automatically run gap filling, deepening, and workbench readiness checks:
 ```bash
 lychee research check --strict
 ```
+
+When a blocked task matches a fresh market `no_data` cooldown, its action routes to `lychee data health` instead of suggesting an automatic forced retry. The original provider diagnostics remain in the audit artifact; `--force` is reserved for an explicit retry after the user changes access or network conditions.
 
 `research check` is the shared human/agent verification loop: it fills pullable data gaps, regenerates research packets, prints the `AlphaDesk 研究工作台`, and writes `.alphadesk/research/workbench-check-*.json`. The output must not read like a lesson and must not be just symbols or tables; it must show executable tasks, blocked tasks, ranking reasons, evidence status, and the next-action queue so users can see why a task is shown first. Every task card and next-action queue row must include a copyable `lychee research ...` command; blocked tasks must also include the command that restarts the data-refresh chain. The workbench reflects evidence direction from drilldown checks back into task cards: if news evidence is only reverse, direction-pending, or off-topic, priority is downgraded and the main command becomes `research run --force`, so the system refreshes topic news and reruns verification instead of repeatedly inspecting the same weak evidence. With `--strict`, the command exits non-zero when evidence, research entrypoints, proxy prices, or data gaps fail the current readiness gates.
 

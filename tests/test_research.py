@@ -507,6 +507,36 @@ def test_fill_research_data_gaps_marks_empty_warning_pull_as_failed(
     assert filing_action.message == "SEC 公告补齐未完成。"
 
 
+def test_fill_research_data_gaps_reports_cached_empty_market_as_no_data(
+    tmp_path: Path,
+) -> None:
+    _write_discovery_seed(tmp_path, symbol="STX")
+    _write_live_caches(tmp_path, include_market=False, include_filings=True)
+
+    def cached_empty_market_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        return PullResult(
+            "market",
+            "auto",
+            0,
+            output_dir / "data" / "market-prices.json",
+            ["上一次行情拉取没有获得数据，保质期内跳过重试。"],
+            refreshed=False,
+        )
+
+    result = fill_research_data_gaps(
+        output_dir=tmp_path,
+        pull_market=cached_empty_market_pull,
+    )
+
+    market_action = next(
+        action for action in result.actions if action.action_type == "market_prices"
+    )
+    assert market_action.status == "no_data"
+    assert market_action.message == "行情暂无可用数据，保质期内不会重复请求。"
+
+
 def _write_discovery_seed(tmp_path: Path, symbol: str | None) -> None:
     report = DiscoveryReport(
         mode="llm-synthesized",

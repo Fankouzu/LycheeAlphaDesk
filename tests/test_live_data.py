@@ -56,6 +56,67 @@ def test_pull_market_prices_writes_alpha_vantage_cache(tmp_path: Path) -> None:
     }
 
 
+def test_pull_market_prices_cools_down_empty_provider_result_until_forced(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["tushare"].value = "demo-tushare-token"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    post_calls: list[str] = []
+
+    def post_json(
+        _url: str,
+        _headers: dict[str, str] | None,
+        payload: dict[str, object],
+    ) -> object:
+        post_calls.append(str(payload["api_name"]))
+        return {
+            "code": 40203,
+            "msg": "抱歉，您没有接口(hk_daily)访问权限",
+        }
+
+    def fetch_json(_url: str, _headers: dict[str, str] | None = None) -> object:
+        raise RuntimeError("fallback unavailable")
+
+    first = pull_market_prices(
+        symbols=["0700.HK"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        post_json=post_json,
+        fetch_json=fetch_json,
+        now=datetime(2026, 7, 15, 10, 0, tzinfo=UTC),
+    )
+    second = pull_market_prices(
+        symbols=["0700.HK"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        post_json=post_json,
+        fetch_json=fetch_json,
+        now=datetime(2026, 7, 15, 10, 5, tzinfo=UTC),
+    )
+    forced = pull_market_prices(
+        symbols=["0700.HK"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        post_json=post_json,
+        fetch_json=fetch_json,
+        force=True,
+        now=datetime(2026, 7, 15, 10, 10, tzinfo=UTC),
+    )
+
+    entries = list_cache_entries(tmp_path, layer="market")
+
+    assert first.count == 0
+    assert entries[0].status == "no_data"
+    assert second.refreshed is False
+    assert "保质期内跳过重试" in second.warnings[0]
+    assert forced.refreshed is True
+    assert post_calls == ["hk_daily", "hk_daily"]
+
+
 def test_pull_sec_financials_writes_auditable_latest_xbrl_snapshot(
     tmp_path: Path,
 ) -> None:

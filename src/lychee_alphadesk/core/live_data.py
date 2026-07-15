@@ -398,6 +398,15 @@ def pull_market_prices(
     )
     if not freshness.should_refresh and freshness.entry is not None:
         cache = _read_cache(output_dir, "market-prices.json")
+        if freshness.entry.status == "no_data":
+            return PullResult(
+                "market",
+                freshness.entry.provider,
+                0,
+                freshness.entry.artifact_path,
+                [freshness.reason, *cache.warnings],
+                refreshed=False,
+            )
         if _market_cache_covers_symbols(cache.rows, symbols):
             return PullResult(
                 "market",

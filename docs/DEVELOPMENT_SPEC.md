@@ -189,6 +189,8 @@ Market-price cache freshness must combine data TTL with market session state:
 - During HK/CN lunch breaks, the default path does not refresh until the afternoon session opens.
 - After close, the system may perform one final-close refresh; once final, market cache is frozen until the next trading-day open.
 - Weekends do not refresh by default; the first implementation does not include full exchange holiday calendars.
+- A zero-row market result is `no_data` for one hour. While fresh it returns the prior sanitized diagnostic and skips network retries; `--force` bypasses the cooldown.
+- A blocked research task that matches a fresh market `no_data` entry must route its next command to `lad data health`, not a default forced refresh. The raw diagnostic remains in the artifact, and `--force` stays available only as an explicit retry.
 - `--force` must bypass freshness and session checks.
 
 News cache uses a basic TTL policy:

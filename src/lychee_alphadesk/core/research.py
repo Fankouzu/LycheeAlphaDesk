@@ -508,6 +508,7 @@ def _pull_market_gap_action(
             success_message="行情缓存已补齐。",
             partial_message="行情缓存已部分补齐。",
             failed_message="行情补齐未完成。",
+            no_data_message="行情暂无可用数据，保质期内不会重复请求。",
         ),
     )
 
@@ -645,10 +646,12 @@ def _symbol_mapping_gap_action(
 
 
 def _gap_pull_status(result: PullResult, *, requested_count: int) -> str:
+    if result.count == 0:
+        if result.refreshed and result.warnings:
+            return "failed"
+        return "no_data"
     if not result.refreshed:
         return "cached"
-    if result.count == 0 and result.warnings:
-        return "failed"
     if result.count < requested_count:
         return "partial"
     return "pulled"
@@ -661,10 +664,13 @@ def _gap_pull_message(
     success_message: str,
     partial_message: str,
     failed_message: str,
+    no_data_message: str = "本次请求暂无可用数据，保质期内不会重复请求。",
 ) -> str:
     status = _gap_pull_status(result, requested_count=requested_count)
     if status == "failed":
         return failed_message
+    if status == "no_data":
+        return no_data_message
     if status == "partial":
         return partial_message
     return success_message

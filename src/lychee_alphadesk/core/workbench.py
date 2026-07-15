@@ -5,6 +5,10 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+from lychee_alphadesk.core.cache_freshness import (
+    cache_entry_status,
+    list_cache_entries,
+)
 from lychee_alphadesk.core.live_data import (
     PullResult,
     pull_market_prices,
@@ -331,6 +335,7 @@ def run_workbench_check(
         output_dir,
         deepen_result.packets,
         command_limit=limit,
+        now=now,
     )
     proxy_price_count, proxy_total = _proxy_price_coverage(deepen_result.packets)
     gates = _workbench_gates(candidates, proxy_price_count, proxy_total)
@@ -3646,6 +3651,7 @@ def _candidate_checks(
     packets: list[ResearchPacket],
     *,
     command_limit: int = DEFAULT_RESEARCH_SELECTION_LIMIT,
+    now: datetime | None = None,
 ) -> list[CandidateCheck]:
     checks: list[CandidateCheck] = []
     for packet in packets:
@@ -3755,8 +3761,49 @@ def _candidate_checks(
             packet,
         ):
             candidate_check = _mark_topic_news_review_ready(candidate_check)
+        if output_dir is not None and _candidate_market_is_in_no_data_cooldown(
+            output_dir,
+            candidate_check,
+            now=now,
+        ):
+            candidate_check = _mark_market_no_data_cooldown(candidate_check)
         checks.append(candidate_check)
     return checks
+
+
+def _candidate_market_is_in_no_data_cooldown(
+    output_dir: Path,
+    candidate: CandidateCheck,
+    *,
+    now: datetime | None,
+) -> bool:
+    if not any(
+        "本地行情" in gap or "代理标的行情" in gap
+        for gap in candidate.data_gaps
+    ):
+        return False
+    symbols = {
+        symbol.upper()
+        for symbol in [candidate.symbol, *candidate.proxy_symbols]
+        if symbol
+    }
+    if not symbols:
+        return False
+    for entry in list_cache_entries(output_dir, layer="market"):
+        if cache_entry_status(entry, now=now) != "no_data":
+            continue
+        cached_symbols = set(entry.cache_key.rsplit(":", 1)[-1].upper().split(","))
+        if symbols.intersection(cached_symbols):
+            return True
+    return False
+
+
+def _mark_market_no_data_cooldown(candidate: CandidateCheck) -> CandidateCheck:
+    return replace(
+        candidate,
+        next_step="行情数据暂不可用，先检查数据健康或更新 provider 权限。",
+        next_command="lychee data health",
+    )
 
 
 def _latest_verification_requires_fund_metadata(
@@ -4046,12 +4093,11 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
                 f"- {candidate.display_name} "
                 f"[{candidate.market}] | 入口: {candidate.observation_entry}"
             )
-            gap_text = _gap_text(candidate.data_gaps)
             lines.append(f"  优先级: {candidate.priority}")
             lines.append(f"  排序理由: {candidate.ranking_reason}")
             lines.append(f"  研究问题: {candidate.beginner_question}")
-            lines.append(f"  缺口: {gap_text}。")
-            lines.append(f"  处理动作: 先补齐 {gap_text}。")
+            lines.append("  当前状态: 数据尚未齐备，暂不进入下钻研究。")
+            lines.append(f"  处理动作: {candidate.next_step}")
             if candidate.next_command:
                 lines.append(f"  处理命令: {candidate.next_command}")
     else:
@@ -4285,10 +4331,6 @@ def _evidence_status(
         f"离题 {evidence_quality.off_topic_count}"
     )
     return "；".join(parts)
-
-
-def _gap_text(data_gaps: list[str]) -> str:
-    return "；".join(gap.rstrip("。；;,.， ") for gap in data_gaps if gap.strip())
 
 
 def _research_selector(symbol: str | None, display_name: str) -> str:

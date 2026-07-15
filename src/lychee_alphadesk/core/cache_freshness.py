@@ -10,6 +10,7 @@ from lychee_alphadesk.core.market_calendar import (
 )
 
 MARKET_CACHE_TTL_SECONDS = 15 * 60
+MARKET_NO_DATA_TTL_SECONDS = 60 * 60
 NEWS_CACHE_TTL_SECONDS = 60 * 60
 FINANCIALS_CACHE_TTL_SECONDS = 24 * 60 * 60
 
@@ -80,6 +81,15 @@ def evaluate_market_cache(
         return CacheDecision(True, "没有可用的行情缓存。", None)
     if not entry.artifact_path.exists():
         return CacheDecision(True, "行情缓存记录存在，但缓存文件缺失。", entry)
+    if entry.status == "no_data":
+        if current < entry.expires_at:
+            return CacheDecision(
+                False,
+                "上一次行情拉取没有获得数据，保质期内跳过重试；"
+                "需要立即重试请使用 --force。",
+                entry,
+            )
+        return CacheDecision(True, "无数据行情缓存已过期。", entry)
     if entry.row_count == 0:
         return CacheDecision(True, "行情缓存记录为空，需要重新刷新。", entry)
 
@@ -155,7 +165,13 @@ def record_market_cache(
 ) -> CacheEntry:
     current = _ensure_aware(now or datetime.now(UTC))
     states = [_state_for_symbol(symbol, current) for symbol in symbols]
-    expires_at = _market_expires_at(states, current)
+    is_no_data = row_count == 0
+    ttl_seconds = MARKET_NO_DATA_TTL_SECONDS if is_no_data else MARKET_CACHE_TTL_SECONDS
+    expires_at = (
+        current + timedelta(seconds=ttl_seconds)
+        if is_no_data
+        else _market_expires_at(states, current)
+    )
     return record_cache_entry(
         output_dir=output_dir,
         layer="market",
@@ -164,11 +180,12 @@ def record_market_cache(
         artifact_path=artifact_path,
         created_at=current,
         expires_at=expires_at,
-        ttl_seconds=MARKET_CACHE_TTL_SECONDS,
+        ttl_seconds=ttl_seconds,
         row_count=row_count,
         market=",".join(sorted({state.market for state in states})),
         session_state=",".join(sorted({state.state for state in states})),
         is_final_for_session=_is_final_for_session(states),
+        status="no_data" if is_no_data else "fresh",
         forced=forced,
     )
 

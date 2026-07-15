@@ -3359,8 +3359,10 @@ def test_research_check_command_strict_fails_when_blocked(
     assert result.exit_code == 1
     assert "状态: 未达标" in result.stdout
     assert "阻塞任务" in result.stdout
-    assert "处理动作: 先补齐" in result.stdout
-    assert "缺少 STX SEC 公告缓存" in result.stdout
+    assert "处理动作: 先补齐公告/财报数据，再重新核验。" in result.stdout
+    assert "处理动作: 先补齐 缺少" not in result.stdout
+    assert "当前状态: 数据尚未齐备，暂不进入下钻研究。" in result.stdout
+    assert "缺口: 缺少 STX SEC 公告缓存" not in result.stdout
     assert "自动补齐诊断" in result.stdout
     assert "SEC 公告" in result.stdout
     assert "SEC blocked" in result.stdout

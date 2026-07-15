@@ -1719,6 +1719,7 @@ def _display_cache_status(status: str) -> str:
         "fresh": "有效",
         "expired": "过期",
         "final_for_session": "收盘确认",
+        "no_data": "无数据冷却",
         "failed": "失败",
     }.get(status, status)
 
@@ -2718,6 +2719,7 @@ def _display_gap_action_status(status: str) -> str:
     return {
         "pulled": "已拉取",
         "cached": "已使用缓存",
+        "no_data": "暂无数据",
         "partial": "部分完成",
         "skipped": "跳过",
         "failed": "失败",

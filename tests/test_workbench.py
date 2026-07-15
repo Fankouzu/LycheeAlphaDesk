@@ -1,7 +1,8 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from lychee_alphadesk.core.cache_freshness import record_cache_entry
 from lychee_alphadesk.core.discovery import (
     DiscoveryCandidate,
     DiscoveryReport,
@@ -407,12 +408,64 @@ def test_workbench_check_marks_blocked_when_research_gaps_remain(
     assert result.is_ready is False
     assert any(gate.status == "fail" and gate.name == "数据缺口" for gate in result.gates)
     assert "阻塞任务" in result.beginner_brief
-    assert "缺少 STX SEC 公告缓存" in result.beginner_brief
+    assert result.candidates[0].data_gaps == ["缺少 STX SEC 公告缓存。"]
+    assert "缺口: 缺少 STX SEC 公告缓存" not in result.beginner_brief
     assert "研究问题:" in result.beginner_brief
-    assert "处理动作: 先补齐" in result.beginner_brief
+    assert "当前状态: 数据尚未齐备，暂不进入下钻研究。" in result.beginner_brief
+    assert "处理动作: 先补齐公告/财报数据，再重新核验。" in result.beginner_brief
+    assert "处理动作: 先补齐 缺少" not in result.beginner_brief
     assert "处理命令: lychee research run --symbol STX --force" in (
         result.beginner_brief
     )
+
+
+def test_workbench_check_routes_market_no_data_cooldown_to_data_health(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 5, 11, 0, tzinfo=UTC)
+    _write_stock_seed(tmp_path)
+    _write_live_caches(tmp_path, include_filings=True)
+    record_cache_entry(
+        output_dir=tmp_path,
+        layer="market",
+        cache_key="market:auto:STX",
+        provider="auto",
+        artifact_path=tmp_path / "data" / "market-prices.json",
+        created_at=now,
+        expires_at=now + timedelta(hours=1),
+        ttl_seconds=3600,
+        status="no_data",
+        row_count=0,
+        market="US",
+        session_state="open",
+        is_final_for_session=False,
+    )
+
+    def cached_empty_market_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        return PullResult(
+            "market",
+            "auto",
+            0,
+            output_dir / "data" / "market-prices.json",
+            ["上一次行情拉取没有获得数据，保质期内跳过重试。"],
+            refreshed=False,
+        )
+
+    result = run_workbench_check(
+        output_dir=tmp_path,
+        now=now,
+        pull_market=cached_empty_market_pull,
+    )
+
+    candidate = result.candidates[0]
+    assert candidate.next_command == "lychee data health"
+    assert candidate.next_step == "行情数据暂不可用，先检查数据健康或更新 provider 权限。"
+    assert "处理动作: 行情数据暂不可用，先检查数据健康或更新 provider 权限。" in (
+        result.beginner_brief
+    )
+    assert "处理命令: lychee data health" in result.beginner_brief
 
 
 def test_verify_research_task_uses_proxy_prices_for_symbolless_themes(

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from lychee_alphadesk.core.live_data import FundMetadataGuide, PullResult
 from lychee_alphadesk.core.research_db import write_research_memo_record
 from lychee_alphadesk.core.research_requests import (
+    diagnose_research_data_request,
     fulfill_research_data_request,
     list_provider_backlog_items,
     list_research_data_requests,
@@ -176,6 +177,47 @@ def test_fulfilled_research_data_request_leaves_queue(tmp_path: Path) -> None:
     assert result.artifact_path is not None
     assert result.artifact_path.exists()
     assert list_research_data_requests(tmp_path, symbol="QQQ") == []
+
+
+def test_diagnose_research_data_request_explains_failed_pull_without_retrying(
+    tmp_path: Path,
+) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["请提供 QQQ 与更宽市场基准的行情、成交量和相对强弱对比。"],
+    )
+
+    def blocked_pull_market(**kwargs: object) -> PullResult:
+        raise RuntimeError(
+            "无法从 https://query1.finance.yahoo.com 获取 JSON: "
+            "<urlopen error [Errno 1] Operation not permitted>"
+        )
+
+    fulfillment = fulfill_research_data_request(
+        tmp_path,
+        request_index=1,
+        symbol="QQQ",
+        pull_market=blocked_pull_market,
+    )
+
+    diagnostic = diagnose_research_data_request(
+        tmp_path,
+        request_index=1,
+        symbol="QQQ",
+    )
+
+    assert fulfillment.status == "failed"
+    assert diagnostic.summary == "网络连接或系统权限阻止了数据源请求。"
+    assert diagnostic.failure_path == fulfillment.artifact_path
+    assert diagnostic.retry_command == (
+        "lychee research run-data-request --request 1 --symbol QQQ"
+    )
+    assert diagnostic.recovery_steps == [
+        "这不是 API Key 配置问题；先确认当前终端允许访问网络。",
+        "检查代理、防火墙、DNS 或系统网络权限后，再重试。",
+    ]
+    assert diagnostic.failed_actions[0].action_type == "market"
+    assert "Operation not permitted" in diagnostic.failed_actions[0].message
 
 
 def test_fulfill_research_data_request_no_data_does_not_verify(

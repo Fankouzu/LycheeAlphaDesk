@@ -28,6 +28,7 @@ from lychee_alphadesk.core.opportunity_radar import (
 )
 from lychee_alphadesk.core.research_db import (
     write_discovery_research_run,
+    write_research_data_request_fulfillment_record,
     write_research_evidence_review_record,
     write_research_memo_record,
 )
@@ -2909,6 +2910,84 @@ def test_research_run_data_request_command_explains_provider_failures(
     assert "研究数据请求执行结果" in result.stdout
     assert "数据源诊断:" in result.stdout
     assert "网络连接或系统权限阻止了数据源请求" in result.stdout
+
+
+def test_research_data_request_diagnose_command_explains_failed_pull(
+    tmp_path: Path,
+) -> None:
+    memo_path = tmp_path / "research" / "research-memo-test.json"
+    verification_path = tmp_path / "research" / "research-verification-test.json"
+    fulfillment_path = tmp_path / "research" / "failed-fulfillment.json"
+    write_research_memo_record(
+        output_dir=tmp_path,
+        memo_id="research-memo:2026-07-05T10:02:00+00:00",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        confidence="待补证据",
+        summary="QQQ 需要补行情。",
+        support_count=0,
+        skeptic_count=0,
+        missing_count=1,
+        next_step_count=1,
+        memo_path=memo_path,
+        verification_path=verification_path,
+        payload={
+            "memo": {
+                "next_data_requests": [
+                    "请提供 QQQ 与更宽市场基准的行情、成交量和相对强弱对比。"
+                ]
+            }
+        },
+    )
+    write_research_data_request_fulfillment_record(
+        output_dir=tmp_path,
+        fulfillment_id="research-data-request-fulfillment:2026-07-05T10:04:00+00:00",
+        created_at="2026-07-05T10:04:00+00:00",
+        request_id="research-memo:2026-07-05T10:02:00+00:00:data-request:1",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        status="failed",
+        action_count=1,
+        fulfillment_path=fulfillment_path,
+        output_path=None,
+        payload={
+            "executions": [
+                {
+                    "action_type": "market",
+                    "status": "failed",
+                    "message": (
+                        "无法从 https://query1.finance.yahoo.com 获取 JSON: "
+                        "<urlopen error [Errno 1] Operation not permitted>"
+                    ),
+                    "warnings": [],
+                }
+            ]
+        },
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "data-request-diagnose",
+            "--request",
+            "1",
+            "--symbol",
+            "QQQ",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "研究数据源诊断" in result.stdout
+    assert "网络连接或系统权限阻止了数据源请求" in result.stdout
+    assert "这不是 API Key 配置问题" in result.stdout
+    assert "lychee research run-data-request --request 1 --symbol QQQ" in result.stdout
+    assert str(fulfillment_path) in result.stdout
 
 
 def test_research_memo_command_rejects_investment_advice_language(

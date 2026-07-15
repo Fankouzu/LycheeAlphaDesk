@@ -19,7 +19,9 @@ from lychee_alphadesk.core.research_requests import (
     ProviderBacklogItem,
     ResearchDataRequest,
     ResearchDataRequestAction,
+    ResearchDataRequestDiagnostic,
     ResearchDataRequestExecution,
+    ResearchDataRequestFailedAction,
     ResearchDataRequestFulfillment,
 )
 from lychee_alphadesk.core.workbench import CandidateCheck, PendingEvidenceReviewItem
@@ -444,8 +446,10 @@ def test_action_queue_turns_failed_data_request_into_provider_diagnostic(
     assert queue[0].area == "数据源诊断"
     assert queue[0].title == "修复数据源后重试: Tencent"
     assert "网络连接或系统权限阻止了数据源请求" in queue[0].detail
-    assert "修复后再重试补数据" in queue[0].detail
-    assert queue[0].command == "lychee research run-data-request --request 1 --symbol 0700.HK"
+    assert "先查看本地诊断并修复后再重试" in queue[0].detail
+    assert queue[0].command == (
+        "lychee research data-request-diagnose --request 1 --symbol 0700.HK"
+    )
     assert queue[0].source == failure.fulfillment_path
 
 
@@ -1314,6 +1318,77 @@ def test_execute_action_queue_runs_research_data_request(tmp_path: Path) -> None
     assert result.output_path == tmp_path / "research" / "verify-qqq.json"
     assert result.next_command == ""
     assert "已执行研究数据请求" in result.message
+
+
+def test_execute_action_queue_diagnoses_failed_data_request_without_retrying(
+    tmp_path: Path,
+) -> None:
+    item = action_queue.ActionQueueItem(
+        priority=18,
+        area="数据源诊断",
+        title="修复数据源后重试: Invesco QQQ Trust",
+        detail="上次补数据失败，需要先排查。",
+        command="lychee research data-request-diagnose --request 1 --symbol QQQ",
+        source=str(tmp_path / "research" / "failed-fulfillment.json"),
+    )
+    request = ResearchDataRequest(
+        request_id="memo:test:data-request:1",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        confidence="待补证据",
+        request_text="请提供 QQQ 行情和成交量。",
+        suggested_commands=["lychee data pull market --symbols QQQ"],
+        memo_path="research-memo-test.json",
+        verification_path="research-verification-test.json",
+    )
+    failure_path = tmp_path / "research" / "failed-fulfillment.json"
+    calls: list[dict[str, object]] = []
+
+    def fake_diagnose_data_request(
+        output_dir: Path,
+        **kwargs: object,
+    ) -> ResearchDataRequestDiagnostic:
+        calls.append({"output_dir": output_dir, **kwargs})
+        return ResearchDataRequestDiagnostic(
+            request=request,
+            attempted_at="2026-07-05T10:04:00+00:00",
+            summary="网络连接或系统权限阻止了数据源请求。",
+            recovery_steps=["检查当前终端的网络权限。"],
+            retry_command="lychee research run-data-request --request 1 --symbol QQQ",
+            failure_path=failure_path,
+            failed_actions=[
+                ResearchDataRequestFailedAction(
+                    action_type="market",
+                    message="<urlopen error [Errno 1] Operation not permitted>",
+                )
+            ],
+        )
+
+    result = action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        limit=7,
+        queue_builder=lambda *args, **kwargs: [item],
+        diagnose_data_request=fake_diagnose_data_request,
+    )
+
+    assert calls == [
+        {
+            "output_dir": tmp_path,
+            "request_index": 1,
+            "symbol": "QQQ",
+            "name": None,
+            "limit": 7,
+        }
+    ]
+    assert result.status == "manual_required"
+    assert result.count == 1
+    assert result.output_path == failure_path
+    assert result.next_command == "lychee research run-data-request --request 1 --symbol QQQ"
+    assert result.warnings == ["检查当前终端的网络权限。"]
+    assert "网络连接或系统权限阻止了数据源请求" in result.message
 
 
 def test_execute_action_queue_data_request_no_data_does_not_advance(

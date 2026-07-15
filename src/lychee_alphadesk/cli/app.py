@@ -75,7 +75,9 @@ from lychee_alphadesk.core.research_memo import (
 from lychee_alphadesk.core.research_requests import (
     ProviderBacklogItem,
     ResearchDataRequest,
+    ResearchDataRequestDiagnostic,
     ResearchDataRequestFulfillment,
+    diagnose_research_data_request,
     fulfill_research_data_request,
     list_provider_backlog_items,
     list_research_data_requests,
@@ -1312,6 +1314,44 @@ def research_run_data_request(
     _print_research_data_request_fulfillment(result)
 
 
+@research_app.command("data-request-diagnose")
+def research_data_request_diagnose(
+    request_index: Annotated[
+        int,
+        typer.Option("--request", help="要诊断的数据请求序号，从 1 开始。"),
+    ] = 1,
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="按证券代码过滤数据请求，例如 QQQ、STX。"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", help="按任务名称过滤数据请求。"),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="最多扫描多少条最新研究记录。"),
+    ] = 20,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="研究库所在输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """读取本地失败记录，诊断一条研究数据请求，不访问 provider。"""
+    try:
+        diagnostic = diagnose_research_data_request(
+            output_dir,
+            request_index=request_index,
+            symbol=symbol,
+            name=name,
+            limit=limit,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    _print_research_data_request_diagnostic(diagnostic)
+
+
 @data_pull_app.command("market")
 def data_pull_market(
     symbols: Annotated[
@@ -2403,6 +2443,34 @@ def _print_research_data_request_fulfillment(
     if diagnostic:
         console.print(f"数据源诊断: {diagnostic}", soft_wrap=True)
     console.print("边界: 数据请求执行只补证据，不是买卖建议。", soft_wrap=True)
+
+
+def _print_research_data_request_diagnostic(
+    diagnostic: ResearchDataRequestDiagnostic,
+) -> None:
+    request = diagnostic.request
+    console.print("研究数据源诊断")
+    console.print(
+        f"请求: {request.display_name} ({request.symbol or '-'}) [{request.market}]",
+        soft_wrap=True,
+    )
+    console.print(f"上次尝试: {diagnostic.attempted_at}", soft_wrap=True)
+    console.print(f"诊断: {diagnostic.summary}", soft_wrap=True)
+    if diagnostic.failed_actions:
+        console.print("失败动作:")
+        for action in diagnostic.failed_actions:
+            console.print(
+                f"- {_display_data_request_action(action.action_type)}: {action.message}",
+                soft_wrap=True,
+            )
+            for warning in action.warnings:
+                console.print(f"  警告: {warning}", soft_wrap=True)
+    console.print("恢复步骤:")
+    for index, step in enumerate(diagnostic.recovery_steps, start=1):
+        console.print(f"{index}. {step}", soft_wrap=True)
+    console.print(f"修复后重试: {diagnostic.retry_command}", soft_wrap=True)
+    console.print(f"失败记录: {diagnostic.failure_path}", soft_wrap=True)
+    console.print("边界: 诊断只读取本地失败记录，不发起数据请求，也不是买卖建议。")
 
 
 def _data_source_diagnostic(details: list[str]) -> str:

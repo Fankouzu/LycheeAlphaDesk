@@ -22,7 +22,10 @@ from lychee_alphadesk.core.research_db import (
 from lychee_alphadesk.core.research_requests import (
     ProviderBacklogItem,
     ResearchDataRequest,
+    ResearchDataRequestDiagnostic,
     ResearchDataRequestFulfillment,
+    describe_research_data_request_failure,
+    diagnose_research_data_request,
     fulfill_research_data_request,
     list_provider_backlog_items,
     list_research_data_requests,
@@ -47,6 +50,7 @@ PullNews = Callable[..., PullResult]
 RunResearch = Callable[..., Any]
 RecordEvidenceReview = Callable[..., Any]
 FulfillDataRequest = Callable[..., ResearchDataRequestFulfillment]
+DiagnoseDataRequest = Callable[..., ResearchDataRequestDiagnostic]
 RadarCandidateWriter = Callable[..., Path]
 ActionQueueBuilder = Callable[..., list["ActionQueueItem"]]
 
@@ -171,6 +175,7 @@ def execute_action_queue_batch(
     run_research: RunResearch = run_research_task,
     record_evidence_review: RecordEvidenceReview = record_research_evidence_review,
     fulfill_data_request: FulfillDataRequest = fulfill_research_data_request,
+    diagnose_data_request: DiagnoseDataRequest = diagnose_research_data_request,
     radar_candidate_writer: RadarCandidateWriter = write_opportunity_radar_candidate,
 ) -> ActionQueueBatchExecution:
     if max_actions < 1:
@@ -203,6 +208,7 @@ def execute_action_queue_batch(
             run_research=run_research,
             record_evidence_review=record_evidence_review,
             fulfill_data_request=fulfill_data_request,
+            diagnose_data_request=diagnose_data_request,
             radar_candidate_writer=radar_candidate_writer,
         )
         executions.append(execution)
@@ -233,6 +239,7 @@ def execute_action_queue_item(
     run_research: RunResearch = run_research_task,
     record_evidence_review: RecordEvidenceReview = record_research_evidence_review,
     fulfill_data_request: FulfillDataRequest = fulfill_research_data_request,
+    diagnose_data_request: DiagnoseDataRequest = diagnose_research_data_request,
     radar_candidate_writer: RadarCandidateWriter = write_opportunity_radar_candidate,
 ) -> ActionQueueExecution:
     queue = queue_builder(output_dir, limit=limit)
@@ -286,6 +293,16 @@ def execute_action_queue_item(
             limit=limit,
             force=force,
             fulfill_data_request=fulfill_data_request,
+        )
+
+    diagnostic_payload = _parse_data_request_diagnose_command(item.command)
+    if diagnostic_payload is not None:
+        return _execute_data_request_diagnostic_action(
+            output_dir=output_dir,
+            item=item,
+            payload=diagnostic_payload,
+            limit=limit,
+            diagnose_data_request=diagnose_data_request,
         )
 
     raise ValueError(
@@ -508,6 +525,46 @@ def _execute_research_data_request_action(
     )
 
 
+def _execute_data_request_diagnostic_action(
+    *,
+    output_dir: Path,
+    item: ActionQueueItem,
+    payload: dict[str, str | int | None],
+    limit: int,
+    diagnose_data_request: DiagnoseDataRequest,
+) -> ActionQueueExecution:
+    try:
+        diagnostic = diagnose_data_request(
+            output_dir,
+            request_index=payload["request_index"],
+            symbol=payload["symbol"],
+            name=payload["name"],
+            limit=limit,
+        )
+    except (RuntimeError, ValueError) as error:
+        return ActionQueueExecution(
+            item=item,
+            status="failed",
+            message=str(error),
+            count=0,
+            output_path=None,
+            next_command="",
+            warnings=[],
+        )
+    return ActionQueueExecution(
+        item=item,
+        status="manual_required",
+        message=(
+            f"数据源诊断: {diagnostic.summary} "
+            "请先完成恢复步骤，再手动确认重试。"
+        ),
+        count=len(diagnostic.failed_actions),
+        output_path=diagnostic.failure_path,
+        next_command=diagnostic.retry_command,
+        warnings=diagnostic.recovery_steps,
+    )
+
+
 def _pending_evidence_action(item: PendingEvidenceReviewItem) -> ActionQueueItem:
     return ActionQueueItem(
         priority=10,
@@ -571,17 +628,20 @@ def _data_request_action(
         return None
     command = f"lychee research run-data-request --request {index} {_research_selector(item)}"
     if failure is not None:
-        diagnostic = _data_request_failure_diagnostic(failure)
+        diagnostic = describe_research_data_request_failure(failure)
         detail = (
             f"上次补数据失败: {diagnostic} "
-            "修复后再重试补数据；失败不会推进研究结论。"
+            "先查看本地诊断并修复后再重试；失败不会推进研究结论。"
         )
         return ActionQueueItem(
             priority=18,
             area="数据源诊断",
             title=f"修复数据源后重试: {item.display_name}",
             detail=detail,
-            command=command,
+            command=(
+                "lychee research data-request-diagnose "
+                f"--request {index} {_research_selector(item)}"
+            ),
             source=failure.fulfillment_path,
         )
     return ActionQueueItem(
@@ -673,6 +733,28 @@ def _parse_run_data_request_command(
 ) -> dict[str, str | int | None] | None:
     parts = shlex.split(command)
     if parts[:3] != ["lychee", "research", "run-data-request"]:
+        return None
+    raw_request_index = _option_value(parts, "--request") or "1"
+    try:
+        request_index = int(raw_request_index)
+    except ValueError:
+        return None
+    symbol = _option_value(parts, "--symbol")
+    name = _option_value(parts, "--name")
+    if not symbol and not name:
+        return None
+    return {
+        "request_index": request_index,
+        "symbol": symbol.upper() if symbol else None,
+        "name": name or None,
+    }
+
+
+def _parse_data_request_diagnose_command(
+    command: str,
+) -> dict[str, str | int | None] | None:
+    parts = shlex.split(command)
+    if parts[:3] != ["lychee", "research", "data-request-diagnose"]:
         return None
     raw_request_index = _option_value(parts, "--request") or "1"
     try:
@@ -828,43 +910,6 @@ def _latest_failed_data_request_fulfillments(
             continue
         failed[record.request_id] = record
     return failed
-
-
-def _data_request_failure_diagnostic(
-    record: ResearchDataRequestFulfillmentRecord,
-) -> str:
-    details = _fulfillment_failure_details(record)
-    text = " ".join(details).casefold()
-    if "operation not permitted" in text or "errno 1" in text:
-        return "网络连接或系统权限阻止了数据源请求。"
-    if "timed out" in text or "timeout" in text:
-        return "数据源请求超时。"
-    if "http error 401" in text or "unauthorized" in text:
-        return "数据源认证失败，请检查 API key 或额度。"
-    if "http error 403" in text or "forbidden" in text:
-        return "数据源拒绝访问，请检查权限、频率限制、地区限制或请求标识。"
-    if "urlopen error" in text or "failed to establish" in text:
-        return "数据源连接失败，请检查网络、代理、防火墙、DNS 或 provider 状态。"
-    return "上次 provider 执行失败，请查看来源 artifact 中的原始错误。"
-
-
-def _fulfillment_failure_details(
-    record: ResearchDataRequestFulfillmentRecord,
-) -> list[str]:
-    details: list[str] = []
-    executions = record.payload.get("executions")
-    if not isinstance(executions, list):
-        return details
-    for execution in executions:
-        if not isinstance(execution, dict):
-            continue
-        message = execution.get("message")
-        if isinstance(message, str) and message:
-            details.append(message)
-        warnings = execution.get("warnings")
-        if isinstance(warnings, list):
-            details.extend(warning for warning in warnings if isinstance(warning, str))
-    return details
 
 
 def _data_request_key(item: ResearchDataRequest) -> tuple[str, str]:

@@ -14,6 +14,7 @@ from lychee_alphadesk.core.live_data import (
     write_fund_metadata_guide,
 )
 from lychee_alphadesk.core.research_db import (
+    ResearchDataRequestFulfillmentRecord,
     ResearchMemoRecord,
     list_research_data_request_fulfillments,
     list_research_memos,
@@ -87,6 +88,24 @@ class ResearchDataRequestFulfillment:
     executions: list[ResearchDataRequestExecution]
     status: str = ""
     artifact_path: Path | None = None
+
+
+@dataclass(frozen=True)
+class ResearchDataRequestFailedAction:
+    action_type: str
+    message: str
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ResearchDataRequestDiagnostic:
+    request: ResearchDataRequest
+    attempted_at: str
+    summary: str
+    recovery_steps: list[str]
+    retry_command: str
+    failure_path: Path
+    failed_actions: list[ResearchDataRequestFailedAction]
 
 
 def list_research_data_requests(
@@ -253,6 +272,52 @@ def fulfill_research_data_request(
     )
 
 
+def diagnose_research_data_request(
+    output_dir: Path,
+    *,
+    request_index: int = 1,
+    symbol: str | None = None,
+    name: str | None = None,
+    limit: int = 20,
+) -> ResearchDataRequestDiagnostic:
+    """Explain the latest failed request using only local research records."""
+    requests = list_research_data_requests(
+        output_dir,
+        symbol=symbol,
+        name=name,
+        limit=limit,
+    )
+    request = _select_request(requests, request_index=request_index, request_id=None)
+    records = list_research_data_request_fulfillments(
+        output_dir,
+        request_id=request.request_id,
+        limit=1,
+    )
+    if not records or records[0].status != "failed":
+        raise ValueError("这条数据请求没有可诊断的失败记录。")
+    failure = records[0]
+    summary, recovery_steps = _failure_summary_and_recovery_steps(failure)
+    return ResearchDataRequestDiagnostic(
+        request=request,
+        attempted_at=failure.created_at,
+        summary=summary,
+        recovery_steps=recovery_steps,
+        retry_command=(
+            "lychee research run-data-request "
+            f"--request {request_index} {_research_request_selector(request)}"
+        ),
+        failure_path=Path(failure.fulfillment_path),
+        failed_actions=_failed_actions(failure),
+    )
+
+
+def describe_research_data_request_failure(
+    record: ResearchDataRequestFulfillmentRecord,
+) -> str:
+    """Return a safe, user-facing failure summary for queues and diagnostics."""
+    return _failure_summary_and_recovery_steps(record)[0]
+
+
 def research_data_request_needs_manual_source(item: ResearchDataRequest) -> bool:
     executable_data_actions = [
         action
@@ -265,6 +330,104 @@ def research_data_request_needs_manual_source(item: ResearchDataRequest) -> bool
         len(item.suggested_commands) == 1
         and item.suggested_commands[0].startswith("lychee research verify ")
     )
+
+
+def _failure_summary_and_recovery_steps(
+    record: ResearchDataRequestFulfillmentRecord,
+) -> tuple[str, list[str]]:
+    details = _failure_details(record)
+    text = " ".join(details).casefold()
+    if "operation not permitted" in text or "errno 1" in text:
+        return (
+            "网络连接或系统权限阻止了数据源请求。",
+            [
+                "这不是 API Key 配置问题；先确认当前终端允许访问网络。",
+                "检查代理、防火墙、DNS 或系统网络权限后，再重试。",
+            ],
+        )
+    if "timed out" in text or "timeout" in text:
+        return (
+            "数据源请求超时。",
+            [
+                "确认 provider 服务状态、网络代理和 DNS 正常。",
+                "稍后重试；不要连续强制刷新同一请求。",
+            ],
+        )
+    if "http error 401" in text or "unauthorized" in text:
+        return (
+            "数据源认证失败，请检查 API key 或额度。",
+            [
+                "运行 `lychee setup` 检查并更新对应 provider 的凭据。",
+                "确认账户额度和 API key 状态后，再重试。",
+            ],
+        )
+    if "http error 403" in text or "forbidden" in text:
+        return (
+            "数据源拒绝访问，请检查权限、频率限制、地区限制或请求标识。",
+            [
+                "检查 provider 控制台中的权限、套餐额度和访问限制。",
+                "确认请求频率恢复后，再重试。",
+            ],
+        )
+    if "尚未配置" in text or "lychee setup" in text:
+        return (
+            "相关数据源尚未完成配置。",
+            [
+                "运行 `lychee setup` 完成对应 provider 的配置。",
+                "保存配置后，再重试这条数据请求。",
+            ],
+        )
+    if "urlopen error" in text or "failed to establish" in text:
+        return (
+            "数据源连接失败，请检查网络、代理、防火墙、DNS 或 provider 状态。",
+            [
+                "确认本机网络和代理配置能访问 provider 域名。",
+                "确认 provider 服务恢复后，再重试。",
+            ],
+        )
+    return (
+        "上次 provider 执行失败，请查看来源 artifact 中的原始错误。",
+        [
+            "查看失败 artifact 中各动作的原始错误和 warning。",
+            "修复对应数据源后，再重试。",
+        ],
+    )
+
+
+def _failed_actions(
+    record: ResearchDataRequestFulfillmentRecord,
+) -> list[ResearchDataRequestFailedAction]:
+    actions: list[ResearchDataRequestFailedAction] = []
+    executions = record.payload.get("executions")
+    if not isinstance(executions, list):
+        return actions
+    for execution in executions:
+        if not isinstance(execution, dict):
+            continue
+        status = execution.get("status")
+        if status not in {None, "", "failed"}:
+            continue
+        message = execution.get("message")
+        warnings = execution.get("warnings")
+        actions.append(
+            ResearchDataRequestFailedAction(
+                action_type=str(execution.get("action_type") or "provider"),
+                message=message if isinstance(message, str) else "未记录原始错误。",
+                warnings=[warning for warning in warnings if isinstance(warning, str)]
+                if isinstance(warnings, list)
+                else [],
+            )
+        )
+    return actions
+
+
+def _failure_details(record: ResearchDataRequestFulfillmentRecord) -> list[str]:
+    details: list[str] = []
+    for action in _failed_actions(record):
+        if action.message:
+            details.append(action.message)
+        details.extend(action.warnings)
+    return details
 
 
 def _handled_data_request_ids(output_dir: Path) -> set[str]:
@@ -883,6 +1046,12 @@ def _research_selector(record: ResearchMemoRecord) -> str:
     if record.symbol:
         return f"--symbol {record.symbol}"
     return f"--name {_quote_cli_value(record.display_name)}"
+
+
+def _research_request_selector(request: ResearchDataRequest) -> str:
+    if request.symbol:
+        return f"--symbol {request.symbol}"
+    return f"--name {_quote_cli_value(request.display_name)}"
 
 
 def _quote_cli_value(value: str) -> str:

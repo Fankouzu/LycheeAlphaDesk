@@ -6,6 +6,7 @@ from pathlib import Path
 from lychee_alphadesk.core.cache_freshness import list_cache_entries, record_cache_entry
 from lychee_alphadesk.core.config import default_config, save_config
 from lychee_alphadesk.core.live_data import (
+    _parse_sec_financial_snapshot,
     build_cached_data_snapshot,
     pull_market_prices,
     pull_news_events,
@@ -84,6 +85,15 @@ def test_pull_sec_financials_writes_auditable_latest_xbrl_snapshot(
                                     "fp": "Q2",
                                     "form": "10-Q",
                                     "filed": "2026-05-01",
+                                },
+                                {
+                                    "start": "2025-01-02",
+                                    "end": "2025-03-29",
+                                    "val": 86700000000,
+                                    "fy": 2025,
+                                    "fp": "Q2",
+                                    "form": "10-Q",
+                                    "filed": "2025-05-02",
                                 }
                             ]
                         }
@@ -99,6 +109,15 @@ def test_pull_sec_financials_writes_auditable_latest_xbrl_snapshot(
                                     "fp": "Q2",
                                     "form": "10-Q",
                                     "filed": "2026-05-01",
+                                },
+                                {
+                                    "start": "2025-01-02",
+                                    "end": "2025-03-29",
+                                    "val": 23636000000,
+                                    "fy": 2025,
+                                    "fp": "Q2",
+                                    "form": "10-Q",
+                                    "filed": "2025-05-02",
                                 }
                             ]
                         }
@@ -114,6 +133,15 @@ def test_pull_sec_financials_writes_auditable_latest_xbrl_snapshot(
                                     "fp": "Q2",
                                     "form": "10-Q",
                                     "filed": "2026-05-01",
+                                },
+                                {
+                                    "start": "2024-10-02",
+                                    "end": "2025-03-29",
+                                    "val": 22100000000,
+                                    "fy": 2025,
+                                    "fp": "Q2",
+                                    "form": "10-Q",
+                                    "filed": "2025-05-02",
                                 }
                             ]
                         }
@@ -148,12 +176,21 @@ def test_pull_sec_financials_writes_auditable_latest_xbrl_snapshot(
             "revenue": 95359000000,
             "revenue_period_start": "2026-01-01",
             "revenue_period_end": "2026-03-28",
+            "revenue_prior": 86700000000,
+            "revenue_prior_period_start": "2025-01-02",
+            "revenue_prior_period_end": "2025-03-29",
             "net_income": 24780000000,
             "net_income_period_start": "2026-01-01",
             "net_income_period_end": "2026-03-28",
+            "net_income_prior": 23636000000,
+            "net_income_prior_period_start": "2025-01-02",
+            "net_income_prior_period_end": "2025-03-29",
             "operating_cash_flow": 23951000000,
             "operating_cash_flow_period_start": "2025-10-01",
             "operating_cash_flow_period_end": "2026-03-28",
+            "operating_cash_flow_prior": 22100000000,
+            "operating_cash_flow_prior_period_start": "2024-10-02",
+            "operating_cash_flow_prior_period_end": "2025-03-29",
             "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
         }
     ]
@@ -170,6 +207,49 @@ def test_pull_sec_financials_writes_auditable_latest_xbrl_snapshot(
     assert cached.refreshed is False
     assert cached.count == 1
     assert "保质期内" in cached.warnings[0]
+
+
+def test_sec_financial_snapshot_skips_prior_value_with_mismatched_duration() -> None:
+    snapshot = _parse_sec_financial_snapshot(
+        symbol="TEST",
+        company="Example Inc.",
+        cik=1,
+        source_url="https://data.sec.gov/api/xbrl/companyfacts/CIK0000000001.json",
+        payload={
+            "facts": {
+                "us-gaap": {
+                    "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                        "units": {
+                            "USD": [
+                                {
+                                    "start": "2026-01-01",
+                                    "end": "2026-03-28",
+                                    "val": 100,
+                                    "fy": 2026,
+                                    "fp": "Q2",
+                                    "form": "10-Q",
+                                    "filed": "2026-05-01",
+                                },
+                                {
+                                    "start": "2024-10-02",
+                                    "end": "2025-03-29",
+                                    "val": 200,
+                                    "fy": 2025,
+                                    "fp": "Q2",
+                                    "form": "10-Q",
+                                    "filed": "2025-05-02",
+                                },
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    assert snapshot is not None
+    assert snapshot.revenue == 100
+    assert snapshot.revenue_prior is None
 
 
 def test_write_fund_metadata_cache_preserves_source_backed_proxy_details(

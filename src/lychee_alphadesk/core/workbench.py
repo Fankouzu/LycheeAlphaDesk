@@ -1195,6 +1195,9 @@ def _financial_snapshot_line(row: dict[str, object]) -> str:
             currency,
             row.get("revenue_period_start"),
             row.get("revenue_period_end"),
+            row.get("revenue_prior"),
+            row.get("revenue_prior_period_start"),
+            row.get("revenue_prior_period_end"),
         ),
         _financial_snapshot_value(
             "净利润",
@@ -1202,6 +1205,9 @@ def _financial_snapshot_line(row: dict[str, object]) -> str:
             currency,
             row.get("net_income_period_start"),
             row.get("net_income_period_end"),
+            row.get("net_income_prior"),
+            row.get("net_income_prior_period_start"),
+            row.get("net_income_prior_period_end"),
         ),
         _financial_snapshot_value(
             "经营现金流",
@@ -1209,6 +1215,9 @@ def _financial_snapshot_line(row: dict[str, object]) -> str:
             currency,
             row.get("operating_cash_flow_period_start"),
             row.get("operating_cash_flow_period_end"),
+            row.get("operating_cash_flow_prior"),
+            row.get("operating_cash_flow_prior_period_start"),
+            row.get("operating_cash_flow_prior_period_end"),
         ),
     ]
     source_url = _string_value(row.get("source_url"))
@@ -1224,6 +1233,9 @@ def _financial_snapshot_value(
     currency: str,
     period_start: object,
     period_end: object,
+    prior_value: object,
+    prior_period_start: object,
+    prior_period_end: object,
 ) -> str:
     if isinstance(value, int | float):
         text = f"{label} {value:,.0f} {currency}"
@@ -1233,8 +1245,41 @@ def _financial_snapshot_value(
             text += f" ({start} 至 {end})"
         elif end:
             text += f" (截至 {end})"
+        comparison = _financial_snapshot_comparison(
+            value,
+            prior_value,
+            currency,
+            prior_period_start,
+            prior_period_end,
+        )
+        if comparison:
+            text += f"，{comparison}"
         return text
     return ""
+
+
+def _financial_snapshot_comparison(
+    value: int | float,
+    prior_value: object,
+    currency: str,
+    prior_period_start: object,
+    prior_period_end: object,
+) -> str:
+    if not isinstance(prior_value, int | float):
+        return ""
+    prior_text = f"上年同期 {prior_value:,.0f} {currency}"
+    prior_start = _string_value(prior_period_start)
+    prior_end = _string_value(prior_period_end)
+    if prior_start and prior_end:
+        prior_text += f" ({prior_start} 至 {prior_end})"
+    elif prior_end:
+        prior_text += f" (截至 {prior_end})"
+    if value < 0 or prior_value < 0:
+        return f"{prior_text}（当前或上年同期为负值，未计算同比）"
+    if prior_value == 0:
+        return f"{prior_text}（上年同期为零，未计算同比）"
+    percentage = (value - prior_value) / abs(prior_value) * 100
+    return f"同比 {percentage:+.1f}% ({prior_text})"
 
 
 def _research_metric_support_lines(rows: list[dict[str, object]]) -> list[str]:

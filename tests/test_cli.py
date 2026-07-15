@@ -1752,7 +1752,7 @@ def test_research_review_command_records_non_advisory_verdict(
     assert payload["verification"]["candidate"]["symbol"] == "STX"
     assert payload["evidence_counts"] == {
         "support": 4,
-        "risk": 1,
+        "risk": 2,
         "off_topic": 0,
         "missing": 0,
     }
@@ -1778,7 +1778,7 @@ def test_research_review_command_records_non_advisory_verdict(
         "continue_research",
         "证据完整，下一步做一致性人工复核。",
         4,
-        1,
+        2,
         0,
         str(artifacts[0]),
         payload["verification_path"],
@@ -1871,7 +1871,7 @@ def test_research_reviews_command_lists_review_history(tmp_path: Path) -> None:
     assert "STX" in result.stdout
     assert "暂停观察" in result.stdout
     assert "暂时观察，等待更多订单和财报证据。" in result.stdout
-    assert "支持 4 | 风险 1 | 待补 0" in result.stdout
+    assert "支持 4 | 风险 2 | 待补 0" in result.stdout
     assert "research-review-" in result.stdout
     assert "不是买卖建议" in result.stdout
 

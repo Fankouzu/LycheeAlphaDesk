@@ -580,12 +580,21 @@ def test_verify_research_task_uses_cached_sec_financial_snapshot(
                         "revenue": 2310000000,
                         "revenue_period_start": "2025-12-27",
                         "revenue_period_end": "2026-03-27",
+                        "revenue_prior": 2100000000,
+                        "revenue_prior_period_start": "2024-12-28",
+                        "revenue_prior_period_end": "2025-03-28",
                         "net_income": 330000000,
                         "net_income_period_start": "2025-12-27",
                         "net_income_period_end": "2026-03-27",
+                        "net_income_prior": 300000000,
+                        "net_income_prior_period_start": "2024-12-28",
+                        "net_income_prior_period_end": "2025-03-28",
                         "operating_cash_flow": 410000000,
                         "operating_cash_flow_period_start": "2025-06-28",
                         "operating_cash_flow_period_end": "2026-03-27",
+                        "operating_cash_flow_prior": 400000000,
+                        "operating_cash_flow_prior_period_start": "2024-06-29",
+                        "operating_cash_flow_prior_period_end": "2025-03-28",
                         "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001137789.json",
                     }
                 ],
@@ -614,6 +623,10 @@ def test_verify_research_task_uses_cached_sec_financial_snapshot(
     detail = render_research_task_detail(result.candidate, result.packet)
     assert "财务快照" in detail
     assert "营收 2,310,000,000 USD (2025-12-27 至 2026-03-27)" in detail
+    assert (
+        "同比 +10.0% (上年同期 2,100,000,000 USD "
+        "(2024-12-28 至 2025-03-28))"
+    ) in detail
     assert "经营现金流 410,000,000 USD (2025-06-28 至 2026-03-27)" in detail
 
 

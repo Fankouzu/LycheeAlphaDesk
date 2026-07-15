@@ -5,7 +5,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from lychee_alphadesk.core.cache_freshness import (
@@ -98,12 +98,21 @@ class FinancialSnapshot:
     revenue: int | float | None
     revenue_period_start: str
     revenue_period_end: str
+    revenue_prior: int | float | None
+    revenue_prior_period_start: str
+    revenue_prior_period_end: str
     net_income: int | float | None
     net_income_period_start: str
     net_income_period_end: str
+    net_income_prior: int | float | None
+    net_income_prior_period_start: str
+    net_income_prior_period_end: str
     operating_cash_flow: int | float | None
     operating_cash_flow_period_start: str
     operating_cash_flow_period_end: str
+    operating_cash_flow_prior: int | float | None
+    operating_cash_flow_prior_period_start: str
+    operating_cash_flow_prior_period_end: str
     source_url: str
 
 
@@ -1333,16 +1342,16 @@ def _parse_sec_recent_filings(
     documents = _string_list(recent.get("primaryDocument"))
 
     rows: list[FilingSummary] = []
-    for form, date, accession, document in list(
+    for form, filing_date, accession, document in list(
         zip(forms, dates, accessions, documents, strict=False)
     )[:limit]:
         accession_path = accession.replace("-", "")
         rows.append(
             FilingSummary(
-                date=date,
+                date=filing_date,
                 company=company,
                 form=form,
-                summary=f"{symbol} 在 {date} 提交了 {form}。",
+                summary=f"{symbol} 在 {filing_date} 提交了 {form}。",
                 source_url=(
                     "https://www.sec.gov/Archives/edgar/data/"
                     f"{cik}/{accession_path}/{document}"
@@ -1373,6 +1382,9 @@ def _parse_sec_financial_snapshot(
         payload,
         ["NetCashProvidedByUsedInOperatingActivities"],
     )
+    revenue_prior = _comparable_sec_fact_value(payload, revenue)
+    net_income_prior = _comparable_sec_fact_value(payload, net_income)
+    operating_cash_flow_prior = _comparable_sec_fact_value(payload, operating_cash_flow)
     facts = [fact for fact in [revenue, net_income, operating_cash_flow] if fact]
     if not facts:
         return None
@@ -1391,12 +1403,25 @@ def _parse_sec_financial_snapshot(
         revenue=_sec_fact_number(revenue),
         revenue_period_start=_sec_fact_text(revenue or {}, "start"),
         revenue_period_end=_sec_fact_text(revenue or {}, "end"),
+        revenue_prior=_sec_fact_number(revenue_prior),
+        revenue_prior_period_start=_sec_fact_text(revenue_prior or {}, "start"),
+        revenue_prior_period_end=_sec_fact_text(revenue_prior or {}, "end"),
         net_income=_sec_fact_number(net_income),
         net_income_period_start=_sec_fact_text(net_income or {}, "start"),
         net_income_period_end=_sec_fact_text(net_income or {}, "end"),
+        net_income_prior=_sec_fact_number(net_income_prior),
+        net_income_prior_period_start=_sec_fact_text(net_income_prior or {}, "start"),
+        net_income_prior_period_end=_sec_fact_text(net_income_prior or {}, "end"),
         operating_cash_flow=_sec_fact_number(operating_cash_flow),
         operating_cash_flow_period_start=_sec_fact_text(operating_cash_flow or {}, "start"),
         operating_cash_flow_period_end=_sec_fact_text(operating_cash_flow or {}, "end"),
+        operating_cash_flow_prior=_sec_fact_number(operating_cash_flow_prior),
+        operating_cash_flow_prior_period_start=_sec_fact_text(
+            operating_cash_flow_prior or {}, "start"
+        ),
+        operating_cash_flow_prior_period_end=_sec_fact_text(
+            operating_cash_flow_prior or {}, "end"
+        ),
         source_url=source_url,
     )
 
@@ -1405,14 +1430,22 @@ def _latest_sec_fact_value(
     payload: object,
     concepts: list[str],
 ) -> dict[str, object] | None:
+    candidates = _sec_fact_candidates(payload, concepts)
+    return max(candidates, key=_sec_fact_sort_key) if candidates else None
+
+
+def _sec_fact_candidates(
+    payload: object,
+    concepts: list[str],
+) -> list[dict[str, object]]:
     if not isinstance(payload, dict):
-        return None
+        return []
     facts = payload.get("facts")
     if not isinstance(facts, dict):
-        return None
+        return []
     us_gaap = facts.get("us-gaap")
     if not isinstance(us_gaap, dict):
-        return None
+        return []
 
     candidates: list[dict[str, object]] = []
     for concept in concepts:
@@ -1432,8 +1465,72 @@ def _latest_sec_fact_value(
                 continue
             if _sec_fact_number(value) is None:
                 continue
-            candidates.append(value)
-    return max(candidates, key=_sec_fact_sort_key) if candidates else None
+            candidates.append({**value, "_concept": concept})
+    return candidates
+
+
+def _comparable_sec_fact_value(
+    payload: object,
+    current: dict[str, object] | None,
+) -> dict[str, object] | None:
+    if current is None:
+        return None
+    concept = _sec_fact_text(current, "_concept")
+    current_end = _sec_fact_date(current, "end")
+    current_start = _sec_fact_date(current, "start")
+    if not concept or current_end is None or current_start is None:
+        return None
+
+    current_form = _sec_fact_text(current, "form")
+    current_period = _sec_fact_text(current, "fp")
+    candidates: list[dict[str, object]] = []
+    for candidate in _sec_fact_candidates(payload, [concept]):
+        candidate_end = _sec_fact_date(candidate, "end")
+        candidate_start = _sec_fact_date(candidate, "start")
+        if candidate_end is None or candidate_start is None:
+            continue
+        if _sec_fact_text(candidate, "form") != current_form:
+            continue
+        if current_period and _sec_fact_text(candidate, "fp") != current_period:
+            continue
+        year_gap = (current_end - candidate_end).days
+        if not 330 <= year_gap <= 400:
+            continue
+        duration_delta = abs(
+            (current_end - current_start).days - (candidate_end - candidate_start).days
+        )
+        if duration_delta > 14:
+            continue
+        candidates.append(candidate)
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda candidate: _sec_fact_comparison_key(
+            current_end,
+            current_start,
+            candidate,
+        ),
+    )
+
+
+def _sec_fact_comparison_key(
+    current_end: date,
+    current_start: date,
+    candidate: dict[str, object],
+) -> tuple[int, int, tuple[str, str, str]]:
+    candidate_end = _sec_fact_date(candidate, "end")
+    candidate_start = _sec_fact_date(candidate, "start")
+    if candidate_end is None or candidate_start is None:
+        return (9999, 9999, _sec_fact_sort_key(candidate))
+    return (
+        abs((current_end - candidate_end).days - 365),
+        abs(
+            (current_end - current_start).days
+            - (candidate_end - candidate_start).days
+        ),
+        _sec_fact_sort_key(candidate),
+    )
 
 
 def _sec_fact_sort_key(fact: dict[str, object]) -> tuple[str, str, str]:
@@ -1456,6 +1553,14 @@ def _sec_fact_int(fact: dict[str, object], key: str) -> int | None:
     if isinstance(value, str) and value.isdigit():
         return int(value)
     return None
+
+
+def _sec_fact_date(fact: dict[str, object], key: str) -> date | None:
+    value = _sec_fact_text(fact, key)
+    try:
+        return date.fromisoformat(value) if value else None
+    except ValueError:
+        return None
 
 
 def _sec_fact_number(fact: dict[str, object] | None) -> int | float | None:
@@ -1745,12 +1850,27 @@ def _financial_snapshot_from_dict(row: dict[str, object]) -> FinancialSnapshot:
         revenue=_financial_number_from_dict(row.get("revenue")),
         revenue_period_start=str(row.get("revenue_period_start") or ""),
         revenue_period_end=str(row.get("revenue_period_end") or ""),
+        revenue_prior=_financial_number_from_dict(row.get("revenue_prior")),
+        revenue_prior_period_start=str(row.get("revenue_prior_period_start") or ""),
+        revenue_prior_period_end=str(row.get("revenue_prior_period_end") or ""),
         net_income=_financial_number_from_dict(row.get("net_income")),
         net_income_period_start=str(row.get("net_income_period_start") or ""),
         net_income_period_end=str(row.get("net_income_period_end") or ""),
+        net_income_prior=_financial_number_from_dict(row.get("net_income_prior")),
+        net_income_prior_period_start=str(row.get("net_income_prior_period_start") or ""),
+        net_income_prior_period_end=str(row.get("net_income_prior_period_end") or ""),
         operating_cash_flow=_financial_number_from_dict(row.get("operating_cash_flow")),
         operating_cash_flow_period_start=str(row.get("operating_cash_flow_period_start") or ""),
         operating_cash_flow_period_end=str(row.get("operating_cash_flow_period_end") or ""),
+        operating_cash_flow_prior=_financial_number_from_dict(
+            row.get("operating_cash_flow_prior")
+        ),
+        operating_cash_flow_prior_period_start=str(
+            row.get("operating_cash_flow_prior_period_start") or ""
+        ),
+        operating_cash_flow_prior_period_end=str(
+            row.get("operating_cash_flow_prior_period_end") or ""
+        ),
         source_url=str(row.get("source_url") or ""),
     )
 

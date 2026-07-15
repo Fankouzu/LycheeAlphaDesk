@@ -663,15 +663,30 @@ def _financial_snapshot_from_dict(row: dict[str, object]) -> FinancialSnapshot:
         revenue=_numeric_value(row.get("revenue")),
         revenue_period_start=_string_value(row.get("revenue_period_start")),
         revenue_period_end=_string_value(row.get("revenue_period_end")),
+        revenue_prior=_numeric_value(row.get("revenue_prior")),
+        revenue_prior_period_start=_string_value(row.get("revenue_prior_period_start")),
+        revenue_prior_period_end=_string_value(row.get("revenue_prior_period_end")),
         net_income=_numeric_value(row.get("net_income")),
         net_income_period_start=_string_value(row.get("net_income_period_start")),
         net_income_period_end=_string_value(row.get("net_income_period_end")),
+        net_income_prior=_numeric_value(row.get("net_income_prior")),
+        net_income_prior_period_start=_string_value(
+            row.get("net_income_prior_period_start")
+        ),
+        net_income_prior_period_end=_string_value(row.get("net_income_prior_period_end")),
         operating_cash_flow=_numeric_value(row.get("operating_cash_flow")),
         operating_cash_flow_period_start=_string_value(
             row.get("operating_cash_flow_period_start")
         ),
         operating_cash_flow_period_end=_string_value(
             row.get("operating_cash_flow_period_end")
+        ),
+        operating_cash_flow_prior=_numeric_value(row.get("operating_cash_flow_prior")),
+        operating_cash_flow_prior_period_start=_string_value(
+            row.get("operating_cash_flow_prior_period_start")
+        ),
+        operating_cash_flow_prior_period_end=_string_value(
+            row.get("operating_cash_flow_prior_period_end")
         ),
         source_url=_string_value(row.get("source_url")),
     )

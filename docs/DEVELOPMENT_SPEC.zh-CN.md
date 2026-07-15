@@ -146,7 +146,7 @@ lad
 - `lad data pull market` 将 Alpha Vantage 日线行情写入本地 live cache。默认使用行情 cache 的保质期和交易时段判断；`--force` 可强制刷新。
 - `lad data pull news` 将 Marketaux、Finnhub 或 NewsAPI 新闻事件写入本地 live cache。不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`--query` 可传入主题关键词，用于按研究主题补强新闻证据；主题查询应使用 Marketaux 或 NewsAPI，Finnhub 不支持主题关键词查询。默认使用新闻 cache 保质期；`--force` 可强制刷新。新闻缓存必须保留已有行并追加去重后的新行，避免刷新后改变 `news_001` 等 evidence ID 的含义。Finnhub 当前仅用于个股新闻；市场级新闻应使用 Marketaux 或 NewsAPI。
 - `lad data pull filings` 将 SEC EDGAR 近期 filings 写入本地 live cache。
-- `lad data pull financials` 将 SEC EDGAR XBRL `companyfacts` 写入 `financials.json`。第一版只覆盖美股发行人，并且每行必须保留表单类型、营收、净利润、经营现金流和官方来源 URL；每项金额必须保留各自的起止日期，禁止把单季度收入和年内累计现金流伪装成同一报告区间。不可用字段保持空值，禁止猜测。研究深挖、任务详情、核验项和证据板必须把已有快照作为可审计事实展示；港股/A 股财报 provider 未接入时必须明确标为不适用或待接入。
+- `lad data pull financials` 将 SEC EDGAR XBRL `companyfacts` 写入 `financials.json`。第一版只覆盖美股发行人，并且每行必须保留表单类型、营收、净利润、经营现金流和官方来源 URL；每项金额必须保留各自的起止日期，禁止把单季度收入和年内累计现金流伪装成同一报告区间。只有指标定义、表单、财报期和期间长度一致，并且上一期间结束日落在上年同期比较窗口内时，才可保留上年同期数据；否则同比相关字段必须为空。不可用字段保持空值，禁止猜测。研究深挖、任务详情、核验项和证据板必须把已有快照作为可审计事实展示；港股/A 股财报 provider 未接入时必须明确标为不适用或待接入。
 - `lad data set fund` 将人工核验且带来源 URL 的基金/ETF 资料写入 `fund-metadata.json`，用于代理 ETF/指数核验里的跟踪指数、费用率、成分摘要、来源和资料日期。该命令必须要求来源 URL，不得把会漂移的基金费用或成分硬编码成生产事实。
 - `lad data freshness` 只读取本地 `cache_entries`，展示缓存层级、状态、provider、cache key、市场、交易状态、过期时间和行数，不触发 provider 请求。
 - `lad data health` 检查 live cache 是否存在以及行数状态。

@@ -1766,7 +1766,54 @@ def _print_workbench_check(result: WorkbenchCheckResult) -> None:
     for gate in result.gates:
         table.add_row(gate.name, _display_workbench_gate_status(gate.status), gate.detail)
     console.print(table)
+    _print_workbench_auto_fill_diagnostics(result)
     console.print(result.beginner_brief, soft_wrap=True)
+
+
+def _print_workbench_auto_fill_diagnostics(result: WorkbenchCheckResult) -> None:
+    actions = [
+        action
+        for action in result.fill_result.actions
+        if action.status in {"failed", "partial", "needs_input"}
+        or (action.warnings and action.status != "mapped")
+    ]
+    if not actions:
+        return
+    console.print("自动补齐诊断")
+    table = Table(title="数据源与补齐状态")
+    table.add_column("动作")
+    table.add_column("状态")
+    table.add_column("代码", overflow="fold")
+    table.add_column("结果")
+    table.add_column("说明", overflow="fold")
+    for action in actions:
+        table.add_row(
+            _display_gap_action_type(action.action_type),
+            _display_gap_action_status(action.status),
+            _display_values(action.symbols),
+            f"{action.count}/{len(action.symbols)}",
+            action.message,
+        )
+    console.print(table)
+    for action in actions:
+        for warning in action.warnings:
+            console.print(f"- {_compact_provider_warning(warning)}", soft_wrap=True)
+    console.print("未补齐的数据不会进入研究结论；完整诊断已写入自检报告。")
+
+
+def _compact_provider_warning(warning: str) -> str:
+    segments = warning.split("；")
+    return "；".join(_compact_provider_warning_segment(segment) for segment in segments)
+
+
+def _compact_provider_warning_segment(segment: str) -> str:
+    prefix, marker, remainder = segment.partition("无法从 ")
+    if not marker:
+        return segment
+    _, error_marker, error = remainder.partition(" 获取 JSON: ")
+    if not error_marker:
+        return segment
+    return f"{prefix}数据源请求失败: {error}"
 
 
 def _print_research_run(result: ResearchRunResult) -> None:

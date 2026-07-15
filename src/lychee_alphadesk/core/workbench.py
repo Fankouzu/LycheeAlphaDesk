@@ -341,6 +341,7 @@ def run_workbench_check(
         proxy_price_count=proxy_price_count,
         proxy_total=proxy_total,
         beginner_brief=beginner_brief,
+        fill_result=fill_result,
     )
     return WorkbenchCheckResult(
         created_at=created_at,
@@ -4403,6 +4404,7 @@ def _write_workbench_check_artifact(
     proxy_price_count: int,
     proxy_total: int,
     beginner_brief: str,
+    fill_result: ResearchGapFillResult,
 ) -> Path:
     research_dir = output_dir / "research"
     research_dir.mkdir(parents=True, exist_ok=True)
@@ -4420,6 +4422,7 @@ def _write_workbench_check_artifact(
                     1 for candidate in candidates if candidate.status == "blocked"
                 ),
                 "proxy_price_coverage": f"{proxy_price_count}/{proxy_total}",
+                "auto_fill": _auto_fill_payload(fill_result),
                 "gates": [asdict(gate) for gate in gates],
                 "candidates": [asdict(candidate) for candidate in candidates],
                 "beginner_brief": beginner_brief,
@@ -4432,6 +4435,27 @@ def _write_workbench_check_artifact(
         encoding="utf-8",
     )
     return output_path
+
+
+def _auto_fill_payload(result: ResearchGapFillResult) -> dict[str, object]:
+    return {
+        "candidates_checked": result.candidates_checked,
+        "market_symbols": result.market_symbols,
+        "filing_symbols": result.filing_symbols,
+        "symbol_mapping_candidates": result.symbol_mapping_candidates,
+        "actions": [
+            {
+                "action_type": action.action_type,
+                "status": action.status,
+                "symbols": action.symbols,
+                "count": action.count,
+                "output_path": str(action.output_path) if action.output_path else None,
+                "warnings": action.warnings,
+                "message": action.message,
+            }
+            for action in result.actions
+        ],
+    }
 
 
 def _proxy_price_coverage(packets: list[ResearchPacket]) -> tuple[int, int]:

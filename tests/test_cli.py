@@ -3337,6 +3337,21 @@ def test_research_check_command_strict_fails_when_blocked(
     assert "阻塞任务" in result.stdout
     assert "处理动作: 先补齐" in result.stdout
     assert "缺少 STX SEC 公告缓存" in result.stdout
+    assert "自动补齐诊断" in result.stdout
+    assert "SEC 公告" in result.stdout
+    assert "SEC blocked" in result.stdout
+    artifacts = list((tmp_path / "research").glob("workbench-check-*.json"))
+    assert artifacts
+    payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
+    assert payload["auto_fill"]["actions"][1] == {
+        "action_type": "sec_filings",
+        "status": "failed",
+        "symbols": ["STX"],
+        "count": 0,
+        "output_path": str(tmp_path / "data" / "filings.json"),
+        "warnings": ["SEC blocked"],
+        "message": "SEC 公告补齐未完成。",
+    }
 
 
 def test_discover_today_reports_market_news_preparation_error(

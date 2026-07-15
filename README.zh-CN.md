@@ -267,7 +267,7 @@ lychee research deepen
 lychee research fill-gaps
 ```
 
-`research fill-gaps` 会读取研究队列和本地缓存，自动拉取缺失的行情、ticker 关联新闻，以及美股股票缺失的 SEC 公告，然后重新生成研究深挖包。新闻只有在命中当前研究主题时才算补齐；离题行仍保留供审计，但会标为部分完成并列出未解决代码。行情补齐默认使用 `auto`：美股优先走 Alpha Vantage，港股/A 股走 Eastmoney 日 K 接口；主数据源失败时使用 Yahoo chart 兜底。没有证券代码的候选不会被系统乱猜；第一版会生成带原因、置信度和证据 ID 的可审计代理标的映射，并拉取代理标的行情，但仍要求用户在下钻前人工确认成分、流动性和可交易性。
+`research fill-gaps` 会读取研究队列和本地缓存，自动拉取缺失的行情、ticker 关联新闻，以及美股股票缺失的 SEC 公告，然后重新生成研究深挖包。新闻只有在命中当前研究主题时才算补齐；离题行仍保留供审计，但会标为部分完成并列出未解决代码。行情补齐默认使用 `auto`：美股优先走 Alpha Vantage；已配置 Tushare 后，A 股股票、中国 ETF 风格代码和港股优先走对应的 Tushare 日线接口，再回退到 Eastmoney 与 Yahoo chart。没有证券代码的候选不会被系统乱猜；第一版会生成带原因、置信度和证据 ID 的可审计代理标的映射，并拉取代理标的行情，但仍要求用户在下钻前人工确认成分、流动性和可交易性。
 
 自动运行补缺、深挖和工作台自检：
 
@@ -395,7 +395,7 @@ lychee
 
 当前 live provider：
 
-- 行情：Alpha Vantage 日线行情；自动补缺口时可用 Eastmoney 覆盖港股/A 股日 K，并用 Yahoo chart 做跨市场兜底。
+- 行情：Alpha Vantage 日线行情；配置 token 后，Tushare 会把 A 股股票、中国 ETF 风格代码和港股路由到对应日线接口，再由 Eastmoney 与 Yahoo chart 回退。Tushare 的接口权限错误会明确显示为权限缺口，不会误报为 API key 错误。
 - 新闻：Marketaux、Finnhub 或 NewsAPI，可用 `--provider` 指定；不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`auto` 会按请求类型使用第一个已配置且适用的 provider。
 - 公告：SEC EDGAR 美股近期 filings。
 - 财务快照：SEC EDGAR XBRL `companyfacts`，当前覆盖美股发行人。快照保留每项指标各自的报告区间、营收、净利润、经营现金流和官方来源 URL；只有同一指标定义、表单、财报期且期间长度可比的上年同期存在时，工作台才显示可审计的同比变化，无法同口径比较时保持为空，不会硬凑百分比。港股/A 股财务 provider 仍会明确显示为待接入，不会伪装成已覆盖。

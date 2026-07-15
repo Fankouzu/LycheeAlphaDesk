@@ -269,7 +269,7 @@ Automatically fill data that can be pulled from research gaps:
 lychee research fill-gaps
 ```
 
-`research fill-gaps` reads the queue and local cache, pulls missing market prices, ticker-linked news, and missing SEC filings for US stock candidates, then writes a fresh research packet. A news response counts as complete only when it is relevant to the current research theme; off-topic rows are retained for audit but reported as a partial fill with unresolved symbols. Price filling uses `auto` by default: US symbols use Alpha Vantage, HK/China symbols use Eastmoney daily bars, and Yahoo chart is used as a cross-market fallback when the primary source fails. Candidates without symbols are not silently guessed; the first implementation creates auditable proxy mappings with reasons, confidence, and evidence IDs, pulls proxy prices, and still requires the user to review constituents, liquidity, and tradability before drilling down.
+`research fill-gaps` reads the queue and local cache, pulls missing market prices, ticker-linked news, and missing SEC filings for US stock candidates, then writes a fresh research packet. A news response counts as complete only when it is relevant to the current research theme; off-topic rows are retained for audit but reported as a partial fill with unresolved symbols. Price filling uses `auto` by default: US symbols use Alpha Vantage; configured Tushare routes China stocks, China ETF-style codes, and HK symbols before Eastmoney and a final Yahoo chart fallback. Candidates without symbols are not silently guessed; the first implementation creates auditable proxy mappings with reasons, confidence, and evidence IDs, pulls proxy prices, and still requires the user to review constituents, liquidity, and tradability before drilling down.
 
 Automatically run gap filling, deepening, and workbench readiness checks:
 
@@ -437,7 +437,7 @@ lychee
 
 Current live providers:
 
-- Market prices: Alpha Vantage daily time series; automatic gap filling can use Eastmoney daily bars for HK/China symbols and Yahoo chart as a cross-market fallback.
+- Market prices: Alpha Vantage daily time series; with a configured token, Tushare routes China stocks, China ETF-style codes, and HK symbols to the matching daily endpoint before Eastmoney and a final Yahoo chart fallback. Tushare interface-entitlement errors are surfaced as permission gaps, not as API-key errors.
 - News: Marketaux, Finnhub, or NewsAPI, selected with `--provider`; without `--symbols` it pulls market-level news, and with `--symbols` it pulls symbol-level news. `auto` uses the first configured provider that fits the request type.
 - Filings: SEC EDGAR recent filings for US-listed symbols.
 - Financial snapshots: SEC EDGAR XBRL `companyfacts` for US issuers. Each metric keeps its own reporting interval alongside revenue, net income, operating cash flow, and the official source URL. When the same metric definition, form, fiscal period, and a comparable prior-year duration are available, the workbench also shows the audited year-over-year change; it leaves the comparison empty rather than forcing mismatched periods. HK/CN financial coverage remains explicitly unimplemented rather than implied.

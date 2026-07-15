@@ -25,6 +25,7 @@ from lychee_alphadesk.providers.demo import (
 )
 
 JsonFetcher = Callable[[str, dict[str, str] | None], object]
+JsonPoster = Callable[[str, dict[str, str] | None, dict[str, object]], object]
 
 SEC_USER_AGENT = (
     "LycheeAlphaDesk/0.1 support@lychee.ai"
@@ -376,11 +377,14 @@ def pull_market_prices(
     output_dir: Path,
     provider_id: str = "alpha_vantage",
     fetch_json: JsonFetcher | None = None,
+    post_json: JsonPoster | None = None,
     force: bool = False,
     now: datetime | None = None,
 ) -> PullResult:
-    if provider_id not in {"alpha_vantage", "auto", "eastmoney"}:
-        raise ValueError("当前版本仅支持通过 alpha_vantage、eastmoney 或 auto 拉取行情")
+    if provider_id not in {"alpha_vantage", "auto", "eastmoney", "tushare"}:
+        raise ValueError(
+            "当前版本仅支持通过 alpha_vantage、eastmoney、tushare 或 auto 拉取行情"
+        )
 
     if not symbols:
         raise ValueError("请至少输入一个证券代码。")
@@ -410,13 +414,15 @@ def pull_market_prices(
     rows: list[PriceRow] = []
     warnings: list[str] = [cache_gap_warning] if cache_gap_warning else []
     fetcher = fetch_json or _fetch_json
+    poster = post_json or _post_json
+    config = load_config(config_path)
     api_key: str | None = None
+    tushare_token: str | None = None
 
     for symbol in symbols:
-        selected_provider = _market_provider_for_symbol(provider_id, symbol)
+        selected_provider = _market_provider_for_symbol(provider_id, symbol, config)
         if selected_provider == "alpha_vantage":
             if api_key is None:
-                config = load_config(config_path)
                 api_key = _configured_value(
                     config.providers["alpha_vantage"].value,
                     "Alpha Vantage",
@@ -428,6 +434,32 @@ def pull_market_prices(
                 primary_warning = f"{symbol} Alpha Vantage 行情拉取失败: {error}"
             else:
                 primary_warning = ""
+        elif selected_provider == "tushare":
+            if tushare_token is None:
+                tushare_token = _configured_value(
+                    config.providers["tushare"].value,
+                    "Tushare Pro",
+                )
+            try:
+                row = _pull_tushare_daily(symbol, tushare_token, poster)
+            except RuntimeError as error:
+                row = None
+                primary_warning = f"{symbol} Tushare 行情拉取失败: {error}"
+            else:
+                primary_warning = ""
+            if row is None and provider_id == "auto":
+                try:
+                    row = _pull_eastmoney_daily(symbol, fetcher)
+                except RuntimeError as error:
+                    eastmoney_warning = f"{symbol} Eastmoney 行情拉取失败: {error}"
+                    primary_warning = (
+                        f"{primary_warning}；{eastmoney_warning}"
+                        if primary_warning
+                        else eastmoney_warning
+                    )
+                else:
+                    if row is not None and primary_warning:
+                        warnings.append(f"{primary_warning}；已改用 Eastmoney")
         else:
             try:
                 row = _pull_eastmoney_daily(symbol, fetcher)
@@ -839,6 +871,24 @@ def _fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
         raise RuntimeError(f"无法从 {_sanitize_url(url)} 获取 JSON: {error}") from error
 
 
+def _post_json(
+    url: str,
+    headers: dict[str, str] | None,
+    payload: dict[str, object],
+) -> object:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers or {},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"无法从 {_sanitize_url(url)} 获取 JSON: {error}") from error
+
+
 def _fetch_provider_json(
     fetch_json: JsonFetcher,
     url: str,
@@ -846,6 +896,18 @@ def _fetch_provider_json(
 ) -> object:
     try:
         return fetch_json(url, headers)
+    except RuntimeError as error:
+        raise RuntimeError(_sanitize_error_message(str(error))) from error
+
+
+def _post_provider_json(
+    post_json: JsonPoster,
+    url: str,
+    headers: dict[str, str] | None,
+    payload: dict[str, object],
+) -> object:
+    try:
+        return post_json(url, headers, payload)
     except RuntimeError as error:
         raise RuntimeError(_sanitize_error_message(str(error))) from error
 
@@ -895,9 +957,16 @@ def _configured_value(value: str | None, provider_name: str) -> str:
     raise ValueError(f"{provider_name} 尚未配置。请先运行 `lychee setup`。")
 
 
-def _market_provider_for_symbol(provider_id: str, symbol: str) -> str:
+def _market_provider_for_symbol(
+    provider_id: str,
+    symbol: str,
+    config: AlphaDeskConfig,
+) -> str:
     if provider_id != "auto":
         return provider_id
+    tushare_token = config.providers["tushare"].value
+    if _is_tushare_symbol(symbol) and tushare_token and tushare_token.strip():
+        return "tushare"
     return "eastmoney" if _is_eastmoney_symbol(symbol) else "alpha_vantage"
 
 
@@ -906,10 +975,15 @@ def _is_eastmoney_symbol(symbol: str) -> bool:
     return normalized.endswith((".HK", ".SH", ".SS", ".SZ"))
 
 
+def _is_tushare_symbol(symbol: str) -> bool:
+    return _is_eastmoney_symbol(symbol)
+
+
 def _provider_display_name(provider_id: str) -> str:
     return {
         "alpha_vantage": "Alpha Vantage",
         "eastmoney": "Eastmoney",
+        "tushare": "Tushare Pro",
         "auto": "Auto",
     }.get(provider_id, provider_id)
 
@@ -951,6 +1025,39 @@ def _pull_eastmoney_daily(
     )
     payload = _fetch_provider_json(fetcher, url, None)
     return _parse_eastmoney_daily(symbol, payload)
+
+
+def _pull_tushare_daily(
+    symbol: str,
+    token: str,
+    post_json: JsonPoster,
+) -> PriceRow | None:
+    api_name = _tushare_market_api_name(symbol)
+    ts_code = _tushare_symbol(symbol)
+    if not api_name or not ts_code:
+        return None
+    payload = _post_provider_json(
+        post_json,
+        "https://api.tushare.pro",
+        {"Content-Type": "application/json"},
+        {
+            "api_name": api_name,
+            "token": token,
+            "params": {"ts_code": ts_code},
+            "fields": "ts_code,trade_date,open,high,low,close,vol",
+        },
+    )
+    if not isinstance(payload, dict):
+        return None
+    code = payload.get("code")
+    if code not in {0, "0", None}:
+        message = str(payload.get("msg") or "未知错误")
+        if str(code) == "40203":
+            raise RuntimeError(
+                f"Tushare {api_name} 接口权限不足（40203）: {message}"
+            )
+        raise RuntimeError(f"Tushare {api_name} 接口返回 {code}: {message}")
+    return _parse_tushare_daily(symbol, api_name, payload)
 
 
 def _pull_yahoo_chart(symbol: str, fetcher: JsonFetcher) -> PriceRow | None:
@@ -1018,6 +1125,90 @@ def _parse_eastmoney_daily(
         volume=int(float(parts[5])),
         currency=_infer_symbol_currency(symbol),
     )
+
+
+def _parse_tushare_daily(
+    symbol: str,
+    api_name: str,
+    payload: dict[str, object],
+) -> PriceRow | None:
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return None
+    fields = data.get("fields")
+    items = data.get("items")
+    if not isinstance(fields, list) or not isinstance(items, list) or not items:
+        return None
+    latest = items[0]
+    if not isinstance(latest, list) or len(latest) != len(fields):
+        return None
+    row = {
+        str(field): value
+        for field, value in zip(fields, latest, strict=True)
+        if isinstance(field, str)
+    }
+    trade_date = str(row.get("trade_date") or "").strip()
+    close = _number_value(row.get("close"))
+    volume = _number_value(row.get("vol"))
+    if not trade_date or close is None or volume is None:
+        return None
+    return PriceRow(
+        symbol=symbol.upper(),
+        date=_tushare_trade_date(trade_date),
+        close=close,
+        volume=int(volume * _tushare_volume_multiplier(api_name)),
+        currency=_infer_symbol_currency(symbol),
+    )
+
+
+def _tushare_market_api_name(symbol: str) -> str | None:
+    normalized = symbol.upper()
+    if normalized.endswith(".HK"):
+        return "hk_daily"
+    if normalized.endswith((".SH", ".SS", ".SZ")):
+        return "fund_daily" if _is_tushare_fund_symbol(normalized) else "daily"
+    return None
+
+
+def _tushare_symbol(symbol: str) -> str | None:
+    normalized = symbol.upper()
+    if normalized.endswith(".HK"):
+        return f"{normalized.removesuffix('.HK').zfill(5)}.HK"
+    if normalized.endswith(".SS"):
+        return f"{normalized.removesuffix('.SS')}.SH"
+    if normalized.endswith((".SH", ".SZ")):
+        return normalized
+    return None
+
+
+def _is_tushare_fund_symbol(symbol: str) -> bool:
+    code = symbol.rsplit(".", 1)[0]
+    if symbol.endswith(".SH"):
+        return code.startswith(("51", "52", "56", "58", "59"))
+    if symbol.endswith(".SZ"):
+        return code.startswith(("15", "16", "18"))
+    return False
+
+
+def _tushare_volume_multiplier(api_name: str) -> int:
+    return 1 if api_name == "hk_daily" else 100
+
+
+def _tushare_trade_date(value: str) -> str:
+    if len(value) == 8 and value.isdigit():
+        return f"{value[:4]}-{value[4:6]}-{value[6:]}"
+    return value
+
+
+def _number_value(value: object) -> float | None:
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _parse_yahoo_chart(symbol: str, payload: object) -> PriceRow | None:

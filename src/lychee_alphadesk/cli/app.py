@@ -1361,7 +1361,10 @@ def data_pull_market(
     ],
     provider: Annotated[
         str,
-        typer.Option("--provider", help="行情数据源。"),
+        typer.Option(
+            "--provider",
+            help="行情数据源: auto, alpha_vantage, eastmoney, tushare。",
+        ),
     ] = "alpha_vantage",
     output_dir: Annotated[
         Path,
@@ -2564,13 +2567,25 @@ def _data_source_diagnostic(details: list[str]) -> str:
     text = " ".join(detail for detail in details if detail).casefold()
     if not text:
         return ""
+    tushare_permission = (
+        "接口权限不足" in text or "没有接口(" in text or "40203" in text
+    )
+    timeout = "timed out" in text or "timeout" in text
+    if tushare_permission:
+        diagnostic = (
+            "数据源接口权限不足。请在 Tushare 后台开通所需接口或调整套餐；"
+            "仅重新配置 API Key 不会自动开通权限。"
+        )
+        if timeout:
+            diagnostic += "备用数据源请求超时。请另行检查网络、代理或 provider 服务状态。"
+        return diagnostic
     if "operation not permitted" in text or "errno 1" in text:
         return (
             "网络连接或系统权限阻止了数据源请求。请检查网络、代理、防火墙或"
             "当前运行环境的联网权限；如果在沙盒或 CI 中运行，请换到允许联网"
             "的本地终端后重试。"
         )
-    if "timed out" in text or "timeout" in text:
+    if timeout:
         return "数据源请求超时。请稍后重试，或检查 provider 服务状态、网络代理和超时设置。"
     if (
         "http error 401" in text

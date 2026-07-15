@@ -380,6 +380,117 @@ def test_pull_market_prices_auto_uses_eastmoney_for_hk_symbols(
     ]
 
 
+def test_pull_market_prices_auto_uses_configured_tushare_for_china_instruments(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["tushare"].value = "demo-tushare-token"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    requests: list[dict[str, object]] = []
+
+    def post_json(
+        url: str,
+        headers: dict[str, str] | None,
+        payload: dict[str, object],
+    ) -> object:
+        assert url == "https://api.tushare.pro"
+        assert headers == {"Content-Type": "application/json"}
+        requests.append(payload)
+        ts_code = str(dict(payload["params"])["ts_code"])
+        return {
+            "code": 0,
+            "msg": "",
+            "data": {
+                "fields": [
+                    "ts_code",
+                    "trade_date",
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "vol",
+                ],
+                "items": [[ts_code, "20260715", 100.0, 121.0, 99.0, 120.0, 4567]],
+            },
+        }
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        raise AssertionError(f"unexpected fallback request: {url}")
+
+    result = pull_market_prices(
+        symbols=["600519.SH", "510300.SH", "0700.HK"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        fetch_json=fetch_json,
+        post_json=post_json,
+    )
+
+    assert result.count == 3
+    assert [request["api_name"] for request in requests] == [
+        "daily",
+        "fund_daily",
+        "hk_daily",
+    ]
+    assert [dict(request["params"])["ts_code"] for request in requests] == [
+        "600519.SH",
+        "510300.SH",
+        "00700.HK",
+    ]
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert [row["symbol"] for row in cache["rows"]] == [
+        "600519.SH",
+        "510300.SH",
+        "0700.HK",
+    ]
+    assert cache["rows"][0]["volume"] == 456700
+    assert cache["rows"][2]["volume"] == 4567
+
+
+def test_pull_market_prices_auto_falls_back_after_tushare_permission_denial(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["tushare"].value = "demo-tushare-token"
+    config_path = save_config(config, tmp_path / "config.yaml")
+
+    def post_json(
+        url: str,
+        headers: dict[str, str] | None,
+        payload: dict[str, object],
+    ) -> object:
+        return {
+            "code": 40203,
+            "msg": "抱歉，您没有接口(daily)访问权限",
+            "data": {"fields": [], "items": []},
+        }
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        assert "push2his.eastmoney.com" in url
+        return {
+            "data": {
+                "klines": [
+                    "2026-07-15,100.0,120.0,121.0,99.0,456700,0,0,0,0,0"
+                ]
+            }
+        }
+
+    result = pull_market_prices(
+        symbols=["600519.SH"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        fetch_json=fetch_json,
+        post_json=post_json,
+    )
+
+    assert result.count == 1
+    assert result.warnings == [
+        "600519.SH Tushare 行情拉取失败: Tushare daily 接口权限不足（40203）: "
+        "抱歉，您没有接口(daily)访问权限；已改用 Eastmoney"
+    ]
+
+
 def test_pull_market_prices_auto_keeps_alpha_rows_when_eastmoney_fails(
     tmp_path: Path,
 ) -> None:

@@ -3607,6 +3607,47 @@ def test_data_pull_news_command_offers_setup_for_access_denied_provider(
     assert "恢复配置: lychee setup" in result.stdout
 
 
+def test_data_pull_market_command_explains_tushare_interface_permission(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    def fake_pull_market_prices(**kwargs: object) -> PullResult:
+        return PullResult(
+            domain="market",
+            provider="auto",
+            count=0,
+            output_path=tmp_path / "data" / "market-prices.json",
+            warnings=[
+                "600519.SH Tushare 行情拉取失败: Tushare daily 接口权限不足（40203）: "
+                "抱歉，您没有接口(daily)访问权限"
+            ],
+        )
+
+    monkeypatch.setattr(cli_app, "pull_market_prices", fake_pull_market_prices)
+
+    result = runner.invoke(
+        app,
+        ["data", "pull", "market", "--symbols", "600519.SH", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "数据源诊断: 数据源接口权限不足" in result.stdout
+    assert "Tushare 后台开通所需接口或调整套餐" in result.stdout
+    assert "恢复配置: lychee setup" not in result.stdout
+
+
+def test_data_source_diagnostic_retains_tushare_permission_with_timeout() -> None:
+    diagnostic = cli_app._data_source_diagnostic(
+        [
+            "Tushare fund_daily 接口权限不足（40203）: 没有接口访问权限",
+            "Yahoo fallback 失败: The handshake operation timed out",
+        ]
+    )
+
+    assert "数据源接口权限不足" in diagnostic
+    assert "备用数据源请求超时" in diagnostic
+
+
 def test_data_pull_news_command_passes_topic_query(
     monkeypatch,
     tmp_path: Path,

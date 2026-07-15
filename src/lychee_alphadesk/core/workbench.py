@@ -848,6 +848,7 @@ def build_research_verification_checks(
         raw_related_news,
     )
     filings = _dict_list(local_data.get("filings"))
+    financials = _dict_list(local_data.get("financials"))
     research_metrics = _dict_list(local_data.get("research_metrics"))
     data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
     asset_type = _asset_type(packet)
@@ -932,6 +933,24 @@ def build_research_verification_checks(
                 detail="当前任务不要求 SEC 公告/财报核验。",
             )
         )
+    if filings_required:
+        checks.append(
+            ResearchVerificationCheck(
+                name="财务快照核验",
+                status="pass" if financials else "warn",
+                detail=_financial_snapshot_check_detail(financials)
+                if financials
+                else "尚无可核验的 SEC XBRL 财务快照；可补齐后再读取营收、利润和经营现金流。",
+            )
+        )
+    else:
+        checks.append(
+            ResearchVerificationCheck(
+                name="财务快照核验",
+                status="na",
+                detail="当前任务不适用 SEC XBRL 财务快照。",
+            )
+        )
     if research_metrics:
         checks.append(
             ResearchVerificationCheck(
@@ -978,6 +997,7 @@ def build_research_evidence_board(
     local_data = _dict_value(packet_payload.get("local_data"))
     prices = _verification_price_rows(packet_payload, local_data)
     filings = _dict_list(local_data.get("filings"))
+    financials = _dict_list(local_data.get("financials"))
     research_metrics = _dict_list(local_data.get("research_metrics"))
     support: list[str] = []
     risk: list[str] = []
@@ -1020,6 +1040,7 @@ def build_research_evidence_board(
         if summary:
             filing += f" - {summary}"
         support.append(filing)
+    support.extend(_financial_snapshot_support_lines(financials))
     for check in checks:
         if check.status == "fail":
             missing.append(f"{check.name}: {check.detail}")
@@ -1149,6 +1170,71 @@ def _proxy_fund_metadata_support_lines(packet_payload: dict[str, object]) -> lis
 
 def _research_metric_check_detail(rows: list[dict[str, object]]) -> str:
     return "；".join(_research_metric_line(row) for row in rows[:3])
+
+
+def _financial_snapshot_check_detail(rows: list[dict[str, object]]) -> str:
+    return "；".join(_financial_snapshot_line(row) for row in rows[:2])
+
+
+def _financial_snapshot_support_lines(rows: list[dict[str, object]]) -> list[str]:
+    return [f"财务快照: {_financial_snapshot_line(row)}" for row in rows[:2]]
+
+
+def _financial_snapshot_line(row: dict[str, object]) -> str:
+    symbol = _string_value(row.get("symbol")) or "美股"
+    fiscal_year = row.get("fiscal_year")
+    year = str(fiscal_year) if isinstance(fiscal_year, int) else ""
+    period = _string_value(row.get("fiscal_period"))
+    form = _string_value(row.get("form"))
+    label = " ".join(part for part in [symbol, year, period, form] if part)
+    currency = _string_value(row.get("currency")) or "USD"
+    values = [
+        _financial_snapshot_value(
+            "营收",
+            row.get("revenue"),
+            currency,
+            row.get("revenue_period_start"),
+            row.get("revenue_period_end"),
+        ),
+        _financial_snapshot_value(
+            "净利润",
+            row.get("net_income"),
+            currency,
+            row.get("net_income_period_start"),
+            row.get("net_income_period_end"),
+        ),
+        _financial_snapshot_value(
+            "经营现金流",
+            row.get("operating_cash_flow"),
+            currency,
+            row.get("operating_cash_flow_period_start"),
+            row.get("operating_cash_flow_period_end"),
+        ),
+    ]
+    source_url = _string_value(row.get("source_url"))
+    text = f"{label}: " + "，".join(value for value in values if value)
+    if source_url:
+        text += f"，来源 {source_url}"
+    return text
+
+
+def _financial_snapshot_value(
+    label: str,
+    value: object,
+    currency: str,
+    period_start: object,
+    period_end: object,
+) -> str:
+    if isinstance(value, int | float):
+        text = f"{label} {value:,.0f} {currency}"
+        start = _string_value(period_start)
+        end = _string_value(period_end)
+        if start and end:
+            text += f" ({start} 至 {end})"
+        elif end:
+            text += f" (截至 {end})"
+        return text
+    return ""
 
 
 def _research_metric_support_lines(rows: list[dict[str, object]]) -> list[str]:
@@ -2453,6 +2539,7 @@ def render_research_task_detail(
         raw_related_news,
     )
     filings = _dict_list(local_data.get("filings"))
+    financials = _dict_list(local_data.get("financials"))
     research_metrics = _dict_list(local_data.get("research_metrics"))
     data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
     commands = research_action_commands(candidate, packet)
@@ -2480,6 +2567,7 @@ def render_research_task_detail(
             evidence,
             related_news,
             filings,
+            financials,
             research_metrics,
             data_gaps,
         ),
@@ -2496,6 +2584,7 @@ def render_research_task_detail(
             evidence=evidence,
             related_news=related_news,
             filings=filings,
+            financials=financials,
             research_metrics=research_metrics,
             data_gaps=data_gaps,
         ),
@@ -2511,6 +2600,9 @@ def render_research_task_detail(
         "",
         "公告/财报线索",
         *_filing_lines(filings),
+        "",
+        "财务快照",
+        *_financial_snapshot_lines(financials),
         "",
         f"数据缺口: {_gap_summary(data_gaps)}",
         f"下一步动作: {candidate.next_step}",
@@ -2886,6 +2978,10 @@ def research_action_commands(
     if filing_symbols:
         commands.append(
             f"刷新美股公告/财报: lychee data pull filings --symbols "
+            f"{','.join(filing_symbols)}"
+        )
+        commands.append(
+            f"刷新财务快照: lychee data pull financials --symbols "
             f"{','.join(filing_symbols)}"
         )
     if candidate.symbol:
@@ -3876,6 +3972,7 @@ def _signal_reading(
     evidence: list[dict[str, object]],
     related_news: list[dict[str, object]],
     filings: list[dict[str, object]],
+    financials: list[dict[str, object]],
     research_metrics: list[dict[str, object]],
     data_gaps: list[str],
 ) -> str:
@@ -3887,8 +3984,8 @@ def _signal_reading(
         return "证据不足: 缺少可观察行情，暂时只能保留在线索池。"
     if not evidence and not related_news and not filings:
         return "只具备行情: 还没有新闻、公告或财报佐证。"
-    if price and (evidence or related_news) and research_metrics:
-        return "证据增强: 已有行情、消息和补充研究指标，下一步检查它们是否同向。"
+    if price and (evidence or related_news) and (research_metrics or financials):
+        return "证据增强: 已有行情、消息和补充财务/研究指标，下一步检查它们是否同向。"
     if price and (evidence or related_news):
         return "初步可研究: 已有行情和消息证据，下一步检查它们是否同向。"
     if candidate.proxy_symbols:
@@ -3912,6 +4009,7 @@ def _evidence_matrix_lines(
     evidence: list[dict[str, object]],
     related_news: list[dict[str, object]],
     filings: list[dict[str, object]],
+    financials: list[dict[str, object]],
     research_metrics: list[dict[str, object]],
     data_gaps: list[str],
 ) -> list[str]:
@@ -3927,6 +4025,7 @@ def _evidence_matrix_lines(
         f"- Discovery 证据: {len(evidence)} 条",
         f"- 相关新闻: {len(related_news)} 条",
         f"- 公告/财报: {filing_status}",
+        f"- 财务快照: {len(financials)} 条",
         f"- 研究指标: {len(research_metrics)} 条",
         f"- 代理标的: {proxy_status}",
         f"- 数据缺口: {_gap_summary(data_gaps)}",
@@ -3997,6 +4096,12 @@ def _filing_lines(rows: list[dict[str, object]]) -> list[str]:
             line += f": {summary}"
         lines.append(line)
     return lines
+
+
+def _financial_snapshot_lines(rows: list[dict[str, object]]) -> list[str]:
+    if not rows:
+        return ["- 暂无 SEC XBRL 财务快照。"]
+    return [f"- {_financial_snapshot_line(row)}" for row in rows[:3]]
 
 
 def _gap_summary(data_gaps: list[str]) -> str:

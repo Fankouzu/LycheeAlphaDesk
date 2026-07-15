@@ -9,8 +9,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from lychee_alphadesk.core.cache_freshness import (
+    evaluate_financials_cache,
     evaluate_market_cache,
     evaluate_news_cache,
+    record_financials_cache,
     record_market_cache,
     record_news_cache,
 )
@@ -43,6 +45,7 @@ COMMON_SEC_COMPANIES: dict[str, tuple[int, str]] = {
     "GOOG": (1652044, "Alphabet Inc."),
     "META": (1326801, "Meta Platforms, Inc."),
     "BRK.B": (1067983, "Berkshire Hathaway Inc."),
+    "STX": (1137789, "Seagate Technology Holdings plc"),
 }
 
 
@@ -79,6 +82,29 @@ class ResearchMetric:
     source_url: str
     note: str
     provider: str
+
+
+@dataclass(frozen=True)
+class FinancialSnapshot:
+    symbol: str
+    company: str
+    cik: int
+    form: str
+    fiscal_year: int | None
+    fiscal_period: str
+    period_end: str
+    filing_date: str
+    currency: str
+    revenue: int | float | None
+    revenue_period_start: str
+    revenue_period_end: str
+    net_income: int | float | None
+    net_income_period_start: str
+    net_income_period_end: str
+    operating_cash_flow: int | float | None
+    operating_cash_flow_period_start: str
+    operating_cash_flow_period_end: str
+    source_url: str
 
 
 @dataclass(frozen=True)
@@ -620,20 +646,123 @@ def pull_sec_filings(
     return PullResult("filings", "sec_edgar", len(rows), output_path, warnings)
 
 
+def pull_sec_financials(
+    *,
+    symbols: list[str],
+    output_dir: Path,
+    fetch_json: JsonFetcher | None = None,
+    force: bool = False,
+    now: datetime | None = None,
+) -> PullResult:
+    if not symbols:
+        raise ValueError("请至少输入一个美股证券代码。")
+
+    normalized_symbols = [symbol.upper() for symbol in symbols]
+    freshness = evaluate_financials_cache(
+        output_dir=output_dir,
+        symbols=normalized_symbols,
+        now=now,
+        force=force,
+    )
+    if not freshness.should_refresh and freshness.entry is not None:
+        cache = _read_cache(output_dir, "financials.json")
+        if _financial_cache_covers_symbols(cache.rows, normalized_symbols):
+            return PullResult(
+                "financials",
+                freshness.entry.provider,
+                len(cache.rows),
+                freshness.entry.artifact_path,
+                [freshness.reason],
+                refreshed=False,
+            )
+        cache_gap_warning = "财务快照缓存未覆盖本次请求的全部代码，需要重新刷新。"
+    else:
+        cache_gap_warning = ""
+
+    headers = {"User-Agent": SEC_USER_AGENT, "Accept": "application/json"}
+    fetcher = fetch_json or _fetch_json
+    warnings: list[str] = [cache_gap_warning] if cache_gap_warning else []
+    rows: list[FinancialSnapshot] = []
+    try:
+        tickers_payload = _fetch_provider_json(
+            fetcher,
+            "https://www.sec.gov/files/company_tickers.json",
+            headers,
+        )
+        cik_by_symbol, company_by_symbol = _parse_sec_company_tickers(tickers_payload)
+    except RuntimeError:
+        cik_by_symbol, company_by_symbol = _common_sec_company_maps()
+        warnings.append("SEC 代码映射拉取失败，已使用内置 CIK 备用映射")
+    _merge_common_sec_companies(cik_by_symbol, company_by_symbol)
+
+    for symbol in normalized_symbols:
+        if _infer_symbol_market(symbol) != "US":
+            warnings.append(f"{symbol} 当前不适用 SEC XBRL 财务快照；仅支持美股发行人。")
+            continue
+        cik = cik_by_symbol.get(symbol)
+        if cik is None:
+            warnings.append(f"未找到 {symbol} 的 SEC CIK，无法拉取财务快照。")
+            continue
+        company = company_by_symbol.get(symbol, symbol)
+        source_url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
+        try:
+            payload = _fetch_provider_json(fetcher, source_url, headers)
+        except RuntimeError as error:
+            warnings.append(f"{symbol} SEC XBRL 财务快照拉取失败: {error}")
+            continue
+        snapshot = _parse_sec_financial_snapshot(
+            symbol=symbol,
+            company=company,
+            cik=cik,
+            source_url=source_url,
+            payload=payload,
+        )
+        if snapshot is None:
+            warnings.append(f"{symbol} SEC XBRL 未找到可用的营收、利润或经营现金流数据。")
+            continue
+        rows.append(snapshot)
+
+    cache_rows = _merge_symbol_cache_rows(
+        output_dir=output_dir,
+        filename="financials.json",
+        new_rows=[asdict(row) for row in rows],
+    )
+    output_path = _write_cache(
+        output_dir=output_dir,
+        filename="financials.json",
+        provider="sec_edgar",
+        rows=cache_rows,
+        warnings=warnings,
+        now=now,
+    )
+    record_financials_cache(
+        output_dir=output_dir,
+        symbols=normalized_symbols,
+        artifact_path=output_path,
+        row_count=len(rows),
+        now=now,
+        forced=force,
+    )
+    return PullResult("financials", "sec_edgar", len(rows), output_path, warnings)
+
+
 def build_cached_data_snapshot(output_dir: Path) -> DataSnapshot:
     market_cache = _read_cache(output_dir, "market-prices.json")
     news_cache = _read_cache(output_dir, "news-events.json")
     filing_cache = _read_cache(output_dir, "filings.json")
+    financials_cache = _read_cache(output_dir, "financials.json")
 
     prices = [_price_row_from_dict(row) for row in market_cache.rows]
     news_events = [_news_event_from_dict(row) for row in news_cache.rows]
     filings = [_filing_summary_from_dict(row) for row in filing_cache.rows]
+    financials = [_financial_snapshot_from_dict(row) for row in financials_cache.rows]
     provider_names = [
         provider
         for provider in [
             market_cache.provider,
             news_cache.provider,
             filing_cache.provider,
+            financials_cache.provider,
         ]
         if provider
     ]
@@ -645,6 +774,7 @@ def build_cached_data_snapshot(output_dir: Path) -> DataSnapshot:
         prices=prices,
         news_events=news_events,
         filings=filings,
+        financials=[asdict(row) for row in financials],
         forecasts={},
         quality_checks=run_cached_data_health(output_dir),
     )
@@ -657,6 +787,12 @@ def run_cached_data_health(output_dir: Path) -> list[DataQualityCheck]:
             filename="market-prices.json",
             name="market-cache-present",
             noun="行情",
+        ),
+        _cache_health_check(
+            output_dir=output_dir,
+            filename="financials.json",
+            name="financials-cache-present",
+            noun="财务快照",
         ),
         _cache_health_check(
             output_dir=output_dir,
@@ -1216,6 +1352,126 @@ def _parse_sec_recent_filings(
     return rows
 
 
+def _parse_sec_financial_snapshot(
+    *,
+    symbol: str,
+    company: str,
+    cik: int,
+    source_url: str,
+    payload: object,
+) -> FinancialSnapshot | None:
+    revenue = _latest_sec_fact_value(
+        payload,
+        [
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "Revenues",
+            "SalesRevenueNet",
+        ],
+    )
+    net_income = _latest_sec_fact_value(payload, ["NetIncomeLoss"])
+    operating_cash_flow = _latest_sec_fact_value(
+        payload,
+        ["NetCashProvidedByUsedInOperatingActivities"],
+    )
+    facts = [fact for fact in [revenue, net_income, operating_cash_flow] if fact]
+    if not facts:
+        return None
+
+    latest = max(facts, key=_sec_fact_sort_key)
+    return FinancialSnapshot(
+        symbol=symbol,
+        company=company,
+        cik=cik,
+        form=_sec_fact_text(latest, "form"),
+        fiscal_year=_sec_fact_int(latest, "fy"),
+        fiscal_period=_sec_fact_text(latest, "fp"),
+        period_end=_sec_fact_text(latest, "end"),
+        filing_date=_sec_fact_text(latest, "filed"),
+        currency="USD",
+        revenue=_sec_fact_number(revenue),
+        revenue_period_start=_sec_fact_text(revenue or {}, "start"),
+        revenue_period_end=_sec_fact_text(revenue or {}, "end"),
+        net_income=_sec_fact_number(net_income),
+        net_income_period_start=_sec_fact_text(net_income or {}, "start"),
+        net_income_period_end=_sec_fact_text(net_income or {}, "end"),
+        operating_cash_flow=_sec_fact_number(operating_cash_flow),
+        operating_cash_flow_period_start=_sec_fact_text(operating_cash_flow or {}, "start"),
+        operating_cash_flow_period_end=_sec_fact_text(operating_cash_flow or {}, "end"),
+        source_url=source_url,
+    )
+
+
+def _latest_sec_fact_value(
+    payload: object,
+    concepts: list[str],
+) -> dict[str, object] | None:
+    if not isinstance(payload, dict):
+        return None
+    facts = payload.get("facts")
+    if not isinstance(facts, dict):
+        return None
+    us_gaap = facts.get("us-gaap")
+    if not isinstance(us_gaap, dict):
+        return None
+
+    candidates: list[dict[str, object]] = []
+    for concept in concepts:
+        fact = us_gaap.get(concept)
+        if not isinstance(fact, dict):
+            continue
+        units = fact.get("units")
+        if not isinstance(units, dict):
+            continue
+        values = units.get("USD")
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if not isinstance(value, dict):
+                continue
+            if _sec_fact_text(value, "form") not in {"10-Q", "10-K"}:
+                continue
+            if _sec_fact_number(value) is None:
+                continue
+            candidates.append(value)
+    return max(candidates, key=_sec_fact_sort_key) if candidates else None
+
+
+def _sec_fact_sort_key(fact: dict[str, object]) -> tuple[str, str, str]:
+    return (
+        _sec_fact_text(fact, "filed"),
+        _sec_fact_text(fact, "end"),
+        _sec_fact_text(fact, "start"),
+    )
+
+
+def _sec_fact_text(fact: dict[str, object], key: str) -> str:
+    value = fact.get(key)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _sec_fact_int(fact: dict[str, object], key: str) -> int | None:
+    value = fact.get(key)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _sec_fact_number(fact: dict[str, object] | None) -> int | float | None:
+    if fact is None:
+        return None
+    value = fact.get("val")
+    if isinstance(value, int | float):
+        return value
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
 def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -1388,6 +1644,13 @@ def _market_cache_covers_symbols(
     return all(symbol.upper() in cached_symbols for symbol in symbols)
 
 
+def _financial_cache_covers_symbols(
+    rows: list[dict[str, object]],
+    symbols: list[str],
+) -> bool:
+    return _market_cache_covers_symbols(rows, symbols)
+
+
 def _read_cache(output_dir: Path, filename: str) -> _CachePayload:
     path = output_dir / "data" / filename
     if not path.exists():
@@ -1464,6 +1727,51 @@ def _filing_summary_from_dict(row: dict[str, object]) -> FilingSummary:
         summary=str(row["summary"]),
         source_url=str(row["source_url"]),
     )
+
+
+def _financial_snapshot_from_dict(row: dict[str, object]) -> FinancialSnapshot:
+    fiscal_year = row.get("fiscal_year")
+    cik = _financial_integer_from_dict(row.get("cik"))
+    return FinancialSnapshot(
+        symbol=str(row.get("symbol") or "").upper(),
+        company=str(row.get("company") or ""),
+        cik=cik,
+        form=str(row.get("form") or ""),
+        fiscal_year=fiscal_year if isinstance(fiscal_year, int) else None,
+        fiscal_period=str(row.get("fiscal_period") or ""),
+        period_end=str(row.get("period_end") or ""),
+        filing_date=str(row.get("filing_date") or ""),
+        currency=str(row.get("currency") or "USD"),
+        revenue=_financial_number_from_dict(row.get("revenue")),
+        revenue_period_start=str(row.get("revenue_period_start") or ""),
+        revenue_period_end=str(row.get("revenue_period_end") or ""),
+        net_income=_financial_number_from_dict(row.get("net_income")),
+        net_income_period_start=str(row.get("net_income_period_start") or ""),
+        net_income_period_end=str(row.get("net_income_period_end") or ""),
+        operating_cash_flow=_financial_number_from_dict(row.get("operating_cash_flow")),
+        operating_cash_flow_period_start=str(row.get("operating_cash_flow_period_start") or ""),
+        operating_cash_flow_period_end=str(row.get("operating_cash_flow_period_end") or ""),
+        source_url=str(row.get("source_url") or ""),
+    )
+
+
+def _financial_number_from_dict(value: object) -> int | float | None:
+    if isinstance(value, int | float):
+        return value
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _financial_integer_from_dict(value: object) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return 0
 
 
 def _cache_health_check(

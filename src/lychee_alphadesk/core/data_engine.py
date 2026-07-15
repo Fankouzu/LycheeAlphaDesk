@@ -35,6 +35,7 @@ class DataSnapshot:
     prices: list[PriceRow]
     news_events: list[NewsEvent]
     filings: list[FilingSummary]
+    financials: list[dict[str, object]]
     forecasts: dict[str, ForecastInterval]
     quality_checks: list[DataQualityCheck]
 
@@ -44,6 +45,7 @@ class DataSnapshot:
             "prices": len(self.prices),
             "news_events": len(self.news_events),
             "filings": len(self.filings),
+            "financials": len(self.financials),
             "forecasts": len(self.forecasts),
         }
 
@@ -73,6 +75,7 @@ def build_demo_data_snapshot(demo_root: Path = DEMO_ROOT) -> DataSnapshot:
         prices=prices,
         news_events=news_events,
         filings=filings,
+        financials=[],
         forecasts=forecasts,
         quality_checks=run_quality_checks(
             prices=prices,
@@ -155,6 +158,7 @@ def snapshot_to_dict(snapshot: DataSnapshot) -> dict[str, object]:
         "prices": [asdict(price) for price in snapshot.prices],
         "news_events": [asdict(event) for event in snapshot.news_events],
         "filings": [asdict(filing) for filing in snapshot.filings],
+        "financials": snapshot.financials,
         "forecasts": {
             symbol: forecast_to_dict(forecast)
             for symbol, forecast in snapshot.forecasts.items()

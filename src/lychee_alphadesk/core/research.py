@@ -7,6 +7,7 @@ from pathlib import Path
 
 from lychee_alphadesk.core.evidence import EvidenceItem, build_news_evidence_pack
 from lychee_alphadesk.core.live_data import (
+    FinancialSnapshot,
     FundMetadata,
     PullResult,
     ResearchMetric,
@@ -114,6 +115,7 @@ def deepen_research_queue(
             prices=snapshot.prices,
             news_events=snapshot.news_events,
             filings=snapshot.filings,
+            financials=[_financial_snapshot_from_dict(row) for row in snapshot.financials],
             fund_metadata=fund_metadata,
             research_metrics=research_metrics,
         )
@@ -247,6 +249,7 @@ def _build_research_packet(
     prices: list[PriceRow],
     news_events: list[NewsEvent],
     filings: list[FilingSummary],
+    financials: list[FinancialSnapshot],
     fund_metadata: list[FundMetadata],
     research_metrics: list[ResearchMetric],
 ) -> ResearchPacket:
@@ -273,6 +276,7 @@ def _build_research_packet(
         topic_terms=_research_topic_terms(item),
     )
     related_filings = _related_filings(symbol, item.display_name, filings)
+    related_financials = _related_financials(symbol, financials)
     related_metrics = _related_research_metrics(symbol, research_metrics)
     data_gaps = _data_gaps(
         item=item,
@@ -305,6 +309,7 @@ def _build_research_packet(
             "symbol_mapping": symbol_mapping,
             "related_news": related_news,
             "filings": related_filings,
+            "financials": related_financials,
             "research_metrics": related_metrics,
         },
         "risk_flags": item.risk_flags,
@@ -627,6 +632,68 @@ def _related_research_metrics(
         for row in research_metrics
         if row.symbol.upper() == normalized_symbol
     ]
+
+
+def _related_financials(
+    symbol: str | None,
+    financials: list[FinancialSnapshot],
+) -> list[dict[str, object]]:
+    if not symbol:
+        return []
+    normalized_symbol = symbol.upper()
+    return [
+        asdict(row)
+        for row in financials
+        if row.symbol.upper() == normalized_symbol
+    ]
+
+
+def _financial_snapshot_from_dict(row: dict[str, object]) -> FinancialSnapshot:
+    fiscal_year = row.get("fiscal_year")
+    return FinancialSnapshot(
+        symbol=_string_value(row.get("symbol")).upper(),
+        company=_string_value(row.get("company")),
+        cik=_integer_value(row.get("cik")),
+        form=_string_value(row.get("form")),
+        fiscal_year=fiscal_year if isinstance(fiscal_year, int) else None,
+        fiscal_period=_string_value(row.get("fiscal_period")),
+        period_end=_string_value(row.get("period_end")),
+        filing_date=_string_value(row.get("filing_date")),
+        currency=_string_value(row.get("currency")) or "USD",
+        revenue=_numeric_value(row.get("revenue")),
+        revenue_period_start=_string_value(row.get("revenue_period_start")),
+        revenue_period_end=_string_value(row.get("revenue_period_end")),
+        net_income=_numeric_value(row.get("net_income")),
+        net_income_period_start=_string_value(row.get("net_income_period_start")),
+        net_income_period_end=_string_value(row.get("net_income_period_end")),
+        operating_cash_flow=_numeric_value(row.get("operating_cash_flow")),
+        operating_cash_flow_period_start=_string_value(
+            row.get("operating_cash_flow_period_start")
+        ),
+        operating_cash_flow_period_end=_string_value(
+            row.get("operating_cash_flow_period_end")
+        ),
+        source_url=_string_value(row.get("source_url")),
+    )
+
+
+def _integer_value(value: object) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return 0
+
+
+def _numeric_value(value: object) -> int | float | None:
+    if isinstance(value, int | float):
+        return value
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _related_news(

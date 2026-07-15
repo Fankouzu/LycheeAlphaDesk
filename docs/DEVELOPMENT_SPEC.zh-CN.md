@@ -116,6 +116,7 @@ lad data pull news
 lad data pull news --symbols AAPL --provider auto
 lad data pull news --symbols AAPL --provider auto --force
 lad data pull filings --symbols AAPL,TSLA --limit 3
+lad data pull financials --symbols AAPL,MSFT
 lad data set fund --symbol 2800.HK --name 盈富基金 --source-url https://example.com/2800 --tracking-index "Hang Seng Index" --expense-ratio "0.10%"
 lad data freshness
 lad data health
@@ -145,6 +146,7 @@ lad
 - `lad data pull market` 将 Alpha Vantage 日线行情写入本地 live cache。默认使用行情 cache 的保质期和交易时段判断；`--force` 可强制刷新。
 - `lad data pull news` 将 Marketaux、Finnhub 或 NewsAPI 新闻事件写入本地 live cache。不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`--query` 可传入主题关键词，用于按研究主题补强新闻证据；主题查询应使用 Marketaux 或 NewsAPI，Finnhub 不支持主题关键词查询。默认使用新闻 cache 保质期；`--force` 可强制刷新。新闻缓存必须保留已有行并追加去重后的新行，避免刷新后改变 `news_001` 等 evidence ID 的含义。Finnhub 当前仅用于个股新闻；市场级新闻应使用 Marketaux 或 NewsAPI。
 - `lad data pull filings` 将 SEC EDGAR 近期 filings 写入本地 live cache。
+- `lad data pull financials` 将 SEC EDGAR XBRL `companyfacts` 写入 `financials.json`。第一版只覆盖美股发行人，并且每行必须保留表单类型、营收、净利润、经营现金流和官方来源 URL；每项金额必须保留各自的起止日期，禁止把单季度收入和年内累计现金流伪装成同一报告区间。不可用字段保持空值，禁止猜测。研究深挖、任务详情、核验项和证据板必须把已有快照作为可审计事实展示；港股/A 股财报 provider 未接入时必须明确标为不适用或待接入。
 - `lad data set fund` 将人工核验且带来源 URL 的基金/ETF 资料写入 `fund-metadata.json`，用于代理 ETF/指数核验里的跟踪指数、费用率、成分摘要、来源和资料日期。该命令必须要求来源 URL，不得把会漂移的基金费用或成分硬编码成生产事实。
 - `lad data freshness` 只读取本地 `cache_entries`，展示缓存层级、状态、provider、cache key、市场、交易状态、过期时间和行数，不触发 provider 请求。
 - `lad data health` 检查 live cache 是否存在以及行数状态。
@@ -197,6 +199,8 @@ lad
 - 带 `--symbols` 的新闻请求只有在缓存条目行数大于 0 且 `news-events.json` 覆盖本次请求的 symbol 时，才算可复用；不得把全局市场新闻行数误报为某个 symbol 的缓存结果。
 - 若某个 symbol + query 的缓存条目为 0 行且仍在保质期内，默认返回 0 行和明确的 no-data 状态，避免重复消耗 provider 配额；只有 `--force` 才能强制重试。0 行不得推进到研究核验命令。
 - `--force` 必须绕过新闻保质期。
+
+SEC XBRL 财务快照默认保质期为 24 小时。未过期且覆盖全部请求代码时必须复用 `financials.json`；`--force` 必须绕过保质期。该缓存层必须在 `cache_entries` 中以 `financials` 记录，便于 CLI 与 TUI 审计。
 
 cache 状态写入 `.alphadesk/research.sqlite3` 的 `cache_entries` 表，记录 layer、cache_key、provider、artifact_path、created_at、expires_at、ttl_seconds、market、session_state、row_count 和 is_final_for_session。
 

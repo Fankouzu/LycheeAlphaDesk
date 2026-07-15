@@ -43,6 +43,7 @@ def test_snapshot_json_is_written_for_auditable_data_visibility(tmp_path: Path) 
         "prices": 3,
         "news_events": 2,
         "filings": 2,
+        "financials": 0,
         "forecasts": 3,
     }
     assert data["quality_checks"][0]["status"] == "pass"

@@ -45,6 +45,7 @@ from lychee_alphadesk.core.live_data import (
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
+    pull_sec_financials,
     run_cached_data_health,
     write_fund_metadata_cache,
     write_fund_metadata_cache_from_file,
@@ -1431,6 +1432,34 @@ def data_pull_news(
         console.print(str(error))
         raise typer.Exit(code=1) from error
     _print_pull_result(result_label="新闻事件", count=result.count, result=result)
+
+
+@data_pull_app.command("financials")
+def data_pull_financials(
+    symbols: Annotated[
+        str,
+        typer.Option("--symbols", help="用英文逗号分隔美股代码，例如 AAPL,MSFT。"),
+    ],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略 24 小时保质期，强制刷新财务快照。"),
+    ] = False,
+) -> None:
+    """拉取美股 SEC XBRL 财务快照到本地缓存。"""
+    try:
+        result = pull_sec_financials(
+            symbols=parse_symbols(symbols),
+            output_dir=output_dir,
+            force=force,
+        )
+    except (RuntimeError, ValueError) as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    _print_pull_result(result_label="财务快照", count=result.count, result=result)
 
 
 @data_pull_app.command("filings")

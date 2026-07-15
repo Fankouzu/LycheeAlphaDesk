@@ -308,7 +308,7 @@ lychee research run
 lychee research run --symbol QQQ --force
 ```
 
-`research run` selects one research task, refreshes task-level prices, news, and applicable US filings/financial clues, then reruns the workbench check and prints the updated `研究任务面板`. If the task currently has only reverse, direction-pending, or off-topic news, the run also builds a topic `--query` from the research theme and pulls one extra round of topic news so the system can try to strengthen evidence instead of only reporting weak evidence. Each run writes `.alphadesk/research/research-run-*.json` so humans and agents can audit which actions ran, how many rows returned, and which actions failed or used cache; the artifact also stores structured `assessment` with stage, consistency-review state, evidence reading, and next decision.
+`research run` selects one research task, refreshes task-level prices, news, and applicable US filings, then reruns the workbench check and prints the updated `研究任务面板`. Existing SEC financial snapshots join the same evidence board; when one is missing, task detail provides the exact `data pull financials` command. If the task currently has only reverse, direction-pending, or off-topic news, the run also builds a topic `--query` from the research theme and pulls one extra round of topic news so the system can try to strengthen evidence instead of only reporting weak evidence. Each run writes `.alphadesk/research/research-run-*.json` so humans and agents can audit which actions ran, how many rows returned, and which actions failed or used cache; the artifact also stores structured `assessment` with stage, consistency-review state, evidence reading, and next decision.
 
 You can also pull topic news manually:
 
@@ -424,6 +424,7 @@ lychee data pull news
 lychee data pull news --symbols AAPL --provider auto
 lychee data pull news --symbols AAPL --provider auto --force
 lychee data pull filings --symbols AAPL,TSLA --limit 3
+lychee data pull financials --symbols AAPL,MSFT
 lychee data guide fund --symbol 2800.HK --name "Tracker Fund of Hong Kong" --market HK
 lychee data set fund --from-file .alphadesk/data/fund-metadata-guide-2800.HK.json
 lychee data set fund --symbol 2800.HK --name "Tracker Fund of Hong Kong" --source-url https://example.com/2800 --tracking-index "Hang Seng Index" --expense-ratio "0.10%"
@@ -439,12 +440,15 @@ Current live providers:
 - Market prices: Alpha Vantage daily time series; automatic gap filling can use Eastmoney daily bars for HK/China symbols and Yahoo chart as a cross-market fallback.
 - News: Marketaux, Finnhub, or NewsAPI, selected with `--provider`; without `--symbols` it pulls market-level news, and with `--symbols` it pulls symbol-level news. `auto` uses the first configured provider that fits the request type.
 - Filings: SEC EDGAR recent filings for US-listed symbols.
+- Financial snapshots: SEC EDGAR XBRL `companyfacts` for US issuers. Each metric keeps its own reporting interval alongside revenue, net income, operating cash flow, and the official source URL; HK/CN financial coverage remains explicitly unimplemented rather than implied.
 - Fund/ETF metadata: `data guide fund` creates a local beginner-friendly checklist and JSON template for tracking index, expense ratio, holdings summary, and source URL. After the template is filled from verified sources, `data set fund --from-file ...` imports it into `fund-metadata.json`; direct `data set fund --symbol ...` remains available for automation. The workbench uses source-backed metadata as proxy-instrument support evidence and reports only still-missing fields; it does not invent fund fees or constituents.
 - Research metrics: `data set metric` writes source-backed local indicators such as `market_breadth`, `volatility_metrics`, `fund_flows`, and `sector_performance` into `research-metrics.json`. The workbench uses them as supplemental evidence in verification checks, evidence boards, and task detail panels.
 
 Market-price cache now uses trading-session-aware freshness. US, HK, and China A-share symbols are checked against regular market hours before refreshing. During open sessions the default freshness window is 15 minutes; HK/CN lunch breaks, post-close final caches, and weekends prefer the local cache; `--force` ignores freshness and session state. The first implementation includes regular sessions and weekends only; full holiday calendars should come from a future trading-calendar provider.
 
 News cache now has a basic freshness window: by default, local news cache is reused for 1 hour so discovery and manual drilldowns do not repeatedly consume provider quota; `--force` refreshes news explicitly.
+
+Financial snapshots use a 24-hour freshness window. A matching US symbol reuses its audited local SEC XBRL snapshot until expiry; `--force` refreshes it explicitly.
 
 View local cache freshness with:
 

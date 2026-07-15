@@ -296,7 +296,7 @@ lychee research run
 lychee research run --symbol QQQ --force
 ```
 
-`research run` 会选择一条研究任务，刷新该任务相关的行情、新闻和适用的美股公告/财报，然后重新运行工作台自检并输出更新后的 `研究任务面板`。如果任务当前只有反向、待判定或离题新闻，执行链会额外用研究主题生成 `--query`，再拉取一轮主题新闻，帮助系统从“证据不相关”推进到“尝试补强证据”。每次执行会写入 `.alphadesk/research/research-run-*.json`，用于审计 agent 到底刷新了什么、返回多少数据、哪些动作失败或使用缓存；审计记录也会保存结构化 `assessment`，包括阶段、一致性核验状态、证据读数和下一步判断。
+`research run` 会选择一条研究任务，刷新该任务相关的行情、新闻和适用的美股公告，然后重新运行工作台自检并输出更新后的 `研究任务面板`。已有的 SEC 财务快照会进入同一证据板；缺失时任务面板会给出 `data pull financials` 的精确补齐命令。如果任务当前只有反向、待判定或离题新闻，执行链会额外用研究主题生成 `--query`，再拉取一轮主题新闻，帮助系统从“证据不相关”推进到“尝试补强证据”。每次执行会写入 `.alphadesk/research/research-run-*.json`，用于审计 agent 到底刷新了什么、返回多少数据、哪些动作失败或使用缓存；审计记录也会保存结构化 `assessment`，包括阶段、一致性核验状态、证据读数和下一步判断。
 
 也可以手动按主题补新闻：
 
@@ -385,6 +385,7 @@ lychee data pull news
 lychee data pull news --symbols AAPL --provider auto
 lychee data pull news --symbols AAPL --provider auto --force
 lychee data pull filings --symbols AAPL,TSLA --limit 3
+lychee data pull financials --symbols AAPL,MSFT
 lychee data set fund --symbol 2800.HK --name 盈富基金 --source-url https://example.com/2800 --tracking-index "Hang Seng Index" --expense-ratio "0.10%"
 lychee data freshness
 lychee data health
@@ -397,11 +398,14 @@ lychee
 - 行情：Alpha Vantage 日线行情；自动补缺口时可用 Eastmoney 覆盖港股/A 股日 K，并用 Yahoo chart 做跨市场兜底。
 - 新闻：Marketaux、Finnhub 或 NewsAPI，可用 `--provider` 指定；不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`auto` 会按请求类型使用第一个已配置且适用的 provider。
 - 公告：SEC EDGAR 美股近期 filings。
+- 财务快照：SEC EDGAR XBRL `companyfacts`，当前覆盖美股发行人。快照保留每项指标各自的报告区间、营收、净利润、经营现金流和官方来源 URL，并进入研究任务面板与证据板；港股/A 股财务 provider 仍会明确显示为待接入，不会伪装成已覆盖。
 - 基金/ETF 资料：`data set fund` 会把已人工核验且带来源 URL 的跟踪指数、费用率和成分摘要写入 `fund-metadata.json`。工作台会把这些资料放入代理标的支持证据，并只对仍缺失的字段报缺口；系统不会自动编造基金费用或成分。
 
 行情 cache 已接入交易时段感知保质期：美股、港股和 A 股会按常规交易时段判断是否需要刷新。交易中默认 15 分钟保质期；港股/A 股午休、收盘确认后、周末会优先使用缓存；`--force` 会忽略保质期和交易时段策略强制刷新。第一版只内置常规交易时段和周末判断，完整节假日日历后续接入交易日历 provider。
 
 新闻 cache 已接入基础保质期：默认 1 小时内复用本地缓存，避免 discovery 和手动钻取反复消耗 provider 配额；`--force` 可强制刷新新闻。
+
+财务快照 cache 默认保质期为 24 小时；同一美股代码在保质期内会复用已审计的 SEC XBRL 快照，`--force` 可忽略保质期重新拉取。
 
 查看本地缓存状态：
 

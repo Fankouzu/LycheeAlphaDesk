@@ -3421,6 +3421,40 @@ def test_data_pull_market_command_passes_force(monkeypatch, tmp_path: Path) -> N
     assert result.exit_code == 0
 
 
+def test_data_pull_financials_command_writes_sec_snapshot(monkeypatch, tmp_path: Path) -> None:
+    def fake_pull_sec_financials(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == ["AAPL", "MSFT"]
+        assert kwargs["output_dir"] == tmp_path
+        assert kwargs["force"] is True
+        return PullResult(
+            domain="financials",
+            provider="sec_edgar",
+            count=2,
+            output_path=tmp_path / "data" / "financials.json",
+            warnings=[],
+        )
+
+    monkeypatch.setattr(cli_app, "pull_sec_financials", fake_pull_sec_financials)
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "pull",
+            "financials",
+            "--symbols",
+            "AAPL,MSFT",
+            "--force",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "已拉取财务快照: 2" in result.stdout
+    assert "sec_edgar" in result.stdout
+
+
 def test_data_freshness_command_lists_cache_entries(tmp_path: Path) -> None:
     artifact_path = tmp_path / "data" / "market-prices.json"
     artifact_path.parent.mkdir()

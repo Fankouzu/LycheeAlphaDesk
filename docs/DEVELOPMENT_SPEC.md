@@ -146,6 +146,7 @@ Command behavior:
 - `lad data pull news` writes Marketaux, Finnhub, or NewsAPI events into the local live cache. Without `--symbols` it pulls market-level news; with `--symbols` it pulls symbol-level news. `--query` passes topic keywords for evidence strengthening around a research theme; topic queries should use Marketaux or NewsAPI because Finnhub does not support keyword topic search. It uses news-cache freshness by default; `--force` refreshes explicitly. The news cache must preserve existing rows and append deduplicated new rows so refreshes do not change the meaning of `news_001`-style evidence IDs. Finnhub currently supports symbol-level news only; market-level news should use Marketaux or NewsAPI.
 - `lad data pull filings` writes recent SEC EDGAR filings into the local live cache.
 - `lad data set fund` writes manually verified, source-backed fund/ETF metadata into `fund-metadata.json` for proxy ETF/index checks, including tracking index, fee/expense ratio, holdings summary, source URL, and as-of date. The command must require a source URL and must not hardcode drifting fund fees or constituents as production truth.
+- `lad data pull financials` writes SEC EDGAR XBRL `companyfacts` snapshots to `financials.json`. The first provider covers US issuers only and must retain form type, revenue, net income, operating cash flow, and the official source URL without inventing unavailable values. Each metric must retain its own start/end dates so quarterly revenue is never presented as the same period as year-to-date operating cash flow. Research packets, task detail, verification checks, and evidence boards must surface a cached snapshot as auditable fact; HK/CN financial coverage must remain explicitly unavailable until a provider exists.
 - `lad data freshness` only reads local `cache_entries` and displays cache layer, status, provider, cache key, market, session state, expiration time, and row count without triggering provider requests.
 - `lad data health` checks live cache presence and row counts.
 - `lad data snapshot` writes a unified JSON snapshot from the live cache.
@@ -197,6 +198,8 @@ News cache uses a basic TTL policy:
 - A news request with `--symbols` is reusable only when the cache entry has more than 0 rows and `news-events.json` covers the requested symbols; global market-news rows must not be reported as the cache result for a specific symbol.
 - If a symbol + query cache entry has 0 rows and is still fresh, the default path returns 0 rows and an explicit no-data state to avoid repeatedly consuming provider quota; only `--force` retries. A 0-row result must not advance to a research-verification command.
 - `--force` must bypass news freshness.
+
+SEC XBRL financial snapshots use a 24-hour TTL. A matching unexpired `financials.json` entry must be reused; `--force` must bypass the TTL. The cache must be recorded as the `financials` layer in `cache_entries` for CLI/TUI auditability.
 
 Cache state is stored in the `cache_entries` table inside `.alphadesk/research.sqlite3`, including layer, cache_key, provider, artifact_path, created_at, expires_at, ttl_seconds, market, session_state, row_count, and is_final_for_session.
 

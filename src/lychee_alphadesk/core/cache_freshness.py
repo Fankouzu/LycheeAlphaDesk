@@ -11,6 +11,7 @@ from lychee_alphadesk.core.market_calendar import (
 
 MARKET_CACHE_TTL_SECONDS = 15 * 60
 NEWS_CACHE_TTL_SECONDS = 60 * 60
+FINANCIALS_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,11 @@ def news_cache_key(
     normalized_symbols = _normalized_news_scope(symbols)
     suffix = f":{query.strip()}" if query and query.strip() else ""
     return f"news:{provider}:{normalized_symbols}:{start_date}:{end_date}{suffix}"
+
+
+def financials_cache_key(symbols: list[str]) -> str:
+    normalized_symbols = ",".join(sorted(symbol.upper() for symbol in symbols))
+    return f"financials:sec_edgar:{normalized_symbols}"
 
 
 def evaluate_market_cache(
@@ -112,6 +118,29 @@ def evaluate_news_cache(
     if current < entry.expires_at:
         return CacheDecision(False, "新闻缓存仍在保质期内，跳过刷新。", entry)
     return CacheDecision(True, "新闻缓存已过期。", entry)
+
+
+def evaluate_financials_cache(
+    *,
+    output_dir: Path,
+    symbols: list[str],
+    now: datetime | None = None,
+    force: bool = False,
+) -> CacheDecision:
+    current = _ensure_aware(now or datetime.now(UTC))
+    cache_key = financials_cache_key(symbols)
+    entry = get_cache_entry(output_dir, "financials", cache_key)
+    if force:
+        return CacheDecision(True, "用户强制刷新财务快照缓存。", entry)
+    if entry is None:
+        return CacheDecision(True, "没有可用的财务快照缓存。", None)
+    if not entry.artifact_path.exists():
+        return CacheDecision(True, "财务快照缓存记录存在，但缓存文件缺失。", entry)
+    if entry.row_count == 0:
+        return CacheDecision(True, "财务快照缓存为空，需要重新刷新。", entry)
+    if current < entry.expires_at:
+        return CacheDecision(False, "财务快照缓存仍在保质期内，跳过刷新。", entry)
+    return CacheDecision(True, "财务快照缓存已过期。", entry)
 
 
 def record_market_cache(
@@ -177,6 +206,36 @@ def record_news_cache(
         created_at=current,
         expires_at=current + timedelta(seconds=NEWS_CACHE_TTL_SECONDS),
         ttl_seconds=NEWS_CACHE_TTL_SECONDS,
+        row_count=row_count,
+        market=markets,
+        session_state="ttl",
+        is_final_for_session=False,
+        forced=forced,
+    )
+
+
+def record_financials_cache(
+    *,
+    output_dir: Path,
+    symbols: list[str],
+    artifact_path: Path,
+    row_count: int,
+    now: datetime | None = None,
+    forced: bool = False,
+) -> CacheEntry:
+    current = _ensure_aware(now or datetime.now(UTC))
+    markets = ",".join(
+        sorted({infer_market_from_symbol(symbol) for symbol in symbols})
+    ) or "US"
+    return record_cache_entry(
+        output_dir=output_dir,
+        layer="financials",
+        cache_key=financials_cache_key(symbols),
+        provider="sec_edgar",
+        artifact_path=artifact_path,
+        created_at=current,
+        expires_at=current + timedelta(seconds=FINANCIALS_CACHE_TTL_SECONDS),
+        ttl_seconds=FINANCIALS_CACHE_TTL_SECONDS,
         row_count=row_count,
         market=markets,
         session_state="ttl",

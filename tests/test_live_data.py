@@ -10,6 +10,7 @@ from lychee_alphadesk.core.live_data import (
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
+    pull_sec_financials,
     read_research_metric_cache,
     run_cached_data_health,
     write_fund_metadata_cache,
@@ -52,6 +53,123 @@ def test_pull_market_prices_writes_alpha_vantage_cache(tmp_path: Path) -> None:
         "volume": 51230000,
         "currency": "USD",
     }
+
+
+def test_pull_sec_financials_writes_auditable_latest_xbrl_snapshot(
+    tmp_path: Path,
+) -> None:
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        assert headers is not None
+        assert headers["User-Agent"]
+        if url.endswith("company_tickers.json"):
+            return {
+                "0": {
+                    "cik_str": 320193,
+                    "ticker": "AAPL",
+                    "title": "Apple Inc.",
+                }
+            }
+        assert url.endswith("CIK0000320193.json")
+        return {
+            "facts": {
+                "us-gaap": {
+                    "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                        "units": {
+                            "USD": [
+                                {
+                                    "start": "2026-01-01",
+                                    "end": "2026-03-28",
+                                    "val": 95359000000,
+                                    "fy": 2026,
+                                    "fp": "Q2",
+                                    "form": "10-Q",
+                                    "filed": "2026-05-01",
+                                }
+                            ]
+                        }
+                    },
+                    "NetIncomeLoss": {
+                        "units": {
+                            "USD": [
+                                {
+                                    "start": "2026-01-01",
+                                    "end": "2026-03-28",
+                                    "val": 24780000000,
+                                    "fy": 2026,
+                                    "fp": "Q2",
+                                    "form": "10-Q",
+                                    "filed": "2026-05-01",
+                                }
+                            ]
+                        }
+                    },
+                    "NetCashProvidedByUsedInOperatingActivities": {
+                        "units": {
+                            "USD": [
+                                {
+                                    "start": "2025-10-01",
+                                    "end": "2026-03-28",
+                                    "val": 23951000000,
+                                    "fy": 2026,
+                                    "fp": "Q2",
+                                    "form": "10-Q",
+                                    "filed": "2026-05-01",
+                                }
+                            ]
+                        }
+                    },
+                }
+            }
+        }
+
+    result = pull_sec_financials(
+        symbols=["AAPL"],
+        output_dir=tmp_path,
+        fetch_json=fetch_json,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    assert result.domain == "financials"
+    assert result.provider == "sec_edgar"
+    assert result.count == 1
+    assert result.output_path == tmp_path / "data" / "financials.json"
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["rows"] == [
+        {
+            "symbol": "AAPL",
+            "company": "Apple Inc.",
+            "cik": 320193,
+            "form": "10-Q",
+            "fiscal_year": 2026,
+            "fiscal_period": "Q2",
+            "period_end": "2026-03-28",
+            "filing_date": "2026-05-01",
+            "currency": "USD",
+            "revenue": 95359000000,
+            "revenue_period_start": "2026-01-01",
+            "revenue_period_end": "2026-03-28",
+            "net_income": 24780000000,
+            "net_income_period_start": "2026-01-01",
+            "net_income_period_end": "2026-03-28",
+            "operating_cash_flow": 23951000000,
+            "operating_cash_flow_period_start": "2025-10-01",
+            "operating_cash_flow_period_end": "2026-03-28",
+            "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
+        }
+    ]
+
+    cached = pull_sec_financials(
+        symbols=["AAPL"],
+        output_dir=tmp_path,
+        fetch_json=lambda _url, _headers=None: (_ for _ in ()).throw(
+            AssertionError("fresh financial cache should not call SEC")
+        ),
+        now=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+    )
+
+    assert cached.refreshed is False
+    assert cached.count == 1
+    assert "保质期内" in cached.warnings[0]
 
 
 def test_write_fund_metadata_cache_preserves_source_backed_proxy_details(

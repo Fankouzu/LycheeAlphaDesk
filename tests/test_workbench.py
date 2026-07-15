@@ -556,6 +556,67 @@ def test_verify_research_task_uses_source_backed_research_metrics(
     assert "AI 存储链扩散指标 = 7/10 上涨" in detail
 
 
+def test_verify_research_task_uses_cached_sec_financial_snapshot(
+    tmp_path: Path,
+) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(tmp_path, include_stock_price=True, include_filings=True)
+    data_dir = tmp_path / "data"
+    (data_dir / "financials.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "company": "Seagate Technology Holdings plc",
+                        "cik": 1137789,
+                        "form": "10-Q",
+                        "fiscal_year": 2026,
+                        "fiscal_period": "Q3",
+                        "period_end": "2026-03-27",
+                        "filing_date": "2026-05-01",
+                        "currency": "USD",
+                        "revenue": 2310000000,
+                        "revenue_period_start": "2025-12-27",
+                        "revenue_period_end": "2026-03-27",
+                        "net_income": 330000000,
+                        "net_income_period_start": "2025-12-27",
+                        "net_income_period_end": "2026-03-27",
+                        "operating_cash_flow": 410000000,
+                        "operating_cash_flow_period_start": "2025-06-28",
+                        "operating_cash_flow_period_end": "2026-03-27",
+                        "source_url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0001137789.json",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = verify_research_task(
+        output_dir=tmp_path,
+        symbol="STX",
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    financial_check = next(
+        check for check in result.checks if check.name == "财务快照核验"
+    )
+    assert financial_check.status == "pass"
+    assert "营收 2,310,000,000 USD" in financial_check.detail
+    assert any(
+        "财务快照: STX 2026 Q3 10-Q" in item
+        and "来源 https://data.sec.gov/api/xbrl/companyfacts/CIK0001137789.json" in item
+        for item in result.evidence_board["support"]
+    )
+    detail = render_research_task_detail(result.candidate, result.packet)
+    assert "财务快照" in detail
+    assert "营收 2,310,000,000 USD (2025-12-27 至 2026-03-27)" in detail
+    assert "经营现金流 410,000,000 USD (2025-06-28 至 2026-03-27)" in detail
+
+
 def test_verify_research_task_uses_cached_proxy_fund_metadata(
     tmp_path: Path,
 ) -> None:

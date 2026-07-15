@@ -556,7 +556,7 @@ def pull_news_events(
         except RuntimeError as error:
             last_error = RuntimeError(_sanitize_error_message(str(error)))
             if provider_id == "auto":
-                warnings.append(f"{candidate} 失败，正在尝试下一个已配置新闻数据源")
+                warnings.append(_news_provider_retry_warning(candidate, last_error))
                 continue
             raise last_error from error
         selected_provider = candidate
@@ -864,6 +864,29 @@ def _sanitize_error_message(message: str) -> str:
 
 def _sanitize_url(url: str) -> str:
     return _sanitize_error_message(url)
+
+
+def _news_provider_retry_warning(provider_id: str, error: RuntimeError) -> str:
+    provider_name = {
+        "marketaux": "Marketaux",
+        "finnhub": "Finnhub",
+        "newsapi": "NewsAPI",
+    }.get(provider_id, provider_id)
+    reason = _news_provider_error_summary(str(error))
+    return f"{provider_name} {reason}，正在尝试下一个已配置新闻数据源"
+
+
+def _news_provider_error_summary(message: str) -> str:
+    normalized = message.casefold()
+    if "http error 401" in normalized or "http 401" in normalized:
+        return "认证失败（HTTP 401）；请检查 API Key"
+    if "http error 403" in normalized or "http 403" in normalized:
+        return "被拒绝访问（HTTP 403）；请检查 API Key、套餐权限或地区限制"
+    if "http error 429" in normalized or "http 429" in normalized:
+        return "请求过于频繁（HTTP 429）；请等待额度恢复后重试"
+    if "timed out" in normalized or "timeout" in normalized:
+        return "请求超时"
+    return "请求失败"
 
 
 def _configured_value(value: str | None, provider_name: str) -> str:

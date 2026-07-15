@@ -1306,7 +1306,10 @@ def test_auto_news_provider_falls_back_when_first_configured_provider_fails(
 
     def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
         if "marketaux" in url:
-            raise RuntimeError("Could not fetch JSON from https://api.marketaux.com?api_token=***")
+            raise RuntimeError(
+                "Could not fetch JSON from https://api.marketaux.com?api_token=***: "
+                "HTTP Error 403: Forbidden"
+            )
         assert "company-news" in url
         return [
             {
@@ -1327,7 +1330,10 @@ def test_auto_news_provider_falls_back_when_first_configured_provider_fails(
 
     assert result.provider == "finnhub"
     assert result.count == 1
-    assert result.warnings == ["marketaux 失败，正在尝试下一个已配置新闻数据源"]
+    assert result.warnings == [
+        "Marketaux 被拒绝访问（HTTP 403）；请检查 API Key、套餐权限或地区限制，"
+        "正在尝试下一个已配置新闻数据源"
+    ]
 
 
 def test_fetch_errors_mask_secret_query_values(tmp_path: Path) -> None:

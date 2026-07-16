@@ -277,6 +277,46 @@ def fulfill_research_data_request(
     )
 
 
+def acknowledge_manual_research_data_request(
+    output_dir: Path,
+    *,
+    action_type: str,
+    symbol: str,
+    form: str = "",
+) -> ResearchDataRequestFulfillment | None:
+    """Close one uniquely matched manual handoff after evidence is written locally."""
+    if action_type not in {"manual_source", "manual_filing"}:
+        raise ValueError("只能确认人工新闻来源或人工文件证据请求。")
+    normalized_symbol = symbol.strip().upper()
+    if not normalized_symbol:
+        raise ValueError("确认人工证据请求需要证券代码。")
+    normalized_form = form.strip().upper()
+    matches: list[ResearchDataRequest] = []
+    for request in list_research_data_requests(output_dir, symbol=normalized_symbol):
+        matching_actions = [
+            action
+            for action in request.suggested_actions
+            if action.action_type == action_type
+        ]
+        if not matching_actions:
+            continue
+        if action_type == "manual_filing" and normalized_form:
+            if not any(
+                _command_option_value(action.command, "--form").upper()
+                == normalized_form
+                for action in matching_actions
+            ):
+                continue
+        matches.append(request)
+    if len(matches) != 1:
+        return None
+    return fulfill_research_data_request(
+        output_dir,
+        request_id=matches[0].request_id,
+        force=False,
+    )
+
+
 def diagnose_research_data_request(
     output_dir: Path,
     *,
@@ -1287,6 +1327,14 @@ def _dedupe_actions(
         seen.add(action.command)
         unique_actions.append(action)
     return unique_actions
+
+
+def _command_option_value(command: str, option: str) -> str:
+    try:
+        parts = shlex.split(command)
+        return parts[parts.index(option) + 1].strip()
+    except (IndexError, ValueError):
+        return ""
 
 
 @dataclass(frozen=True)

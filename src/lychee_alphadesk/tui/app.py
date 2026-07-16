@@ -61,6 +61,7 @@ from lychee_alphadesk.core.research_requests import (
     ProviderBacklogItem,
     ResearchDataRequest,
     ResearchDataRequestFulfillment,
+    acknowledge_manual_research_data_request,
     fulfill_research_data_request,
     list_provider_backlog_items,
     list_research_data_requests,
@@ -550,6 +551,12 @@ class AlphaDeskApp(App[None]):
         except ValueError as error:
             self._set_status(f"无法保存: {error}")
             return
+        acknowledgement = await asyncio.to_thread(
+            acknowledge_manual_research_data_request,
+            self.output_dir,
+            action_type="manual_source",
+            symbol=symbol,
+        )
         self.manual_news_action = None
         self._refresh_dashboard()
         await self._replace_action_panel(
@@ -558,6 +565,11 @@ class AlphaDeskApp(App[None]):
                     [
                         f"已写入人工新闻证据: {symbol}",
                         f"缓存: {result.output_path}",
+                        *(
+                            ["对应研究数据请求已从待办队列移除。"]
+                            if acknowledgement is not None
+                            else []
+                        ),
                         "来源已进入本地缓存；现在可重新下钻核验。",
                     ]
                 ),
@@ -672,6 +684,13 @@ class AlphaDeskApp(App[None]):
         except ValueError as error:
             self._set_status(f"无法保存: {error}")
             return
+        acknowledgement = await asyncio.to_thread(
+            acknowledge_manual_research_data_request,
+            self.output_dir,
+            action_type="manual_filing",
+            symbol=symbol,
+            form=form,
+        )
         self.manual_filing_action = None
         self._refresh_dashboard()
         await self._replace_action_panel(
@@ -680,6 +699,11 @@ class AlphaDeskApp(App[None]):
                     [
                         f"已写入人工文件证据: {symbol}",
                         f"缓存: {result.output_path}",
+                        *(
+                            ["对应研究数据请求已从待办队列移除。"]
+                            if acknowledgement is not None
+                            else []
+                        ),
                         "文件摘要已进入本地缓存；现在可重新下钻核验。",
                     ]
                 ),

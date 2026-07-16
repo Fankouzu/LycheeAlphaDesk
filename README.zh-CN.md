@@ -444,6 +444,8 @@ lychee research verify --symbol NVDA
 
 `data set filing` 必须提供关联研究的证券代码、公司、表单类型、公告日期、已核验摘要和 `http(s)` 来源 URL。它会合并写入 `filings.json`，不会删除 SEC 已缓存行或更早的人工记录；后续 SEC 刷新也必须保留人工文件证据。带 symbol 的文件证据只会匹配同一代码。TUI 从 `人工文件证据` 行打开同一套显式保存表单，保存后再提供“重新下钻核验”。
 
+当保存的来源唯一匹配一条待处理人工交接时，AlphaDesk 会写入本地 `manual_required` fulfillment 记录，并把该交接从 `research data-requests` 和 `research next` 移除。这只是可审计的“已人工处理”确认，不代表系统认可文件内容已经支持研究假设；仍必须重新下钻核验。
+
 遇到失败的数据请求，可运行 `lychee research data-request-diagnose --request 1 --symbol QQQ`。它只读取本地 fulfillment 记录，展示失败动作、面向新手的原因归类、恢复步骤和原请求的精确重试命令；不会访问 provider，也不会输出已经配置的密钥。统一下一步行动队列会先打开诊断，并在人工确认前停止批量推进，而不是直接重复发起请求。
 
 建议优先接入：

@@ -8,6 +8,7 @@ from lychee_alphadesk.core.research_db import (
     write_research_memo_record,
 )
 from lychee_alphadesk.core.research_requests import (
+    acknowledge_manual_research_data_request,
     diagnose_research_data_request,
     fulfill_research_data_request,
     list_provider_backlog_items,
@@ -106,6 +107,46 @@ def test_research_data_request_routes_form4_content_to_manual_filing_evidence(
     assert list_provider_backlog_items(tmp_path, symbol="NVDA") == []
 
 
+def test_manual_filing_acknowledgement_removes_completed_handoff_from_queue(
+    tmp_path: Path,
+) -> None:
+    write_research_memo_record(
+        output_dir=tmp_path,
+        memo_id="research-memo:2026-07-16T09:05:00+00:00",
+        created_at="2026-07-16T09:05:00+00:00",
+        display_name="NVIDIA",
+        symbol="NVDA",
+        market="US",
+        confidence="medium",
+        summary="需要核验 Form 4 内容。",
+        support_count=1,
+        skeptic_count=1,
+        missing_count=1,
+        next_step_count=1,
+        memo_path=tmp_path / "research" / "research-memo-nvda.json",
+        verification_path=tmp_path / "research" / "research-verification-nvda.json",
+        payload={
+            "memo": {
+                "next_data_requests": [
+                    "复核 2026-07-06 的 Form 4 正文，确认其是否仅为内部人交易披露。"
+                ]
+            }
+        },
+    )
+
+    result = acknowledge_manual_research_data_request(
+        tmp_path,
+        action_type="manual_filing",
+        symbol="NVDA",
+        form="4",
+    )
+
+    assert result is not None
+    assert result.status == "manual_required"
+    assert result.executions[0].action_type == "manual_filing"
+    assert list_research_data_requests(tmp_path, symbol="NVDA") == []
+
+
 def test_research_data_requests_include_verification_hypothesis_requests(
     tmp_path: Path,
 ) -> None:
@@ -193,6 +234,16 @@ def test_verification_request_stops_repeating_news_after_completed_refresh(
         "lychee research verify --symbol QQQ",
     ]
     assert list_provider_backlog_items(tmp_path, symbol="QQQ") == []
+
+    result = acknowledge_manual_research_data_request(
+        tmp_path,
+        action_type="manual_source",
+        symbol="QQQ",
+    )
+
+    assert result is not None
+    assert result.status == "manual_required"
+    assert list_research_data_requests(tmp_path, symbol="QQQ") == []
 
 
 def test_research_data_requests_prefer_latest_memo_over_verification_hypothesis(

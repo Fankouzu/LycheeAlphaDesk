@@ -37,6 +37,7 @@ from lychee_alphadesk.core.research_requests import (
     ResearchDataRequest,
     ResearchDataRequestExecution,
     ResearchDataRequestFulfillment,
+    list_research_data_requests,
 )
 
 runner = CliRunner()
@@ -235,6 +236,29 @@ def test_data_set_news_command_writes_manual_auditable_evidence(tmp_path: Path) 
 
 
 def test_data_set_filing_command_writes_manual_auditable_evidence(tmp_path: Path) -> None:
+    write_research_memo_record(
+        output_dir=tmp_path,
+        memo_id="research-memo:nvda:manual-filing",
+        created_at="2026-07-16T09:05:00+00:00",
+        display_name="NVIDIA",
+        symbol="NVDA",
+        market="US",
+        confidence="medium",
+        summary="需要核验 Form 4 内容。",
+        support_count=1,
+        skeptic_count=1,
+        missing_count=1,
+        next_step_count=1,
+        memo_path=tmp_path / "research" / "research-memo-nvda.json",
+        verification_path=tmp_path / "research" / "research-verification-nvda.json",
+        payload={
+            "memo": {
+                "next_data_requests": [
+                    "复核 2026-07-06 的 Form 4 正文，确认其是否仅为内部人交易披露。"
+                ]
+            }
+        },
+    )
     result = runner.invoke(
         app,
         [
@@ -260,10 +284,12 @@ def test_data_set_filing_command_writes_manual_auditable_evidence(tmp_path: Path
 
     assert result.exit_code == 0
     assert "人工文件证据已写入" in result.stdout
+    assert "对应研究数据请求已标记为人工交接完成" in result.stdout
     cache = json.loads((tmp_path / "data" / "filings.json").read_text("utf-8"))
     assert cache["provider"] == "manual"
     assert cache["rows"][0]["form"] == "4"
     assert cache["rows"][0]["symbol"] == "NVDA"
+    assert list_research_data_requests(tmp_path, symbol="NVDA") == []
 
 
 def test_data_guide_fund_command_writes_beginner_metadata_template(

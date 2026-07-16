@@ -80,6 +80,7 @@ from lychee_alphadesk.core.research_requests import (
     ResearchDataRequest,
     ResearchDataRequestDiagnostic,
     ResearchDataRequestFulfillment,
+    acknowledge_manual_research_data_request,
     diagnose_research_data_request,
     fulfill_research_data_request,
     list_provider_backlog_items,
@@ -1680,6 +1681,11 @@ def data_set_news(
         raise typer.Exit(code=1) from error
     console.print(f"人工新闻证据已写入: {symbol.strip().upper()}")
     _print_pull_result(result_label="新闻证据", count=result.count, result=result)
+    _acknowledge_manual_research_handoff(
+        output_dir=output_dir,
+        action_type="manual_source",
+        symbol=symbol,
+    )
 
 
 @data_set_app.command("filing")
@@ -1730,6 +1736,32 @@ def data_set_filing(
     identifier = symbol.strip().upper() or company.strip()
     console.print(f"人工文件证据已写入: {identifier} {form.strip().upper()}")
     _print_pull_result(result_label="文件证据", count=result.count, result=result)
+    _acknowledge_manual_research_handoff(
+        output_dir=output_dir,
+        action_type="manual_filing",
+        symbol=symbol,
+        form=form,
+    )
+
+
+def _acknowledge_manual_research_handoff(
+    *,
+    output_dir: Path,
+    action_type: str,
+    symbol: str,
+    form: str = "",
+) -> None:
+    result = acknowledge_manual_research_data_request(
+        output_dir,
+        action_type=action_type,
+        symbol=symbol,
+        form=form,
+    )
+    if result is not None:
+        console.print(
+            "对应研究数据请求已标记为人工交接完成，"
+            "后续请重新下钻核验。"
+        )
 
 
 def _fund_symbol_from_result_path(path: Path) -> str:

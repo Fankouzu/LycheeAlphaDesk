@@ -403,6 +403,8 @@ lychee research verify --symbol NVDA
 
 `data set filing` requires the linked research symbol, company, form, filing date, checked summary, and an `http(s)` source URL. It merges into `filings.json` without deleting SEC-cached or earlier manual rows. Subsequent SEC refreshes preserve the manual record, and filing evidence with a symbol is matched only to that symbol. The TUI opens the same explicit-save form from the `人工文件证据` action, then offers rerun verification.
 
+When the saved source uniquely matches an open manual handoff, AlphaDesk writes a local `manual_required` fulfillment record and removes that handoff from `research data-requests` and `research next`. This is an audit acknowledgement, not an automatic judgment about the filing; rerun verification still decides whether the evidence actually addresses the research question.
+
 For a failed request, run `lychee research data-request-diagnose --request 1 --symbol QQQ`. It reads only the local fulfillment record, shows the failed actions, a beginner-readable diagnosis, recovery steps, and the exact retry command. It never sends a provider request or exposes configured secrets. The unified next-action queue opens this diagnosis first, then stops for a human confirmation before any retry.
 
 List data-provider gaps extracted from manual-source research requests:

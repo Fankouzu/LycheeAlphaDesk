@@ -433,6 +433,7 @@ lychee research verify --symbol 0700.HK
 ```
 
 `data set news` 必须提供证券代码、标题、摘要和 `http(s)` 来源 URL。它只把可审计材料写入本地新闻缓存，不会访问 provider、推断事实或生成投资建议。
+在 TUI 中，从 `下一步行动队列` 选择 `人工证据` 项，填写标题、关键事实和来源 URL，再选择“保存已核验来源”。输入字段时不会自动保存；记录写入后才会提供“重新下钻核验”。
 
 遇到失败的数据请求，可运行 `lychee research data-request-diagnose --request 1 --symbol QQQ`。它只读取本地 fulfillment 记录，展示失败动作、面向新手的原因归类、恢复步骤和原请求的精确重试命令；不会访问 provider，也不会输出已经配置的密钥。统一下一步行动队列会先打开诊断，并在人工确认前停止批量推进，而不是直接重复发起请求。
 

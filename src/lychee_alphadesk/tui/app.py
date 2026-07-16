@@ -1,4 +1,5 @@
 import asyncio
+import shlex
 from pathlib import Path
 from typing import Literal
 
@@ -33,6 +34,7 @@ from lychee_alphadesk.core.live_data import (
     run_cached_data_health,
     write_fund_metadata_cache_from_file,
     write_fund_metadata_guide,
+    write_manual_news_event,
 )
 from lychee_alphadesk.core.llm import LLMProviderError
 from lychee_alphadesk.core.opportunity_radar import (
@@ -135,6 +137,7 @@ class AlphaDeskApp(App[None]):
         self.current_fund_metadata_guide_path: Path | None = None
         self.research_data_requests: list[ResearchDataRequest] = []
         self.action_queue_items: list[ActionQueueItem] = []
+        self.manual_news_action: ActionQueueItem | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -175,6 +178,10 @@ class AlphaDeskApp(App[None]):
         self.set_focus(self.query_one("#action-menu", OptionList))
 
     async def action_back(self) -> None:
+        if self.manual_news_action is not None:
+            self.manual_news_action = None
+            await self._show_next_actions()
+            return
         if self.pending_action is None:
             self.exit()
             return
@@ -215,6 +222,16 @@ class AlphaDeskApp(App[None]):
             return
         if isinstance(action_id, str) and action_id.startswith("next_action_item:"):
             await self._run_next_action_item(action_id)
+            return
+        if action_id == "manual_news_save":
+            await self._save_manual_news_entry()
+            return
+        if action_id == "manual_news_cancel":
+            self.manual_news_action = None
+            await self._show_next_actions()
+            return
+        if isinstance(action_id, str) and action_id.startswith("manual_news_verify:"):
+            await self._verify_manual_news_source(action_id)
             return
         if action_id == "pending_evidence_verify_last":
             await self._run_pending_evidence_verification()
@@ -267,6 +284,13 @@ class AlphaDeskApp(App[None]):
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         event.stop()
+        if event.input.id in {
+            "manual-news-headline",
+            "manual-news-summary",
+            "manual-news-source-url",
+        }:
+            self._set_status("请使用 Tab 移动到“保存已核验来源”，再按 Enter。")
+            return
         symbols = parse_symbols(event.value)
         if not symbols:
             self._set_status("未输入证券代码。")
@@ -415,6 +439,9 @@ class AlphaDeskApp(App[None]):
             )
             self.set_focus(self.query_one("#action-menu", OptionList))
             return
+        if _manual_news_source_symbol(item.command) is not None:
+            await self._show_manual_news_entry(item)
+            return
         await self._replace_action_panel(
             Static(f"正在执行下一步行动: {item.title}，请稍候...", id="action-status")
         )
@@ -443,6 +470,120 @@ class AlphaDeskApp(App[None]):
             ),
         )
         self.set_focus(self.query_one("#next-action-followup-menu", OptionList))
+
+    async def _show_manual_news_entry(self, item: ActionQueueItem) -> None:
+        symbol = _manual_news_source_symbol(item.command)
+        if symbol is None:
+            await self._replace_action_panel(
+                Static("人工新闻来源缺少有效证券代码，请刷新下一步行动队列。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        self.manual_news_action = item
+        await self._replace_action_panel(
+            Static(
+                "\n".join(
+                    [
+                        "录入已核验新闻来源",
+                        f"对象: {item.title.removeprefix('补充可审计来源: ')} ({symbol})",
+                        "只录入已经核验的原文或官方披露。Tab 在字段间移动，"
+                        "选择“保存已核验来源”后才会写入本地缓存。",
+                    ]
+                ),
+                id="action-status",
+            ),
+            Input(placeholder="新闻标题", id="manual-news-headline"),
+            Input(placeholder="与研究问题有关的关键事实", id="manual-news-summary"),
+            Input(placeholder="https:// 原文或官方披露 URL", id="manual-news-source-url"),
+            OptionList(
+                Option("保存已核验来源", id="manual_news_save"),
+                Option("取消并返回行动队列", id="manual_news_cancel"),
+                id="manual-news-entry-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#manual-news-headline", Input))
+
+    async def _save_manual_news_entry(self) -> None:
+        item = self.manual_news_action
+        if item is None:
+            self._set_status("没有待保存的人工新闻来源。")
+            return
+        symbol = _manual_news_source_symbol(item.command)
+        if symbol is None:
+            self._set_status("人工新闻来源缺少有效证券代码。")
+            return
+        headline = self.query_one("#manual-news-headline", Input).value
+        summary = self.query_one("#manual-news-summary", Input).value
+        source_url = self.query_one("#manual-news-source-url", Input).value
+        self._set_status("正在写入已核验来源，请稍候...")
+        try:
+            result = await asyncio.to_thread(
+                write_manual_news_event,
+                output_dir=self.output_dir,
+                symbol=symbol,
+                headline=headline,
+                summary=summary,
+                source_url=source_url,
+            )
+        except ValueError as error:
+            self._set_status(f"无法保存: {error}")
+            return
+        self.manual_news_action = None
+        self._refresh_dashboard()
+        await self._replace_action_panel(
+            Static(
+                "\n".join(
+                    [
+                        f"已写入人工新闻证据: {symbol}",
+                        f"缓存: {result.output_path}",
+                        "来源已进入本地缓存；现在可重新下钻核验。",
+                    ]
+                ),
+                id="action-status",
+            ),
+            OptionList(
+                Option("重新下钻核验", id=f"manual_news_verify:{symbol}"),
+                Option("查看下一步行动队列", id="next_actions"),
+                Option("返回主菜单", id="refresh"),
+                id="manual-news-followup-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#manual-news-followup-menu", OptionList))
+
+    async def _verify_manual_news_source(self, action_id: str) -> None:
+        symbol = action_id.removeprefix("manual_news_verify:").strip().upper()
+        if not symbol:
+            self._set_status("缺少重新核验所需的证券代码。")
+            return
+        await self._replace_action_panel(
+            Static("正在重新下钻核验，请稍候...", id="action-status")
+        )
+        try:
+            result = await asyncio.to_thread(
+                verify_research_task,
+                output_dir=self.output_dir,
+                symbol=symbol,
+            )
+        except (RuntimeError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._refresh_research_state()
+        self.current_research_verification = result
+        await self._replace_action_panel(
+            Static(_research_verification_text(result), id="action-status"),
+            OptionList(
+                Option("查看下一步行动队列", id="next_actions"),
+                Option("返回主菜单", id="refresh"),
+                id="manual-news-verification-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#manual-news-verification-menu", OptionList))
 
     async def _show_research_review_history(self) -> None:
         records = await asyncio.to_thread(
@@ -1384,6 +1525,20 @@ def _research_selection(candidate: CandidateCheck) -> tuple[str | None, str | No
     if candidate.symbol:
         return candidate.symbol, None
     return None, candidate.display_name
+
+
+def _manual_news_source_symbol(command: str) -> str | None:
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return None
+    if parts[:4] != ["lychee", "data", "set", "news"]:
+        return None
+    try:
+        symbol = parts[parts.index("--symbol") + 1].strip().upper()
+    except (IndexError, ValueError):
+        return None
+    return symbol or None
 
 
 def _research_workbench_intro(result: WorkbenchCheckResult) -> str:

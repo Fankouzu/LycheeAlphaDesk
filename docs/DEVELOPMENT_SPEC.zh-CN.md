@@ -116,6 +116,7 @@ lad data pull market --symbols AAPL,TSLA
 lad data pull news
 lad data pull news --symbols AAPL --provider auto
 lad data pull news --symbols AAPL --provider auto --force
+lad data pull volatility --symbols QQQ
 lad data pull filings --symbols AAPL,TSLA --limit 3
 lad data pull financials --symbols AAPL,MSFT
 lad data set fund --symbol 2800.HK --name 盈富基金 --source-url https://example.com/2800 --tracking-index "Hang Seng Index" --expense-ratio "0.10%"
@@ -146,6 +147,7 @@ lad
 - `lad discover today --markets us,hk,cn` 会先检查/拉取市场级新闻 cache，再以 `stream: true` 调用已配置的 OpenAI-compatible `/chat/completions` 接口，解析模型返回的 JSON，并写入本地 `llm-synthesized` discovery report cache，包含主题、关注候选、证据引用、warning 和下一步动作。如果没有可用新闻 provider、没有配置 LLM provider、API 请求失败，或模型没有返回有效 JSON，命令必须失败；不允许静默生成 fallback 报告。成功后必须同步写入 `.alphadesk/research.sqlite3`，作为研究队列和证据追踪的本地数据库。默认 LLM 读超时为 180 秒。
 - `lad discover radar` 必须在不调用 LLM、不要求用户输入股票代码的情况下，读取本地行情和新闻缓存，组合 symbol 新闻热度、主题关键词命中和成交量排名，生成“机会雷达”研究线索。每条线索必须包含市场、代码、主题、分数、行情快照、为什么值得研究、证据标题、下一步验证命令，以及从本地已缓存标的中映射出的可下钻目标。可下钻目标必须展示名称、市场、类别、映射理由、证据缺口和补数据/研究命令；未进入本地缓存的标的不得伪装成当前雷达结果。它只能回答“下一步研究什么”，不得输出买入、卖出、持有、仓位、目标价或收益预期。
 - `lad data pull market` 将日线行情写入本地 live cache。`auto` 对美股使用 Alpha Vantage；配置 Tushare token 后，对 A 股股票、中国 ETF 风格代码和港股依次使用 Tushare 的 `daily`、`fund_daily`、`hk_daily`，随后仍保留 Eastmoney 与 Yahoo chart 作为回退。未配置 Tushare token 时，港股/A 股从 Eastmoney 开始。默认使用行情 cache 的保质期和交易时段判断；`--force` 可强制刷新。Tushare `40203` 是接口权限缺口，不是漏填 key：CLI 必须提示用户在 Tushare 后台开通所需接口或套餐，不得建议重新填写 key 作为解决方案。
+- `lad data pull volatility --symbols QQQ` 会下载 Cboe 公开的 VXN 历史 CSV，并写入三条 `volatility_metrics`：最新收盘、20 个交易日变化和最近 252 个观测值分位。VXN 必须说明为 Cboe 发布的纳斯达克 100 30 天隐含波动率指数，只用于风险背景；不得把它当作市场广度代理或交易指令。`research_metrics` 缓存保质期为 24 小时，空结果冷却 1 小时，`--force` 是显式覆盖入口。完整的 Cboe VXN 指标可清除匹配的波动率 provider backlog，但不得清除市场广度或实体新闻缺口。
 - `lad data pull news` 将内置 Marketaux、Finnhub、NewsAPI、GDELT 或已安装新闻插件的事件写入本地 live cache。不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`--query` 可传入主题关键词，用于按研究主题补强新闻证据；主题查询必须选择支持主题新闻的 provider。默认使用新闻 cache 保质期；`--force` 可强制刷新。新闻缓存必须保留已有行并追加去重后的新行，避免刷新后改变 `news_001` 等 evidence ID 的含义。已安装插件只能通过 Python 的 `lychee_alphadesk.news_providers` 入口点发现；`auto` 只能选择已启用、声明能力匹配且必填设置完整的插件。插件返回行必须保留为包含时间、标题和来源 URL 的 `NewsEvent`。插件异常必须视作不可信边界，脱敏后仅允许在 `auto` 模式回退。显式指定插件时，必须报告该插件失败，不能静默换源。
 - `lad data pull filings` 将美股代码的 SEC EDGAR 近期 filings、`.HK` 代码的 HKEXnews 官方公告，以及 `.SH` / `.SZ` A 股股票代码的巨潮资讯公告写入同一份本地 live cache。HKEX 路径必须先解析官方活跃证券清单，再读取发行人公告标题页，保留原始文件 URL、日期、标题和代码；不得把 HKEX 公告伪装成 SEC 文件。巨潮路径必须先解析官方股票清单，再用股票代码加机构 ID 查询公开公告接口，保留原始 PDF URL、中国本地发布日期、标题和代码；不得暗示调用了另行授权的数据服务 API。
 - `lad data pull financials` 将 SEC EDGAR XBRL `companyfacts` 写入 `financials.json`。第一版只覆盖美股发行人，并且每行必须保留表单类型、营收、净利润、经营现金流和官方来源 URL；每项金额必须保留各自的起止日期，禁止把单季度收入和年内累计现金流伪装成同一报告区间。只有指标定义、表单、财报期和期间长度一致，并且上一期间结束日落在上年同期比较窗口内时，才可保留上年同期数据；否则同比相关字段必须为空。不可用字段保持空值，禁止猜测。研究深挖、任务详情、核验项和证据板必须把已有快照作为可审计事实展示；港股/A 股财报 provider 未接入时必须明确标为不适用或待接入。

@@ -17,6 +17,7 @@ from lychee_alphadesk.core.live_data import (
     pull_news_events,
     pull_sec_filings,
     pull_sec_financials,
+    pull_volatility_metrics,
     read_research_metric_cache,
     run_cached_data_health,
     write_fund_metadata_cache,
@@ -1236,6 +1237,93 @@ def test_pull_news_events_writes_finnhub_cache(tmp_path: Path) -> None:
     assert len(entries) == 1
     assert entries[0].provider == "finnhub"
     assert entries[0].row_count == 1
+
+
+def test_pull_volatility_metrics_writes_cboe_vxn_evidence_for_qqq(
+    tmp_path: Path,
+) -> None:
+    def fetch_text(url: str, _headers: dict[str, str] | None = None) -> str:
+        assert url == "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXN_History.csv"
+        end = datetime(2026, 7, 16, tzinfo=UTC)
+        rows = ["DATE,OPEN,HIGH,LOW,CLOSE"]
+        for index in range(260):
+            current = end - timedelta(days=259 - index)
+            close = 20 + index / 10
+            rows.append(
+                f"{current.strftime('%m/%d/%Y')},{close},{close},{close},{close}"
+            )
+        return "\n".join(rows)
+
+    result = pull_volatility_metrics(
+        symbols=["QQQ"],
+        output_dir=tmp_path,
+        fetch_text=fetch_text,
+    )
+
+    assert result.domain == "research_metric"
+    assert result.provider == "cboe"
+    assert result.count == 3
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    rows = cache["rows"]
+    assert {row["name"] for row in rows} == {
+        "Cboe VXN 收盘",
+        "Cboe VXN 20 交易日变化",
+        "Cboe VXN 近一年历史分位",
+    }
+    assert {row["as_of"] for row in rows} == {"2026-07-16"}
+    assert {row["source_url"] for row in rows} == {
+        "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXN_History.csv"
+    }
+
+
+def test_pull_volatility_metrics_reuses_fresh_cboe_cache_until_forced(
+    tmp_path: Path,
+) -> None:
+    calls: list[str] = []
+
+    def fetch_text(url: str, _headers: dict[str, str] | None = None) -> str:
+        calls.append(url)
+        end = datetime(2026, 7, 16, tzinfo=UTC)
+        rows = ["DATE,OPEN,HIGH,LOW,CLOSE"]
+        for index in range(260):
+            current = end - timedelta(days=259 - index)
+            close = 20 + index / 10
+            rows.append(
+                f"{current.strftime('%m/%d/%Y')},{close},{close},{close},{close}"
+            )
+        return "\n".join(rows)
+
+    first = pull_volatility_metrics(
+        symbols=["QQQ"],
+        output_dir=tmp_path,
+        fetch_text=fetch_text,
+        now=datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+    )
+    second = pull_volatility_metrics(
+        symbols=["QQQ"],
+        output_dir=tmp_path,
+        fetch_text=fetch_text,
+        now=datetime(2026, 7, 16, 10, 5, tzinfo=UTC),
+    )
+    forced = pull_volatility_metrics(
+        symbols=["QQQ"],
+        output_dir=tmp_path,
+        fetch_text=fetch_text,
+        now=datetime(2026, 7, 16, 10, 10, tzinfo=UTC),
+        force=True,
+    )
+
+    entries = list_cache_entries(tmp_path, layer="research_metrics")
+
+    assert first.refreshed is True
+    assert second.refreshed is False
+    assert "研究指标缓存仍在保质期内" in second.warnings[0]
+    assert forced.refreshed is True
+    assert calls == [
+        "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXN_History.csv",
+        "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXN_History.csv",
+    ]
+    assert entries[0].ttl_seconds == 24 * 60 * 60
 
 
 def test_auto_news_pull_prefers_configured_entity_news_plugin(tmp_path: Path) -> None:

@@ -2,7 +2,11 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from lychee_alphadesk.core.live_data import FundMetadataGuide, PullResult
+from lychee_alphadesk.core.live_data import (
+    FundMetadataGuide,
+    PullResult,
+    write_research_metric_cache,
+)
 from lychee_alphadesk.core.research_db import (
     write_research_data_request_fulfillment_record,
     write_research_memo_record,
@@ -454,6 +458,59 @@ def test_fulfill_research_data_request_runs_market_pull_and_verify(
     ]
 
 
+def test_volatility_request_refreshes_cboe_metrics_then_verifies(tmp_path: Path) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["请补充科技股波动率极端化新闻所引用的具体指标、时间窗口和历史分位背景。"],
+    )
+    volatility_calls: list[dict[str, object]] = []
+    verify_calls: list[dict[str, object]] = []
+
+    def fake_pull_volatility(**kwargs: object) -> PullResult:
+        volatility_calls.append(kwargs)
+        return PullResult(
+            "research_metric",
+            "cboe",
+            3,
+            tmp_path / "data" / "research-metrics.json",
+            [],
+        )
+
+    def fake_verify(**kwargs: object) -> object:
+        verify_calls.append(kwargs)
+        return SimpleNamespace(artifact_path=tmp_path / "research" / "verify.json")
+
+    requests = list_research_data_requests(tmp_path, symbol="QQQ")
+
+    assert [action.action_type for action in requests[0].suggested_actions] == [
+        "volatility",
+        "verify",
+    ]
+    assert requests[0].suggested_commands == [
+        "lychee data pull volatility --symbols QQQ --force",
+        "lychee research verify --symbol QQQ",
+    ]
+
+    result = fulfill_research_data_request(
+        tmp_path,
+        request_index=1,
+        symbol="QQQ",
+        pull_volatility=fake_pull_volatility,
+        verify_task=fake_verify,
+    )
+
+    assert volatility_calls == [{"symbols": ["QQQ"], "output_dir": tmp_path, "force": True}]
+    assert verify_calls == [{"output_dir": tmp_path, "symbol": "QQQ", "name": None}]
+    assert [execution.action_type for execution in result.executions] == [
+        "volatility",
+        "verify",
+    ]
+    assert [execution.status for execution in result.executions] == [
+        "completed",
+        "completed",
+    ]
+
+
 def test_fulfilled_research_data_request_leaves_queue(tmp_path: Path) -> None:
     _write_request_memo(
         tmp_path,
@@ -683,6 +740,37 @@ def test_provider_backlog_items_classify_manual_data_requests(tmp_path: Path) ->
         "期权链或隐含波动率数据源",
         "风险情绪指标数据源",
     ]
+
+
+def test_provider_backlog_hides_volatility_request_when_cboe_metrics_exist(
+    tmp_path: Path,
+) -> None:
+    _write_request_memo(
+        tmp_path,
+        [
+            "请补充纳斯达克 100 成分股上涨家数和等权指数对比。",
+            "请补充科技股波动率极端化新闻所引用的具体指标、时间窗口和历史分位背景。",
+        ],
+    )
+    for name, value in (
+        ("Cboe VXN 收盘", "25.65"),
+        ("Cboe VXN 20 交易日变化", "-1.04%"),
+        ("Cboe VXN 近一年历史分位", "75.4%"),
+    ):
+        write_research_metric_cache(
+            output_dir=tmp_path,
+            symbol="QQQ",
+            domain="volatility_metrics",
+            name=name,
+            value=value,
+            as_of="2026-07-15",
+            source_url="https://cdn.cboe.com/api/global/us_indices/daily_prices/VXN_History.csv",
+            provider="cboe",
+        )
+
+    backlog = list_provider_backlog_items(tmp_path, symbol="QQQ")
+
+    assert [item.plugin_type for item in backlog] == ["market_breadth"]
 
 
 def _write_request_memo(

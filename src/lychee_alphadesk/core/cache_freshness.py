@@ -13,6 +13,8 @@ MARKET_CACHE_TTL_SECONDS = 15 * 60
 MARKET_NO_DATA_TTL_SECONDS = 60 * 60
 NEWS_CACHE_TTL_SECONDS = 60 * 60
 FINANCIALS_CACHE_TTL_SECONDS = 24 * 60 * 60
+RESEARCH_METRICS_CACHE_TTL_SECONDS = 24 * 60 * 60
+RESEARCH_METRICS_NO_DATA_TTL_SECONDS = 60 * 60
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,11 @@ def news_cache_key(
 def financials_cache_key(symbols: list[str]) -> str:
     normalized_symbols = ",".join(sorted(symbol.upper() for symbol in symbols))
     return f"financials:sec_edgar:{normalized_symbols}"
+
+
+def research_metrics_cache_key(provider: str, symbols: list[str]) -> str:
+    normalized_symbols = ",".join(sorted(symbol.upper() for symbol in symbols))
+    return f"research-metrics:{provider}:{normalized_symbols}"
 
 
 def evaluate_market_cache(
@@ -151,6 +158,39 @@ def evaluate_financials_cache(
     if current < entry.expires_at:
         return CacheDecision(False, "财务快照缓存仍在保质期内，跳过刷新。", entry)
     return CacheDecision(True, "财务快照缓存已过期。", entry)
+
+
+def evaluate_research_metrics_cache(
+    *,
+    output_dir: Path,
+    provider: str,
+    symbols: list[str],
+    now: datetime | None = None,
+    force: bool = False,
+) -> CacheDecision:
+    current = _ensure_aware(now or datetime.now(UTC))
+    cache_key = research_metrics_cache_key(provider, symbols)
+    entry = get_cache_entry(output_dir, "research_metrics", cache_key)
+    if force:
+        return CacheDecision(True, "用户强制刷新研究指标缓存。", entry)
+    if entry is None:
+        return CacheDecision(True, "没有可用的研究指标缓存。", None)
+    if not entry.artifact_path.exists():
+        return CacheDecision(True, "研究指标缓存记录存在，但缓存文件缺失。", entry)
+    if entry.status == "no_data":
+        if current < entry.expires_at:
+            return CacheDecision(
+                False,
+                "上一次研究指标拉取没有获得数据，保质期内跳过重试；"
+                "需要立即重试请使用 --force。",
+                entry,
+            )
+        return CacheDecision(True, "无数据研究指标缓存已过期。", entry)
+    if entry.row_count == 0:
+        return CacheDecision(True, "研究指标缓存为空，需要重新刷新。", entry)
+    if current < entry.expires_at:
+        return CacheDecision(False, "研究指标缓存仍在保质期内，跳过刷新。", entry)
+    return CacheDecision(True, "研究指标缓存已过期。", entry)
 
 
 def record_market_cache(
@@ -257,6 +297,44 @@ def record_financials_cache(
         market=markets,
         session_state="ttl",
         is_final_for_session=False,
+        forced=forced,
+    )
+
+
+def record_research_metrics_cache(
+    *,
+    output_dir: Path,
+    provider: str,
+    symbols: list[str],
+    artifact_path: Path,
+    row_count: int,
+    now: datetime | None = None,
+    forced: bool = False,
+) -> CacheEntry:
+    current = _ensure_aware(now or datetime.now(UTC))
+    is_no_data = row_count == 0
+    ttl_seconds = (
+        RESEARCH_METRICS_NO_DATA_TTL_SECONDS
+        if is_no_data
+        else RESEARCH_METRICS_CACHE_TTL_SECONDS
+    )
+    markets = ",".join(
+        sorted({infer_market_from_symbol(symbol) for symbol in symbols})
+    ) or "mixed"
+    return record_cache_entry(
+        output_dir=output_dir,
+        layer="research_metrics",
+        cache_key=research_metrics_cache_key(provider, symbols),
+        provider=provider,
+        artifact_path=artifact_path,
+        created_at=current,
+        expires_at=current + timedelta(seconds=ttl_seconds),
+        ttl_seconds=ttl_seconds,
+        row_count=row_count,
+        market=markets,
+        session_state="ttl",
+        is_final_for_session=False,
+        status="no_data" if is_no_data else "fresh",
         forced=forced,
     )
 

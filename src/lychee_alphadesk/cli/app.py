@@ -48,6 +48,7 @@ from lychee_alphadesk.core.live_data import (
     pull_news_events,
     pull_sec_filings,
     pull_sec_financials,
+    pull_volatility_metrics,
     run_cached_data_health,
     write_fund_metadata_cache,
     write_fund_metadata_cache_from_file,
@@ -1397,6 +1398,34 @@ def data_pull_market(
         console.print(str(error))
         raise typer.Exit(code=1) from error
     _print_pull_result(result_label="行情", count=result.count, result=result)
+
+
+@data_pull_app.command("volatility")
+def data_pull_volatility(
+    symbols: Annotated[
+        str,
+        typer.Option("--symbols", help="用英文逗号分隔证券代码，例如 QQQ。"),
+    ],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略研究指标缓存保质期，强制刷新。"),
+    ] = False,
+) -> None:
+    """拉取官方波动率指标，写入研究指标缓存。"""
+    try:
+        result = pull_volatility_metrics(
+            symbols=parse_symbols(symbols),
+            output_dir=output_dir,
+            force=force,
+        )
+    except (RuntimeError, ValueError) as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    _print_pull_result(result_label="波动率指标", count=result.count, result=result)
 
 
 @data_pull_app.command("news")

@@ -52,6 +52,41 @@ def test_data_pull_filings_help_describes_us_hk_and_cn_sources() -> None:
     assert "AAPL,TSLA,0700.HK,000001.SZ" in result.stdout
 
 
+def test_data_pull_volatility_writes_official_cboe_metrics(
+    monkeypatch, tmp_path: Path
+) -> None:
+    output_path = tmp_path / "data" / "research-metrics.json"
+    calls: list[dict[str, object]] = []
+
+    def fake_pull_volatility_metrics(**kwargs: object) -> PullResult:
+        calls.append(kwargs)
+        return PullResult("research_metric", "cboe", 3, output_path, [])
+
+    monkeypatch.setattr(
+        cli_app,
+        "pull_volatility_metrics",
+        fake_pull_volatility_metrics,
+        raising=False,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "pull",
+            "volatility",
+            "--symbols",
+            "QQQ",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "波动率指标" in result.stdout
+    assert calls == [{"symbols": ["QQQ"], "output_dir": tmp_path, "force": False}]
+
+
 def test_demo_command_reports_available_demo_files() -> None:
     result = runner.invoke(app, ["demo"])
 

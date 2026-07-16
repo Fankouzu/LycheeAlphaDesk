@@ -399,6 +399,7 @@ lychee data pull market --symbols AAPL,TSLA --force
 lychee data pull news
 lychee data pull news --symbols AAPL --provider auto
 lychee data pull news --symbols AAPL --provider auto --force
+lychee data pull volatility --symbols QQQ
 lychee data pull filings --symbols AAPL,TSLA,0700.HK,000001.SZ --limit 3
 lychee data pull financials --symbols AAPL,MSFT
 lychee data set fund --symbol 2800.HK --name 盈富基金 --source-url https://example.com/2800 --tracking-index "Hang Seng Index" --expense-ratio "0.10%"
@@ -414,6 +415,7 @@ lychee
 - 新闻：内置 Marketaux、Finnhub、NewsAPI、GDELT 与已安装新闻插件均可用 `--provider` 指定；不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`auto` 会先考虑能力匹配且配置完整的已启用插件，再按内置 provider 顺序尝试。插件在 `auto` 中失败会脱敏并回退；显式指定插件时则会报告失败，不会静默换源。
 - 公告：美股使用 SEC EDGAR 近期 filings；港股使用无需 API Key 的 HKEXnews 官方公告；A 股股票使用巨潮资讯公告。巨潮路径会先解析官方股票清单，再以代码加机构 ID 查询公告，并把原始 PDF URL、中国本地发布日期、标题、代码和来源标签写入同一审计缓存；它使用公开网站查询，不调用另行授权的数据服务 API。
 - 财务快照：SEC EDGAR XBRL `companyfacts`，当前覆盖美股发行人。快照保留每项指标各自的报告区间、营收、净利润、经营现金流和官方来源 URL；只有同一指标定义、表单、财报期且期间长度可比的上年同期存在时，工作台才显示可审计的同比变化，无法同口径比较时保持为空，不会硬凑百分比。港股/A 股财务 provider 仍会明确显示为待接入，不会伪装成已覆盖。
+- 波动率指标：`data pull volatility --symbols QQQ` 会读取 Cboe 公开的 VXN 历史数据，写入最新收盘、20 个交易日变化和最近 252 个观测值分位，作为 QQQ 的可审计研究指标。VXN 是 Cboe 发布的纳斯达克 100 30 天隐含波动率指数；它只提供风险背景，不构成市场判断、市场广度替代或交易指令。本地指标缓存保质期为 24 小时，`--force` 是显式刷新入口。
 - 基金/ETF 资料：`data set fund` 会把已人工核验且带来源 URL 的跟踪指数、费用率和成分摘要写入 `fund-metadata.json`。工作台会把这些资料放入代理标的支持证据，并只对仍缺失的字段报缺口；系统不会自动编造基金费用或成分。
 
 行情 cache 已接入交易时段感知保质期：美股、港股和 A 股会按常规交易时段判断是否需要刷新。交易中默认 15 分钟保质期；港股/A 股午休、收盘确认后、周末会优先使用缓存；`--force` 会忽略保质期和交易时段策略强制刷新。第一版只内置常规交易时段和周末判断，完整节假日日历后续接入交易日历 provider。

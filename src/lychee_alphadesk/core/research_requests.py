@@ -8,10 +8,13 @@ from pathlib import Path
 from lychee_alphadesk.core.live_data import (
     FundMetadataGuide,
     PullResult,
+    ResearchMetric,
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
     pull_sec_financials,
+    pull_volatility_metrics,
+    read_research_metric_cache,
     write_fund_metadata_guide,
 )
 from lychee_alphadesk.core.research_db import (
@@ -27,6 +30,7 @@ PullMarket = Callable[..., PullResult]
 PullNews = Callable[..., PullResult]
 PullFilings = Callable[..., PullResult]
 PullFinancials = Callable[..., PullResult]
+PullVolatility = Callable[..., PullResult]
 WriteFundGuide = Callable[..., FundMetadataGuide]
 VerifyTask = Callable[..., object]
 
@@ -181,6 +185,7 @@ def fulfill_research_data_request(
     pull_news: PullNews = pull_news_events,
     pull_filings: PullFilings = pull_sec_filings,
     pull_financials: PullFinancials = pull_sec_financials,
+    pull_volatility: PullVolatility = pull_volatility_metrics,
     write_fund_guide: WriteFundGuide = write_fund_metadata_guide,
     verify_task: VerifyTask = verify_research_task,
 ) -> ResearchDataRequestFulfillment:
@@ -221,6 +226,7 @@ def fulfill_research_data_request(
             pull_news=pull_news,
             pull_filings=pull_filings,
             pull_financials=pull_financials,
+            pull_volatility=pull_volatility,
             write_fund_guide=write_fund_guide,
         )
         executions.append(execution)
@@ -233,6 +239,7 @@ def fulfill_research_data_request(
                 "news",
                 "filings",
                 "financials",
+                "volatility",
             }
         ):
             data_changed = True
@@ -590,6 +597,7 @@ def list_provider_backlog_items(
     limit: int = 20,
 ) -> list[ProviderBacklogItem]:
     backlog: list[ProviderBacklogItem] = []
+    research_metrics = read_research_metric_cache(output_dir)
     for request in list_research_data_requests(
         output_dir,
         symbol=symbol,
@@ -600,6 +608,8 @@ def list_provider_backlog_items(
             continue
         gap = _classify_provider_gap(request.request_text)
         if not research_data_request_needs_manual_source(request) and not gap.always_backlog:
+            continue
+        if _provider_gap_is_covered(gap, request, research_metrics):
             continue
         backlog.append(
             ProviderBacklogItem(
@@ -628,6 +638,28 @@ def _is_manual_evidence_request(request: ResearchDataRequest) -> bool:
         action.action_type == "manual_filing"
         for action in request.suggested_actions
     )
+
+
+def _provider_gap_is_covered(
+    gap: "_ProviderGap",
+    request: ResearchDataRequest,
+    research_metrics: list[ResearchMetric],
+) -> bool:
+    if gap.plugin_type != "volatility_metrics" or not request.symbol:
+        return False
+    expected_names = {
+        "cboe vxn 收盘",
+        "cboe vxn 20 交易日变化",
+        "cboe vxn 近一年历史分位",
+    }
+    matched_names = {
+        metric.name.strip().casefold()
+        for metric in research_metrics
+        if metric.symbol.upper() == request.symbol.upper()
+        and metric.domain == "volatility_metrics"
+        and metric.provider == "cboe"
+    }
+    return expected_names.issubset(matched_names)
 
 
 def _memo_task_key(record: ResearchMemoRecord) -> tuple[str, str, str]:
@@ -966,6 +998,7 @@ def _suggest_data_request_actions(
     actions: list[ResearchDataRequestAction] = []
     selector = _research_selector(record)
     lowered = request_text.casefold()
+    is_volatility_request = _looks_like_volatility_request(lowered)
     if _looks_like_manual_filing_content_request(lowered):
         return _manual_filing_actions(record, request_text)
     if _looks_like_fund_metadata_request(lowered) and record.symbol:
@@ -989,14 +1022,21 @@ def _suggest_data_request_actions(
                 ),
             ]
         )
-    if _looks_like_market_request(lowered) and record.symbol:
+    if is_volatility_request and record.symbol:
+        actions.append(
+            ResearchDataRequestAction(
+                "volatility",
+                f"lychee data pull volatility --symbols {record.symbol} --force",
+            )
+        )
+    elif _looks_like_market_request(lowered) and record.symbol:
         actions.append(
             ResearchDataRequestAction(
                 "market",
                 f"lychee data pull market --symbols {record.symbol} --provider auto --force",
             )
         )
-    if _looks_like_news_request(lowered):
+    if _looks_like_news_request(lowered) and not is_volatility_request:
         query = _quote_cli_value(record.display_name)
         if record.symbol:
             actions.append(
@@ -1050,6 +1090,7 @@ def _execute_data_request_action(
     pull_news: PullNews,
     pull_filings: PullFilings,
     pull_financials: PullFinancials,
+    pull_volatility: PullVolatility,
     write_fund_guide: WriteFundGuide,
 ) -> ResearchDataRequestExecution:
     try:
@@ -1121,6 +1162,15 @@ def _execute_data_request_action(
                 force=force,
             )
             return _pull_execution(action, result, "SEC 财务快照已刷新。")
+        if action.action_type == "volatility":
+            if not request.symbol:
+                raise ValueError("波动率指标刷新需要证券代码。")
+            result = pull_volatility(
+                symbols=[request.symbol],
+                output_dir=output_dir,
+                force=force,
+            )
+            return _pull_execution(action, result, "Cboe 波动率指标已刷新。")
     except (RuntimeError, ValueError) as error:
         return ResearchDataRequestExecution(
             action_type=action.action_type,
@@ -1260,6 +1310,20 @@ def _looks_like_market_request(text: str) -> bool:
         "relative strength",
     )
     return any(keyword in text for keyword in keywords)
+
+
+def _looks_like_volatility_request(text: str) -> bool:
+    return _has_any(
+        text,
+        (
+            "波动率",
+            "隐含波动",
+            "vix",
+            "vxn",
+            "volatility",
+            "option implied",
+        ),
+    )
 
 
 def _looks_like_news_request(text: str) -> bool:

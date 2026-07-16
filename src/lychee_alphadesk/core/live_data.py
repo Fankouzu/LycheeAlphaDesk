@@ -1,3 +1,4 @@
+import csv
 import json
 import re
 import urllib.error
@@ -8,15 +9,18 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from html import unescape
 from html.parser import HTMLParser
+from io import StringIO
 from pathlib import Path
 
 from lychee_alphadesk.core.cache_freshness import (
     evaluate_financials_cache,
     evaluate_market_cache,
     evaluate_news_cache,
+    evaluate_research_metrics_cache,
     record_financials_cache,
     record_market_cache,
     record_news_cache,
+    record_research_metrics_cache,
 )
 from lychee_alphadesk.core.config import AlphaDeskConfig, load_config
 from lychee_alphadesk.core.data_engine import DataQualityCheck, DataSnapshot
@@ -57,6 +61,10 @@ CNINFO_STOCK_LIST_ENDPOINT = "https://www.cninfo.com.cn/new/data/szse_stock.json
 CNINFO_ANNOUNCEMENT_ENDPOINT = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
 CNINFO_STATIC_BASE_URL = "https://static.cninfo.com.cn/"
 CNINFO_TIMEZONE = timezone(timedelta(hours=8))
+CBOE_VXN_HISTORY_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXN_History.csv"
+CBOE_VOLATILITY_SYMBOLS: dict[str, tuple[str, str]] = {
+    "QQQ": ("VXN", CBOE_VXN_HISTORY_URL),
+}
 NEWS_ENTITY_QUERIES: dict[str, str] = {
     "0700.HK": "Tencent OR 腾讯",
     "2800.HK": "Hang Seng Index OR 恒生指数 OR 盈富基金",
@@ -358,6 +366,89 @@ def write_research_metric_cache(
         warnings=[],
     )
     return PullResult("research_metric", row.provider, 1, output_path, [])
+
+
+def pull_volatility_metrics(
+    *,
+    symbols: list[str],
+    output_dir: Path,
+    fetch_text: TextFetcher | None = None,
+    force: bool = False,
+    now: datetime | None = None,
+) -> PullResult:
+    normalized_symbols = _normalized_symbols(symbols)
+    supported_symbols = [
+        symbol for symbol in normalized_symbols if symbol in CBOE_VOLATILITY_SYMBOLS
+    ]
+    if not supported_symbols:
+        supported = ", ".join(sorted(CBOE_VOLATILITY_SYMBOLS))
+        raise ValueError(f"当前 Cboe 波动率数据仅支持: {supported}。")
+
+    freshness = evaluate_research_metrics_cache(
+        output_dir=output_dir,
+        provider="cboe",
+        symbols=supported_symbols,
+        now=now,
+        force=force,
+    )
+    if not freshness.should_refresh and freshness.entry is not None:
+        cached_rows = [
+            row
+            for row in _read_cache(output_dir, "research-metrics.json").rows
+            if _cache_row_symbol(row) in set(supported_symbols)
+            and str(row.get("domain") or "").strip() == "volatility_metrics"
+        ]
+        return PullResult(
+            "research_metric",
+            freshness.entry.provider,
+            len(cached_rows),
+            freshness.entry.artifact_path,
+            [freshness.reason],
+            refreshed=False,
+        )
+
+    fetcher = fetch_text or _fetch_text
+    rows: list[ResearchMetric] = []
+    warnings: list[str] = []
+    for symbol in supported_symbols:
+        index_name, source_url = CBOE_VOLATILITY_SYMBOLS[symbol]
+        history = _parse_cboe_volatility_history(
+            _fetch_provider_text(fetcher, source_url, None)
+        )
+        if not history:
+            warnings.append(f"Cboe {index_name} 没有返回可解析的历史收盘数据。")
+            continue
+        rows.extend(
+            _build_cboe_volatility_metrics(
+                symbol=symbol,
+                index_name=index_name,
+                source_url=source_url,
+                history=history,
+            )
+        )
+
+    cache_rows = _merge_research_metric_cache_rows(
+        output_dir,
+        [asdict(row) for row in rows],
+    )
+    output_path = _write_cache(
+        output_dir=output_dir,
+        filename="research-metrics.json",
+        provider="cboe",
+        rows=cache_rows,
+        warnings=warnings,
+        now=now,
+    )
+    record_research_metrics_cache(
+        output_dir=output_dir,
+        provider="cboe",
+        symbols=supported_symbols,
+        artifact_path=output_path,
+        row_count=len(rows),
+        now=now,
+        forced=force,
+    )
+    return PullResult("research_metric", "cboe", len(rows), output_path, warnings)
 
 
 def write_manual_news_event(
@@ -1662,6 +1753,90 @@ def _infer_symbol_market(symbol: str) -> str:
     if normalized.endswith((".SH", ".SZ", ".SS")):
         return "CN"
     return "US"
+
+
+def _normalized_symbols(symbols: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for symbol in symbols:
+        cleaned = symbol.strip().upper()
+        if cleaned and cleaned not in seen:
+            normalized.append(cleaned)
+            seen.add(cleaned)
+    return normalized
+
+
+def _parse_cboe_volatility_history(text: str) -> list[tuple[date, float]]:
+    rows: list[tuple[date, float]] = []
+    reader = csv.DictReader(StringIO(text))
+    for row in reader:
+        try:
+            observed_at = datetime.strptime(str(row.get("DATE") or ""), "%m/%d/%Y").date()
+            close = float(str(row.get("CLOSE") or ""))
+        except ValueError:
+            continue
+        rows.append((observed_at, close))
+    return sorted(rows, key=lambda item: item[0])
+
+
+def _build_cboe_volatility_metrics(
+    *,
+    symbol: str,
+    index_name: str,
+    source_url: str,
+    history: list[tuple[date, float]],
+) -> list[ResearchMetric]:
+    observed_at, latest_close = history[-1]
+    as_of = observed_at.isoformat()
+    note = (
+        f"{index_name} 是 Cboe 发布的纳斯达克 100 30 天隐含波动率指标；"
+        "用于研究风险背景，不代表交易指令。"
+    )
+    rows = [
+        ResearchMetric(
+            symbol=symbol,
+            domain="volatility_metrics",
+            name=f"Cboe {index_name} 收盘",
+            value=f"{latest_close:.2f}",
+            as_of=as_of,
+            source_url=source_url,
+            note=note,
+            provider="cboe",
+        )
+    ]
+    if len(history) >= 21:
+        prior_close = history[-21][1]
+        change = latest_close / prior_close - 1 if prior_close else 0.0
+        rows.append(
+            ResearchMetric(
+                symbol=symbol,
+                domain="volatility_metrics",
+                name=f"Cboe {index_name} 20 交易日变化",
+                value=f"{change:+.2%}",
+                as_of=as_of,
+                source_url=source_url,
+                note="与 20 个可用交易日之前的收盘读数比较。",
+                provider="cboe",
+            )
+        )
+    if len(history) >= 252:
+        trailing_closes = [close for _, close in history[-252:]]
+        percentile = 100 * sum(close <= latest_close for close in trailing_closes) / len(
+            trailing_closes
+        )
+        rows.append(
+            ResearchMetric(
+                symbol=symbol,
+                domain="volatility_metrics",
+                name=f"Cboe {index_name} 近一年历史分位",
+                value=f"{percentile:.1f}%",
+                as_of=as_of,
+                source_url=source_url,
+                note="按最近 252 个可用交易日收盘读数计算。",
+                provider="cboe",
+            )
+        )
+    return rows
 
 
 def _news_provider_candidates(

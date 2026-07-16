@@ -233,7 +233,17 @@ def test_verification_request_stops_repeating_news_after_completed_refresh(
         ),
         "lychee research verify --symbol QQQ",
     ]
-    assert list_provider_backlog_items(tmp_path, symbol="QQQ") == []
+    backlog = list_provider_backlog_items(tmp_path, symbol="QQQ")
+    assert len(backlog) == 1
+    assert backlog[0].data_domain == "可审计主题新闻"
+    assert backlog[0].plugin_type == "entity_news"
+    assert backlog[0].suggested_commands == [
+        (
+            "lychee data set news --symbol QQQ --headline \"已核验标题\" "
+            "--summary \"与研究问题有关的关键事实\" "
+            "--source-url \"https://...\""
+        )
+    ]
 
     result = acknowledge_manual_research_data_request(
         tmp_path,
@@ -244,6 +254,26 @@ def test_verification_request_stops_repeating_news_after_completed_refresh(
     assert result is not None
     assert result.status == "manual_required"
     assert list_research_data_requests(tmp_path, symbol="QQQ") == []
+
+
+def test_verification_request_uses_topic_exhaustion_state_without_retrying_news(
+    tmp_path: Path,
+) -> None:
+    _write_verification_with_hypothesis_requests(
+        tmp_path,
+        ["补齐最高优先级缺口: 缺少可审计新闻证据，需先刷新个股新闻缓存。"],
+        topic_news_exhausted=True,
+    )
+
+    requests = list_research_data_requests(tmp_path, symbol="QQQ")
+
+    assert len(requests) == 1
+    assert "不要重复刷新同一查询" in requests[0].request_text
+    assert [action.action_type for action in requests[0].suggested_actions] == [
+        "manual_source",
+        "verify",
+    ]
+    assert not any(action.action_type == "news" for action in requests[0].suggested_actions)
 
 
 def test_research_data_requests_prefer_latest_memo_over_verification_hypothesis(
@@ -689,6 +719,8 @@ def _write_request_memo(
 def _write_verification_with_hypothesis_requests(
     tmp_path: Path,
     requests: list[str],
+    *,
+    topic_news_exhausted: bool = False,
 ) -> Path:
     research_dir = tmp_path / "research"
     research_dir.mkdir(parents=True, exist_ok=True)
@@ -699,6 +731,7 @@ def _write_verification_with_hypothesis_requests(
             "display_name": "Invesco QQQ Trust",
             "symbol": "QQQ",
             "market": "US",
+            "topic_news_exhausted": topic_news_exhausted,
         },
         "status_label": "需要补证据",
         "hypothesis_panel": {

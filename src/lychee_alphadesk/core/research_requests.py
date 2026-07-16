@@ -625,7 +625,7 @@ def list_provider_backlog_items(
 
 def _is_manual_evidence_request(request: ResearchDataRequest) -> bool:
     return any(
-        action.action_type in {"manual_source", "manual_filing"}
+        action.action_type == "manual_filing"
         for action in request.suggested_actions
     )
 
@@ -669,10 +669,12 @@ def _verification_hypothesis_data_requests(
         if latest_per_task and task_key in seen_tasks:
             continue
         seen_tasks.add(task_key)
-        news_refresh_exhausted = _verification_follows_completed_news_refresh(
-            output_dir,
-            record,
-            path,
+        news_refresh_exhausted = _verification_topic_news_exhausted(payload) or (
+            _verification_follows_completed_news_refresh(
+                output_dir,
+                record,
+                path,
+            )
         )
         for index, request_text in enumerate(
             _verification_hypothesis_request_texts(payload),
@@ -775,6 +777,11 @@ def _verification_hypothesis_request_texts(payload: dict[str, object]) -> list[s
         for item in raw_requests
         if isinstance(item, str) and _is_verification_data_request_text(item.strip())
     ]
+
+
+def _verification_topic_news_exhausted(payload: dict[str, object]) -> bool:
+    candidate = _dict_value(payload.get("candidate"))
+    return candidate.get("topic_news_exhausted") is True
 
 
 def _verification_follows_completed_news_refresh(
@@ -1356,6 +1363,32 @@ def _classify_provider_gap(request_text: str) -> _ProviderGap:
     if _has_any(
         text,
         (
+            "主题新闻已刷新",
+            "可审计主题新闻",
+            "不要重复刷新同一查询",
+        ),
+    ):
+        return _ProviderGap(
+            data_domain="可审计主题新闻",
+            plugin_type="entity_news",
+            coverage_gap=(
+                "当前新闻 provider 已返回行，但过滤后没有能回答研究问题的主题证据；"
+                "不能重复使用同一查询推进研究。"
+            ),
+            suggested_provider_examples=[
+                "发行人 IR 或公司新闻稿来源",
+                "交易所公告或监管披露来源",
+                "可授权、可保留原始链接的公司级财经新闻 API",
+            ],
+            next_step=(
+                "接入可审计的公司/主题新闻 provider，或录入已核验的一手来源后，"
+                "再重新下钻核验。"
+            ),
+            always_backlog=True,
+        )
+    if _has_any(
+        text,
+        (
             "广度",
             "上涨家数",
             "下跌家数",
@@ -1444,6 +1477,14 @@ def _provider_gap_commands(
     gap: _ProviderGap,
 ) -> list[str]:
     symbol = request.symbol or "<SYMBOL>"
+    if gap.plugin_type == "entity_news":
+        return [
+            (
+                f"lychee data set news --symbol {symbol} --headline \"已核验标题\" "
+                "--summary \"与研究问题有关的关键事实\" "
+                "--source-url \"https://...\""
+            )
+        ]
     return [
         (
             f"lychee data set metric --symbol {symbol} "

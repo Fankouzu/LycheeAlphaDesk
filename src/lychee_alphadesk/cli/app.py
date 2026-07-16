@@ -1803,9 +1803,6 @@ def _print_workbench_auto_fill_diagnostics(result: WorkbenchCheckResult) -> None
             action.message,
         )
     console.print(table)
-    for action in actions:
-        for warning in action.warnings:
-            console.print(f"- {_compact_provider_warning(warning)}", soft_wrap=True)
     warning_details = [
         warning for action in actions for warning in action.warnings
     ]
@@ -1814,21 +1811,6 @@ def _print_workbench_auto_fill_diagnostics(result: WorkbenchCheckResult) -> None
         console.print(f"数据源诊断: {diagnostic}", soft_wrap=True)
     _print_provider_setup_recovery(warning_details)
     console.print("未补齐的数据不会进入研究结论；完整诊断已写入自检报告。")
-
-
-def _compact_provider_warning(warning: str) -> str:
-    segments = warning.split("；")
-    return "；".join(_compact_provider_warning_segment(segment) for segment in segments)
-
-
-def _compact_provider_warning_segment(segment: str) -> str:
-    prefix, marker, remainder = segment.partition("无法从 ")
-    if not marker:
-        return segment
-    _, error_marker, error = remainder.partition(" 获取 JSON: ")
-    if not error_marker:
-        return segment
-    return f"{prefix}数据源请求失败: {error}"
 
 
 def _print_research_run(result: ResearchRunResult) -> None:

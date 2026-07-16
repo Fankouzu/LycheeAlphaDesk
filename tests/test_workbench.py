@@ -406,7 +406,10 @@ def test_workbench_check_marks_blocked_when_research_gaps_remain(
 
     assert result.status == "blocked"
     assert result.is_ready is False
-    assert any(gate.status == "fail" and gate.name == "数据缺口" for gate in result.gates)
+    data_gap_gate = next(gate for gate in result.gates if gate.name == "数据缺口")
+    assert data_gap_gate.status == "fail"
+    assert data_gap_gate.detail == "1 个任务仍缺少数据；请查看下方阻塞任务的处理动作。"
+    assert "缺少 STX" not in data_gap_gate.detail
     assert "阻塞任务" in result.beginner_brief
     assert result.candidates[0].data_gaps == ["缺少 STX SEC 公告缓存。"]
     assert "缺口: 缺少 STX SEC 公告缓存" not in result.beginner_brief

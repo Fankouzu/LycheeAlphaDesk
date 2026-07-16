@@ -4014,11 +4014,13 @@ def _workbench_gates(
 
     blocked = [candidate for candidate in candidates if candidate.data_gaps]
     if blocked:
-        detail = "；".join(
-            f"{candidate.display_name}: {', '.join(candidate.data_gaps)}"
-            for candidate in blocked
+        gates.append(
+            WorkbenchGate(
+                "数据缺口",
+                "fail",
+                f"{len(blocked)} 个任务仍缺少数据；请查看下方阻塞任务的处理动作。",
+            )
         )
-        gates.append(WorkbenchGate("数据缺口", "fail", detail))
     else:
         gates.append(WorkbenchGate("数据缺口", "pass", "当前深挖包没有未补齐缺口。"))
     return gates

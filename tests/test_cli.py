@@ -3365,7 +3365,8 @@ def test_research_check_command_strict_fails_when_blocked(
     assert "缺口: 缺少 STX SEC 公告缓存" not in result.stdout
     assert "自动补齐诊断" in result.stdout
     assert "SEC 公告" in result.stdout
-    assert "SEC blocked" in result.stdout
+    assert "SEC blocked" not in result.stdout
+    assert "完整诊断已写入自检报告" in result.stdout
     artifacts = list((tmp_path / "research").glob("workbench-check-*.json"))
     assert artifacts
     payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
@@ -3375,6 +3376,7 @@ def test_research_check_command_strict_fails_when_blocked(
         for action in payload["auto_fill"]["actions"]
         if action["action_type"] == "sec_filings"
     )
+    assert filings_action["warnings"] == ["SEC blocked"]
     assert filings_action == {
         "action_type": "sec_filings",
         "status": "failed",

@@ -934,15 +934,16 @@ def build_research_verification_checks(
             detail=_evidence_direction_detail(news_count, topic_relevance),
         )
     )
-    filings_required = candidate.market.upper() == "US" and asset_type == "stock"
+    filings_required = candidate.market.upper() in {"US", "HK"} and asset_type == "stock"
     if filings_required:
+        filing_source = "SEC 公告/财报" if candidate.market.upper() == "US" else "HKEX 公司公告"
         checks.append(
             ResearchVerificationCheck(
                 name="公告/财报核验",
                 status="pass" if filings else "fail",
-                detail=f"可核验公告/财报 {len(filings)} 条。"
+                detail=f"可核验 {filing_source} {len(filings)} 条。"
                 if filings
-                else "美股股票缺少 SEC 公告/财报线索。",
+                else f"{candidate.market.upper()} 股票缺少 {filing_source}线索。",
             )
         )
     else:
@@ -953,7 +954,7 @@ def build_research_verification_checks(
                 detail="当前任务不要求 SEC 公告/财报核验。",
             )
         )
-    if filings_required:
+    if candidate.market.upper() == "US" and asset_type == "stock":
         checks.append(
             ResearchVerificationCheck(
                 name="财务快照核验",
@@ -2968,7 +2969,7 @@ def build_research_assessment(
             next_decision="先补代理成分/费用资料，再结合下钻核验里的可交易性和成交量决定是否继续。",
         )
     has_news = bool(evidence or related_news)
-    filings_required = candidate.market.upper() == "US" and asset_type == "stock"
+    filings_required = candidate.market.upper() in {"US", "HK"} and asset_type == "stock"
     filings_ready = not filings_required or bool(filings)
     if price and has_news and filings_ready:
         return ResearchAssessment(
@@ -3026,7 +3027,7 @@ def research_detail_actions(
     if _needs_topic_news_refresh(candidate) and topic_news_query(candidate, packet):
         actions.append(("refresh_topic_news", "刷新主题新闻"))
     if research_filing_symbols(candidate, packet):
-        actions.append(("refresh_filings", "刷新美股公告/财报"))
+        actions.append(("refresh_filings", "刷新公司公告"))
     actions.append(("verify_research", "下钻核验"))
     actions.append(("generate_memo", "生成研究备忘录"))
     actions.append(("back_tasks", "返回研究任务列表"))
@@ -3061,13 +3062,14 @@ def research_action_commands(
     filing_symbols = research_filing_symbols(candidate, packet)
     if filing_symbols:
         commands.append(
-            f"刷新美股公告/财报: lychee data pull filings --symbols "
+            f"刷新公司公告: lychee data pull filings --symbols "
             f"{','.join(filing_symbols)}"
         )
-        commands.append(
-            f"刷新财务快照: lychee data pull financials --symbols "
-            f"{','.join(filing_symbols)}"
-        )
+        if candidate.market.upper() == "US":
+            commands.append(
+                f"刷新财务快照: lychee data pull financials --symbols "
+                f"{','.join(filing_symbols)}"
+            )
     if candidate.symbol:
         commands.append(
             f"下钻核验: lychee research verify --symbol {candidate.symbol}{limit_arg}"
@@ -3191,7 +3193,7 @@ def research_filing_symbols(
     candidate: CandidateCheck,
     packet: ResearchPacket | None,
 ) -> list[str]:
-    if candidate.market.upper() != "US" or not candidate.symbol:
+    if candidate.market.upper() not in {"US", "HK"} or not candidate.symbol:
         return []
     if _asset_type(packet) != "stock":
         return []
@@ -3205,7 +3207,7 @@ def research_action_name(action: str) -> str:
         "refresh_news": "刷新新闻",
         "fund_metadata_guide": "补基金资料向导",
         "refresh_topic_news": "刷新主题新闻",
-        "refresh_filings": "刷新美股公告/财报",
+        "refresh_filings": "刷新公司公告",
         "verify_research": "下钻核验",
         "generate_memo": "生成研究备忘录",
     }.get(action, action)

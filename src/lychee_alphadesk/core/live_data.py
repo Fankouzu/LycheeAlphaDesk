@@ -6,6 +6,7 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
+from html.parser import HTMLParser
 from pathlib import Path
 
 from lychee_alphadesk.core.cache_freshness import (
@@ -26,6 +27,7 @@ from lychee_alphadesk.providers.demo import (
 
 JsonFetcher = Callable[[str, dict[str, str] | None], object]
 JsonPoster = Callable[[str, dict[str, str] | None, dict[str, object]], object]
+TextFetcher = Callable[[str, dict[str, str] | None], str]
 
 SEC_USER_AGENT = (
     "LycheeAlphaDesk/0.1 support@lychee.ai"
@@ -36,6 +38,11 @@ MARKET_NEWS_QUERY = (
     "OR US stocks OR Hong Kong stocks OR China stocks"
 )
 GDELT_DOC_ENDPOINT = "https://api.gdeltproject.org/api/v2/doc/doc"
+HKEX_ACTIVE_STOCKS_ENDPOINT = (
+    "https://www1.hkexnews.hk/ncms/script/eds/activestock_sehk_e.json"
+)
+HKEX_TITLE_SEARCH_ENDPOINT = "https://www1.hkexnews.hk/search/titlesearch.xhtml"
+HKEX_NEWS_BASE_URL = "https://www1.hkexnews.hk"
 NEWS_ENTITY_QUERIES: dict[str, str] = {
     "0700.HK": "Tencent OR 腾讯",
     "2800.HK": "Hang Seng Index OR 恒生指数 OR 盈富基金",
@@ -768,60 +775,110 @@ def pull_sec_filings(
     symbols: list[str],
     output_dir: Path,
     fetch_json: JsonFetcher | None = None,
+    fetch_text: TextFetcher | None = None,
     limit_per_symbol: int = 5,
 ) -> PullResult:
     headers = {"User-Agent": SEC_USER_AGENT, "Accept": "application/json"}
     fetcher = fetch_json or _fetch_json
+    text_fetcher = fetch_text or _fetch_text
     rows: list[FilingSummary] = []
     warnings: list[str] = []
-    try:
-        tickers_payload = _fetch_provider_json(
-            fetcher,
-            "https://www.sec.gov/files/company_tickers.json",
-            headers,
-        )
-        cik_by_symbol, company_by_symbol = _parse_sec_company_tickers(tickers_payload)
-    except RuntimeError:
-        cik_by_symbol, company_by_symbol = _common_sec_company_maps()
-        warnings.append("SEC 代码映射拉取失败，已使用内置 CIK 备用映射")
+    normalized_symbols = [symbol.strip().upper() for symbol in symbols if symbol.strip()]
+    hk_symbols = [symbol for symbol in normalized_symbols if symbol.endswith(".HK")]
+    sec_symbols = [symbol for symbol in normalized_symbols if not symbol.endswith(".HK")]
+    providers: list[str] = []
 
-    _merge_common_sec_companies(cik_by_symbol, company_by_symbol)
-
-    for symbol in symbols:
-        normalized_symbol = symbol.upper()
-        cik = cik_by_symbol.get(normalized_symbol)
-        company = company_by_symbol.get(normalized_symbol, normalized_symbol)
-        if cik is None:
-            warnings.append(f"未找到 {symbol} 的 SEC CIK")
-            continue
+    if sec_symbols:
+        providers.append("sec_edgar")
         try:
-            payload = _fetch_provider_json(
+            tickers_payload = _fetch_provider_json(
                 fetcher,
-                f"https://data.sec.gov/submissions/CIK{cik:010d}.json",
+                "https://www.sec.gov/files/company_tickers.json",
+                headers,
+            )
+            cik_by_symbol, company_by_symbol = _parse_sec_company_tickers(tickers_payload)
+        except RuntimeError:
+            cik_by_symbol, company_by_symbol = _common_sec_company_maps()
+            warnings.append("SEC 代码映射拉取失败，已使用内置 CIK 备用映射")
+
+        _merge_common_sec_companies(cik_by_symbol, company_by_symbol)
+        for symbol in sec_symbols:
+            cik = cik_by_symbol.get(symbol)
+            company = company_by_symbol.get(symbol, symbol)
+            if cik is None:
+                warnings.append(f"未找到 {symbol} 的 SEC CIK")
+                continue
+            try:
+                payload = _fetch_provider_json(
+                    fetcher,
+                    f"https://data.sec.gov/submissions/CIK{cik:010d}.json",
+                    headers,
+                )
+            except RuntimeError as error:
+                warnings.append(f"{symbol} SEC 提交记录拉取失败: {error}")
+                continue
+            rows.extend(
+                _parse_sec_recent_filings(
+                    cik=cik,
+                    symbol=symbol,
+                    company=company,
+                    payload=payload,
+                    limit=limit_per_symbol,
+                )
+            )
+
+    if hk_symbols:
+        providers.append("hkexnews")
+        try:
+            stock_payload = _fetch_provider_json(
+                fetcher,
+                HKEX_ACTIVE_STOCKS_ENDPOINT,
                 headers,
             )
         except RuntimeError as error:
-            warnings.append(f"{normalized_symbol} SEC 提交记录拉取失败: {error}")
-            continue
-        rows.extend(
-            _parse_sec_recent_filings(
-                cik=cik,
-                symbol=normalized_symbol,
-                company=company,
-                payload=payload,
-                limit=limit_per_symbol,
-            )
-        )
+            warnings.append(f"HKEX 上市证券清单拉取失败: {error}")
+        else:
+            stock_ids = _parse_hkex_active_stock_ids(stock_payload)
+            for symbol in hk_symbols:
+                stock_id = stock_ids.get(_hkex_stock_code(symbol))
+                if stock_id is None:
+                    warnings.append(f"未在 HKEX 上市证券清单中找到 {symbol}")
+                    continue
+                query = urllib.parse.urlencode(
+                    {
+                        "category": "0",
+                        "lang": "EN",
+                        "market": "SEHK",
+                        "stockId": stock_id,
+                    }
+                )
+                try:
+                    html = _fetch_provider_text(
+                        text_fetcher,
+                        f"{HKEX_TITLE_SEARCH_ENDPOINT}?{query}",
+                        {"User-Agent": SEC_USER_AGENT, "Accept": "text/html"},
+                    )
+                except RuntimeError as error:
+                    warnings.append(f"{symbol} HKEX 公告拉取失败: {error}")
+                    continue
+                rows.extend(
+                    _parse_hkex_recent_filings(
+                        symbol=symbol,
+                        html=html,
+                        limit=limit_per_symbol,
+                    )
+                )
 
     cache_rows = _merge_filing_cache_rows(output_dir, [asdict(row) for row in rows])
+    provider = "+".join(providers) or "sec_edgar"
     output_path = _write_cache(
         output_dir=output_dir,
         filename="filings.json",
-        provider="sec_edgar",
+        provider=provider,
         rows=cache_rows,
         warnings=warnings,
     )
-    return PullResult("filings", "sec_edgar", len(rows), output_path, warnings)
+    return PullResult("filings", provider, len(rows), output_path, warnings)
 
 
 def pull_sec_financials(
@@ -1010,6 +1067,18 @@ def _fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
         raise RuntimeError(f"无法从 {_sanitize_url(url)} 获取 JSON: {error}") from error
 
 
+def _fetch_text(url: str, headers: dict[str, str] | None = None) -> str:
+    request = urllib.request.Request(url, headers=headers or {})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            body = response.read()
+            if not isinstance(body, bytes):
+                raise RuntimeError("响应正文不是文本字节流")
+            return body.decode("utf-8")
+    except (OSError, urllib.error.URLError) as error:
+        raise RuntimeError(f"无法从 {_sanitize_url(url)} 获取文本: {error}") from error
+
+
 def _post_json(
     url: str,
     headers: dict[str, str] | None,
@@ -1035,6 +1104,17 @@ def _fetch_provider_json(
 ) -> object:
     try:
         return fetch_json(url, headers)
+    except RuntimeError as error:
+        raise RuntimeError(_sanitize_error_message(str(error))) from error
+
+
+def _fetch_provider_text(
+    fetch_text: TextFetcher,
+    url: str,
+    headers: dict[str, str] | None,
+) -> str:
+    try:
+        return fetch_text(url, headers)
     except RuntimeError as error:
         raise RuntimeError(_sanitize_error_message(str(error))) from error
 
@@ -1842,6 +1922,148 @@ def _parse_sec_recent_filings(
             )
         )
     return rows
+
+
+def _parse_hkex_active_stock_ids(payload: object) -> dict[str, str]:
+    if not isinstance(payload, list):
+        return {}
+    stock_ids: dict[str, str] = {}
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("c") or "").strip().upper()
+        stock_id = str(row.get("i") or "").strip()
+        if code and stock_id:
+            stock_ids[code] = stock_id
+    return stock_ids
+
+
+def _hkex_stock_code(symbol: str) -> str:
+    return symbol.upper().split(".", maxsplit=1)[0].zfill(5)
+
+
+def _parse_hkex_recent_filings(
+    *,
+    symbol: str,
+    html: str,
+    limit: int,
+) -> list[FilingSummary]:
+    parser = _HKEXTitleSearchParser()
+    parser.feed(html)
+    parser.close()
+    rows: list[FilingSummary] = []
+    for announcement in parser.rows[:limit]:
+        filing_date = _hkex_release_date(announcement.release_time)
+        if not filing_date:
+            continue
+        rows.append(
+            FilingSummary(
+                date=filing_date,
+                company=announcement.company or symbol,
+                form="HKEX 公告",
+                summary=f"HKEXnews 公告: {announcement.headline}",
+                source_url=urllib.parse.urljoin(
+                    HKEX_NEWS_BASE_URL,
+                    announcement.source_path,
+                ),
+                symbol=symbol,
+            )
+        )
+    return rows
+
+
+def _hkex_release_date(value: str) -> str:
+    cleaned = value.replace("Release Time:", "").strip()
+    try:
+        return datetime.strptime(cleaned, "%d/%m/%Y %H:%M").date().isoformat()
+    except ValueError:
+        return ""
+
+
+@dataclass(frozen=True)
+class _HKEXTitleSearchAnnouncement:
+    release_time: str
+    company: str
+    headline: str
+    source_path: str
+
+
+class _HKEXTitleSearchParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[_HKEXTitleSearchAnnouncement] = []
+        self._row: dict[str, str] | None = None
+        self._capture: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        if tag == "tr":
+            self._row = {
+                "release_time": "",
+                "company": "",
+                "headline": "",
+                "source_path": "",
+            }
+            self._capture = None
+            return
+        if self._row is None:
+            return
+        class_names = set((attributes.get("class") or "").split())
+        if tag == "td":
+            if "release-time" in class_names:
+                self._capture = "release_time"
+            elif "stock-short-name" in class_names:
+                self._capture = "company"
+            return
+        if tag == "div" and "headline" in class_names:
+            self._capture = "headline"
+            return
+        if tag == "a" and attributes.get("href"):
+            self._row["source_path"] = attributes["href"] or ""
+            return
+        if tag == "br" and self._capture:
+            self._row[self._capture] += "\n"
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._row is None:
+            return
+        if tag in {"td", "div"}:
+            self._capture = None
+            return
+        if tag != "tr":
+            return
+        release_time = _compact_hkex_text(self._row["release_time"])
+        company = _hkex_company_name(self._row["company"])
+        headline = _compact_hkex_text(self._row["headline"])
+        source_path = self._row["source_path"].strip()
+        if release_time and headline and source_path:
+            self.rows.append(
+                _HKEXTitleSearchAnnouncement(
+                    release_time=release_time,
+                    company=company,
+                    headline=headline,
+                    source_path=source_path,
+                )
+            )
+        self._row = None
+        self._capture = None
+
+    def handle_data(self, data: str) -> None:
+        if self._row is not None and self._capture:
+            self._row[self._capture] += data
+
+
+def _compact_hkex_text(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _hkex_company_name(value: str) -> str:
+    cleaned = value.replace("Stock Short Name:", "").strip()
+    for line in cleaned.splitlines():
+        compact = _compact_hkex_text(line)
+        if compact:
+            return compact
+    return _compact_hkex_text(cleaned)
 
 
 def _parse_sec_financial_snapshot(

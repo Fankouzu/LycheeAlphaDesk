@@ -1471,7 +1471,8 @@ def test_dashboard_research_task_selection_opens_research_result_workbench(
             assert "行情: QQQ 530.26 USD" in text
             assert "相关新闻" in text
             assert "Nasdaq outperforms S&P 500" in text
-            assert "数据缺口: 无" in text
+            assert "数据完整性: 无" in text
+            assert "研究缺口: 无" in text
             assert "下一步动作:" in text
             assert "对比 QQQ 与 SPY。" in text
             action_menu = app.query_one("#research-detail-action-menu", OptionList)

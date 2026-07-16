@@ -1474,18 +1474,21 @@ def data_pull_financials(
 def data_pull_filings(
     symbols: Annotated[
         str,
-        typer.Option("--symbols", help="用英文逗号分隔美股代码，例如 AAPL,TSLA。"),
+        typer.Option(
+            "--symbols",
+            help="用英文逗号分隔代码，例如 AAPL,TSLA,0700.HK。",
+        ),
     ],
     limit: Annotated[
         int,
-        typer.Option("--limit", help="每个代码最多拉取的近期 SEC 公告数量。"),
+        typer.Option("--limit", help="每个代码最多拉取的近期公司公告数量。"),
     ] = 5,
     output_dir: Annotated[
         Path,
         typer.Option("--output-dir", help="实时缓存输出目录。"),
     ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
-    """拉取近期 SEC EDGAR 公告到本地缓存。"""
+    """拉取近期公司公告：美股使用 SEC EDGAR，港股使用 HKEXnews。"""
     try:
         result = pull_sec_filings(
             symbols=parse_symbols(symbols),
@@ -2817,7 +2820,7 @@ def _display_research_action_type(action_type: str) -> str:
         "refresh_market": "刷新行情",
         "refresh_news": "刷新新闻",
         "refresh_topic_news": "刷新主题新闻",
-        "refresh_filings": "刷新美股公告/财报",
+        "refresh_filings": "刷新公司公告",
         "none": "无自动动作",
     }.get(action_type, action_type)
 
@@ -2837,7 +2840,7 @@ def _display_data_request_action(action_type: str) -> str:
         "fund_metadata_import": "基金资料导入",
         "market": "行情",
         "news": "新闻",
-        "filings": "SEC 公告",
+        "filings": "公司公告",
         "verify": "下钻核验",
     }.get(action_type, action_type)
 
@@ -2872,7 +2875,7 @@ def _display_gap_action_type(action_type: str) -> str:
     return {
         "market_prices": "行情",
         "news_events": "新闻",
-        "sec_filings": "SEC 公告",
+        "sec_filings": "公司公告",
         "symbol_mapping": "代码映射",
     }.get(action_type, action_type)
 

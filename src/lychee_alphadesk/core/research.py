@@ -398,7 +398,7 @@ def _symbols_missing_filings(
         symbol = _normalized_symbol(item)
         if (
             symbol
-            and item.market == "US"
+            and item.market in {"US", "HK"}
             and item.asset_type.lower() == "stock"
             and (force or not _related_filings(symbol, item.display_name, filings))
         ):
@@ -546,7 +546,7 @@ def _pull_filings_gap_action(
             count=0,
             output_path=None,
             warnings=[],
-            message="SEC 公告缓存没有需要自动补齐的美股股票。",
+            message="公司公告缓存没有需要自动补齐的美股或港股股票。",
         )
     try:
         result = pull_filings(symbols=symbols, output_dir=output_dir)
@@ -558,7 +558,7 @@ def _pull_filings_gap_action(
             count=0,
             output_path=None,
             warnings=[str(error)],
-            message="SEC 公告补齐失败。",
+            message="公司公告补齐失败。",
         )
     return ResearchGapFillAction(
         action_type="sec_filings",
@@ -570,9 +570,9 @@ def _pull_filings_gap_action(
         message=_gap_pull_message(
             result,
             requested_count=len(symbols),
-            success_message="SEC 公告缓存已补齐。",
-            partial_message="SEC 公告缓存已部分补齐。",
-            failed_message="SEC 公告补齐未完成。",
+            success_message="公司公告缓存已补齐。",
+            partial_message="公司公告缓存已部分补齐。",
+            failed_message="公司公告补齐未完成。",
         ),
     )
 
@@ -1193,8 +1193,11 @@ def _data_gaps(
         gaps.append("缺少可审计新闻证据，需先刷新市场级或个股新闻缓存。")
     if symbol and price is None:
         gaps.append(f"缺少 {symbol} 本地行情缓存。")
-    if symbol and item.market == "US" and item.asset_type == "stock" and not related_filings:
-        gaps.append(f"缺少 {symbol} SEC 公告缓存。")
+    if symbol and item.asset_type == "stock" and not related_filings:
+        if item.market == "US":
+            gaps.append(f"缺少 {symbol} SEC 公告缓存。")
+        elif item.market == "HK":
+            gaps.append(f"缺少 {symbol} HKEX 公司公告缓存。")
     return gaps
 
 

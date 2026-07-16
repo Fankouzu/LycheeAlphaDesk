@@ -1006,7 +1006,11 @@ def _suggest_data_request_actions(
                     f"lychee data pull news --query {query} --force",
                 )
             )
-    if _looks_like_filing_request(lowered) and record.symbol and record.market.upper() == "US":
+    if (
+        _looks_like_filing_request(lowered)
+        and record.symbol
+        and record.market.upper() in {"US", "HK"}
+    ):
         actions.append(
             ResearchDataRequestAction(
                 "filings",
@@ -1100,7 +1104,7 @@ def _execute_data_request_action(
             if not request.symbol:
                 raise ValueError("公告刷新需要证券代码。")
             result = pull_filings(symbols=[request.symbol], output_dir=output_dir)
-            return _pull_execution(action, result, "SEC 公告已刷新。")
+            return _pull_execution(action, result, "公司公告已刷新。")
         if action.action_type == "financials":
             if not request.symbol:
                 raise ValueError("财务快照刷新需要证券代码。")

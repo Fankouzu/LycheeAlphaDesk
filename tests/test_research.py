@@ -358,6 +358,70 @@ def test_deepen_research_queue_rejects_unscoped_hk_news_without_market_literal(
     ].packet["data_gaps"]
 
 
+def test_deepen_research_queue_requires_hkex_filings_for_hk_stocks(
+    tmp_path: Path,
+) -> None:
+    _write_hk_tencent_seed(tmp_path)
+    (tmp_path / "data").mkdir()
+    _write_market_cache(tmp_path, ["0700.HK"])
+
+    result = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    assert "缺少 0700.HK HKEX 公司公告缓存。" in result.packets[0].packet["data_gaps"]
+
+
+def test_fill_research_data_gaps_pulls_hkex_announcements_for_hk_stocks(
+    tmp_path: Path,
+) -> None:
+    _write_hk_tencent_seed(tmp_path)
+    (tmp_path / "data").mkdir()
+    _write_market_cache(tmp_path, ["0700.HK"])
+
+    def pull_filings(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == ["0700.HK"]
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        output_path = output_dir / "data" / "filings.json"
+        output_path.write_text(
+            json.dumps(
+                {
+                    "provider": "hkexnews",
+                    "rows": [
+                        {
+                            "date": "2026-07-05",
+                            "company": "TENCENT",
+                            "form": "HKEX 公告",
+                            "summary": "HKEXnews 公告: Quarterly Results",
+                            "source_url": "https://example.com/tencent-results",
+                            "symbol": "0700.HK",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("filings", "hkexnews", 1, output_path, [])
+
+    result = fill_research_data_gaps(
+        output_dir=tmp_path,
+        fill_news=False,
+        pull_filings=pull_filings,
+    )
+    after = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    assert result.filing_symbols == ["0700.HK"]
+    assert "缺少 0700.HK HKEX 公司公告缓存。" not in after.packets[0].packet[
+        "data_gaps"
+    ]
+
+
 def test_fill_research_data_gaps_pulls_proxy_mapping_prices_without_mutating_candidate(
     tmp_path: Path,
 ) -> None:
@@ -578,7 +642,7 @@ def test_fill_research_data_gaps_marks_empty_warning_pull_as_failed(
         action for action in result.actions if action.action_type == "sec_filings"
     )
     assert filing_action.status == "failed"
-    assert filing_action.message == "SEC 公告补齐未完成。"
+    assert filing_action.message == "公司公告补齐未完成。"
 
 
 def test_fill_research_data_gaps_reports_cached_empty_market_as_no_data(

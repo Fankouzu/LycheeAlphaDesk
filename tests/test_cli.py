@@ -44,6 +44,14 @@ from lychee_alphadesk.core.research_requests import (
 runner = CliRunner()
 
 
+def test_data_pull_filings_help_describes_us_and_hk_sources() -> None:
+    result = runner.invoke(app, ["data", "pull", "filings", "--help"])
+
+    assert result.exit_code == 0
+    assert "美股使用 SEC EDGAR，港股使用 HKEXnews" in result.stdout
+    assert "AAPL,TSLA,0700.HK" in result.stdout
+
+
 def test_demo_command_reports_available_demo_files() -> None:
     result = runner.invoke(app, ["demo"])
 
@@ -970,7 +978,7 @@ def test_research_run_command_executes_refresh_chain_and_writes_artifact(
     assert "研究执行记录已写入" in result.stdout
     assert "刷新行情" in result.stdout
     assert "刷新新闻" in result.stdout
-    assert "刷新美股公告/财报" in result.stdout
+    assert "刷新公司公告" in result.stdout
     assert "STX 120.00 USD" in result.stdout
     assert "研究状态" in result.stdout
     assert "阶段: 可下钻研究" in result.stdout
@@ -3502,7 +3510,7 @@ def test_research_check_command_strict_fails_when_blocked(
     assert "当前状态: 数据尚未齐备，暂不进入下钻研究。" in result.stdout
     assert "缺口: 缺少 STX SEC 公告缓存" not in result.stdout
     assert "自动补齐诊断" in result.stdout
-    assert "SEC 公告" in result.stdout
+    assert "公司公告" in result.stdout
     assert "SEC blocked" not in result.stdout
     assert "完整诊断已写入自检报告" in result.stdout
     artifacts = list((tmp_path / "research").glob("workbench-check-*.json"))
@@ -3522,7 +3530,7 @@ def test_research_check_command_strict_fails_when_blocked(
         "count": 0,
         "output_path": str(tmp_path / "data" / "filings.json"),
         "warnings": ["SEC blocked"],
-        "message": "SEC 公告补齐未完成。",
+        "message": "公司公告补齐未完成。",
     }
 
 

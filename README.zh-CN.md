@@ -269,7 +269,7 @@ lychee research deepen
 lychee research fill-gaps
 ```
 
-`research fill-gaps` 会读取研究队列和本地缓存，自动拉取缺失的行情、ticker 关联新闻，以及美股股票缺失的 SEC 公告，然后重新生成研究深挖包。新闻只有在命中当前研究主题时才算补齐；离题行仍保留供审计，但会标为部分完成并列出未解决代码。行情补齐默认使用 `auto`：美股优先走 Alpha Vantage；已配置 Tushare 后，A 股股票、中国 ETF 风格代码和港股优先走对应的 Tushare 日线接口，再回退到 Eastmoney 与 Yahoo chart。没有证券代码的候选不会被系统乱猜；第一版会生成带原因、置信度和证据 ID 的可审计代理标的映射，并拉取代理标的行情，但仍要求用户在下钻前人工确认成分、流动性和可交易性。
+`research fill-gaps` 会读取研究队列和本地缓存，自动拉取缺失的行情、ticker 关联新闻和官方公司公告：美股股票走 SEC EDGAR，港股股票走 HKEXnews，然后重新生成研究深挖包。新闻只有在命中当前研究主题时才算补齐；离题行仍保留供审计，但会标为部分完成并列出未解决代码。行情补齐默认使用 `auto`：美股优先走 Alpha Vantage；已配置 Tushare 后，A 股股票、中国 ETF 风格代码和港股优先走对应的 Tushare 日线接口，再回退到 Eastmoney 与 Yahoo chart。没有证券代码的候选不会被系统乱猜；第一版会生成带原因、置信度和证据 ID 的可审计代理标的映射，并拉取代理标的行情，但仍要求用户在下钻前人工确认成分、流动性和可交易性。
 
 自动运行补缺、深挖和工作台自检：
 
@@ -300,7 +300,7 @@ lychee research run
 lychee research run --symbol QQQ --force
 ```
 
-`research run` 会选择一条研究任务，刷新该任务相关的行情、新闻和适用的美股公告，然后重新运行工作台自检并输出更新后的 `研究任务面板`。已有的 SEC 财务快照会进入同一证据板；缺失时任务面板会给出 `data pull financials` 的精确补齐命令。如果任务当前只有反向、待判定或离题新闻，执行链会额外用研究主题生成 `--query`，再拉取一轮主题新闻，帮助系统从“证据不相关”推进到“尝试补强证据”。每次执行会写入 `.alphadesk/research/research-run-*.json`，用于审计 agent 到底刷新了什么、返回多少数据、哪些动作失败或使用缓存；审计记录也会保存结构化 `assessment`，包括阶段、一致性核验状态、证据读数和下一步判断。
+`research run` 会选择一条研究任务，刷新该任务相关的行情、新闻和适用的公司公告：美股股票走 SEC EDGAR，港股股票走 HKEXnews，然后重新运行工作台自检并输出更新后的 `研究任务面板`。已有的 SEC 财务快照会进入同一证据板；缺失时任务面板会给出 `data pull financials` 的精确补齐命令。港股公告会作为官方文件通过核验，港股财务快照仍明确显示为未接入。如果任务当前只有反向、待判定或离题新闻，执行链会额外用研究主题生成 `--query`，再拉取一轮主题新闻，帮助系统从“证据不相关”推进到“尝试补强证据”。每次执行会写入 `.alphadesk/research/research-run-*.json`，用于审计 agent 到底刷新了什么、返回多少数据、哪些动作失败或使用缓存；审计记录也会保存结构化 `assessment`，包括阶段、一致性核验状态、证据读数和下一步判断。
 
 也可以手动按主题补新闻：
 
@@ -388,7 +388,7 @@ lychee data pull market --symbols AAPL,TSLA --force
 lychee data pull news
 lychee data pull news --symbols AAPL --provider auto
 lychee data pull news --symbols AAPL --provider auto --force
-lychee data pull filings --symbols AAPL,TSLA --limit 3
+lychee data pull filings --symbols AAPL,TSLA,0700.HK --limit 3
 lychee data pull financials --symbols AAPL,MSFT
 lychee data set fund --symbol 2800.HK --name 盈富基金 --source-url https://example.com/2800 --tracking-index "Hang Seng Index" --expense-ratio "0.10%"
 lychee data freshness
@@ -401,7 +401,7 @@ lychee
 
 - 行情：Alpha Vantage 日线行情；配置 token 后，Tushare 会把 A 股股票、中国 ETF 风格代码和港股路由到对应日线接口，再由 Eastmoney 与 Yahoo chart 回退。Tushare 的接口权限错误会明确显示为权限缺口，不会误报为 API key 错误。
 - 新闻：Marketaux、Finnhub 或 NewsAPI，可用 `--provider` 指定；不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`auto` 会按请求类型使用第一个已配置且适用的 provider。
-- 公告：SEC EDGAR 美股近期 filings。
+- 公告：美股使用 SEC EDGAR 近期 filings；港股使用无需 API Key 的 HKEXnews 官方公告。HKEXnews 会先解析官方活跃证券清单，再把公告原文 URL、日期、标题、代码和来源标签写入同一审计缓存。
 - 财务快照：SEC EDGAR XBRL `companyfacts`，当前覆盖美股发行人。快照保留每项指标各自的报告区间、营收、净利润、经营现金流和官方来源 URL；只有同一指标定义、表单、财报期且期间长度可比的上年同期存在时，工作台才显示可审计的同比变化，无法同口径比较时保持为空，不会硬凑百分比。港股/A 股财务 provider 仍会明确显示为待接入，不会伪装成已覆盖。
 - 基金/ETF 资料：`data set fund` 会把已人工核验且带来源 URL 的跟踪指数、费用率和成分摘要写入 `fund-metadata.json`。工作台会把这些资料放入代理标的支持证据，并只对仍缺失的字段报缺口；系统不会自动编造基金费用或成分。
 

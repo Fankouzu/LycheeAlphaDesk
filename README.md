@@ -271,7 +271,7 @@ Automatically fill data that can be pulled from research gaps:
 lychee research fill-gaps
 ```
 
-`research fill-gaps` reads the queue and local cache, pulls missing market prices, ticker-linked news, and missing SEC filings for US stock candidates, then writes a fresh research packet. A news response counts as complete only when it is relevant to the current research theme; off-topic rows are retained for audit but reported as a partial fill with unresolved symbols. Price filling uses `auto` by default: US symbols use Alpha Vantage; configured Tushare routes China stocks, China ETF-style codes, and HK symbols before Eastmoney and a final Yahoo chart fallback. Candidates without symbols are not silently guessed; the first implementation creates auditable proxy mappings with reasons, confidence, and evidence IDs, pulls proxy prices, and still requires the user to review constituents, liquidity, and tradability before drilling down.
+`research fill-gaps` reads the queue and local cache, pulls missing market prices, ticker-linked news, and official company announcements: SEC EDGAR for US stock candidates and HKEXnews for HK stock candidates. It then writes a fresh research packet. A news response counts as complete only when it is relevant to the current research theme; off-topic rows are retained for audit but reported as a partial fill with unresolved symbols. Price filling uses `auto` by default: US symbols use Alpha Vantage; configured Tushare routes China stocks, China ETF-style codes, and HK symbols before Eastmoney and a final Yahoo chart fallback. Candidates without symbols are not silently guessed; the first implementation creates auditable proxy mappings with reasons, confidence, and evidence IDs, pulls proxy prices, and still requires the user to review constituents, liquidity, and tradability before drilling down.
 
 Automatically run gap filling, deepening, and workbench readiness checks:
 
@@ -312,7 +312,7 @@ lychee research run
 lychee research run --symbol QQQ --force
 ```
 
-`research run` selects one research task, refreshes task-level prices, news, and applicable US filings, then reruns the workbench check and prints the updated `研究任务面板`. Existing SEC financial snapshots join the same evidence board; when one is missing, task detail provides the exact `data pull financials` command. If the task currently has only reverse, direction-pending, or off-topic news, the run also builds a topic `--query` from the research theme and pulls one extra round of topic news so the system can try to strengthen evidence instead of only reporting weak evidence. Each run writes `.alphadesk/research/research-run-*.json` so humans and agents can audit which actions ran, how many rows returned, and which actions failed or used cache; the artifact also stores structured `assessment` with stage, consistency-review state, evidence reading, and next decision.
+`research run` selects one research task, refreshes task-level prices, news, and applicable company announcements: SEC EDGAR for US stocks and HKEXnews for HK stocks. It then reruns the workbench check and prints the updated `研究任务面板`. Existing SEC financial snapshots join the same evidence board; when one is missing, task detail provides the exact `data pull financials` command. HK announcements are verified as official filings, while HK financial snapshots remain explicitly unimplemented. If the task currently has only reverse, direction-pending, or off-topic news, the run also builds a topic `--query` from the research theme and pulls one extra round of topic news so the system can try to strengthen evidence instead of only reporting weak evidence. Each run writes `.alphadesk/research/research-run-*.json` so humans and agents can audit which actions ran, how many rows returned, and which actions failed or used cache; the artifact also stores structured `assessment` with stage, consistency-review state, evidence reading, and next decision.
 
 You can also pull topic news manually:
 
@@ -448,7 +448,7 @@ lychee data pull market --symbols AAPL,TSLA --force
 lychee data pull news
 lychee data pull news --symbols AAPL --provider auto
 lychee data pull news --symbols AAPL --provider auto --force
-lychee data pull filings --symbols AAPL,TSLA --limit 3
+lychee data pull filings --symbols AAPL,TSLA,0700.HK --limit 3
 lychee data pull financials --symbols AAPL,MSFT
 lychee data guide fund --symbol 2800.HK --name "Tracker Fund of Hong Kong" --market HK
 lychee data set fund --from-file .alphadesk/data/fund-metadata-guide-2800.HK.json
@@ -464,7 +464,7 @@ Current live providers:
 
 - Market prices: Alpha Vantage daily time series; with a configured token, Tushare routes China stocks, China ETF-style codes, and HK symbols to the matching daily endpoint before Eastmoney and a final Yahoo chart fallback. Tushare interface-entitlement errors are surfaced as permission gaps, not as API-key errors.
 - News: Marketaux, Finnhub, or NewsAPI, selected with `--provider`; without `--symbols` it pulls market-level news, and with `--symbols` it pulls symbol-level news. `auto` uses the first configured provider that fits the request type.
-- Filings: SEC EDGAR recent filings for US-listed symbols.
+- Filings: SEC EDGAR recent filings for US-listed symbols and no-key HKEXnews announcements for HK-listed symbols. HKEXnews first resolves the official active-stock list, then stores the original announcement URL, date, headline, symbol, and source label in the common auditable cache.
 - Financial snapshots: SEC EDGAR XBRL `companyfacts` for US issuers. Each metric keeps its own reporting interval alongside revenue, net income, operating cash flow, and the official source URL. When the same metric definition, form, fiscal period, and a comparable prior-year duration are available, the workbench also shows the audited year-over-year change; it leaves the comparison empty rather than forcing mismatched periods. HK/CN financial coverage remains explicitly unimplemented rather than implied.
 - Fund/ETF metadata: `data guide fund` creates a local beginner-friendly checklist and JSON template for tracking index, expense ratio, holdings summary, and source URL. After the template is filled from verified sources, `data set fund --from-file ...` imports it into `fund-metadata.json`; direct `data set fund --symbol ...` remains available for automation. The workbench uses source-backed metadata as proxy-instrument support evidence and reports only still-missing fields; it does not invent fund fees or constituents.
 - Research metrics: `data set metric` writes source-backed local indicators such as `market_breadth`, `volatility_metrics`, `fund_flows`, and `sector_performance` into `research-metrics.json`. The workbench uses them as supplemental evidence in verification checks, evidence boards, and task detail panels.

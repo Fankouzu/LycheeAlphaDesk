@@ -24,8 +24,10 @@ from lychee_alphadesk.core.workbench import (
     _packet_related_news_count,
     beginner_research_brief,
     build_research_evidence_change,
+    build_research_verification_checks,
     record_research_evidence_review,
     render_research_task_detail,
+    research_action_commands,
     run_research_task,
     run_workbench_check,
     select_research_candidate_index,
@@ -196,6 +198,33 @@ def test_workbench_next_commands_preserve_expanded_selection_limit(
                     for index, symbol in enumerate(
                         ["LATE.HK", "FAST1.HK", "FAST2.HK", "FAST3.HK", "FAST4.HK", "FAST5.HK"]
                     )
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "filings.json").write_text(
+        json.dumps(
+            {
+                "provider": "hkexnews",
+                "rows": [
+                    {
+                        "date": "2026-07-05",
+                        "company": symbol,
+                        "form": "HKEX 公告",
+                        "summary": "HKEXnews 公告: 测试公告",
+                        "source_url": f"https://example.com/{symbol}",
+                        "symbol": symbol,
+                    }
+                    for symbol in [
+                        "LATE.HK",
+                        "FAST1.HK",
+                        "FAST2.HK",
+                        "FAST3.HK",
+                        "FAST4.HK",
+                        "FAST5.HK",
+                    ]
                 ],
             },
             ensure_ascii=False,
@@ -466,6 +495,99 @@ def test_research_task_detail_accepts_symbol_scoped_hk_news_without_market_liter
     assert "Tencent legacy cloud demand improves platform liquidity" not in related_section
     assert "Tencent SDK release 3.1.133" in detail.split("离题/已过滤", 1)[1]
     assert _packet_related_news_count(candidate, packet) == 1
+
+
+def test_research_action_commands_include_hkex_filings_for_hk_stocks() -> None:
+    candidate = CandidateCheck(
+        display_name="Tencent",
+        market="HK",
+        symbol="0700.HK",
+        proxy_symbols=[],
+        evidence_count=0,
+        gap_count=1,
+        data_gaps=["缺少 0700.HK HKEX 公司公告缓存。"],
+        status="blocked",
+        explanation="",
+        beginner_question="",
+        why_it_matters="",
+        observation_entry="0700.HK",
+        what_to_check="",
+        next_step="补公司公告",
+        priority="P0 待补数据",
+        evidence_status="",
+    )
+    packet = ResearchPacket(
+        packet_id="research:test:hkex-action",
+        candidate_id=1,
+        created_at="2026-07-05T10:00:00+00:00",
+        display_name="Tencent",
+        symbol="0700.HK",
+        market="HK",
+        packet={"candidate": {"asset_type": "stock"}, "local_data": {}},
+    )
+
+    commands = research_action_commands(candidate, packet)
+
+    assert "刷新公司公告: lychee data pull filings --symbols 0700.HK" in commands
+    assert not any("刷新财务快照" in command for command in commands)
+
+
+def test_research_verification_marks_hkex_announcements_as_required_for_hk_stocks() -> None:
+    candidate = CandidateCheck(
+        display_name="Tencent",
+        market="HK",
+        symbol="0700.HK",
+        proxy_symbols=[],
+        evidence_count=1,
+        gap_count=0,
+        data_gaps=[],
+        status="ready",
+        explanation="",
+        beginner_question="",
+        why_it_matters="",
+        observation_entry="0700.HK",
+        what_to_check="",
+        next_step="核验公告",
+        priority="P1 一致性复核",
+        evidence_status="",
+    )
+    packet = ResearchPacket(
+        packet_id="research:test:hkex-verification",
+        candidate_id=1,
+        created_at="2026-07-05T10:00:00+00:00",
+        display_name="Tencent",
+        symbol="0700.HK",
+        market="HK",
+        packet={
+            "candidate": {"asset_type": "stock"},
+            "local_data": {
+                "price": {
+                    "symbol": "0700.HK",
+                    "date": "2026-07-05",
+                    "close": 484.0,
+                    "volume": 100000,
+                    "currency": "HKD",
+                },
+                "related_news": [],
+                "filings": [
+                    {
+                        "date": "2026-07-05",
+                        "company": "TENCENT",
+                        "form": "HKEX 公告",
+                        "summary": "HKEXnews 公告: Quarterly Results",
+                        "symbol": "0700.HK",
+                        "source_url": "https://example.com/tencent-results",
+                    }
+                ],
+            },
+        },
+    )
+
+    checks = build_research_verification_checks(candidate, packet)
+    filing_check = next(check for check in checks if check.name == "公告/财报核验")
+
+    assert filing_check.status == "pass"
+    assert filing_check.detail == "可核验 HKEX 公司公告 1 条。"
 
 
 def test_workbench_check_marks_blocked_when_research_gaps_remain(

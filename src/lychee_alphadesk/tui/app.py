@@ -159,7 +159,7 @@ class AlphaDeskApp(App[None]):
             Option("数据源缺口队列", id="provider_backlog"),
             Option("手动查看行情", id="pull_market"),
             Option("手动查看新闻", id="pull_news"),
-            Option("手动查看美股公告", id="pull_filings"),
+            Option("手动查看公司公告", id="pull_filings"),
             Option("检查数据健康", id="data_health"),
             Option("写入实时快照", id="write_snapshot"),
             Option("刷新面板", id="refresh"),
@@ -280,7 +280,7 @@ class AlphaDeskApp(App[None]):
         elif action_id == "pull_filings":
             await self._show_symbol_prompt(
                 "pull_filings",
-                "输入美股公告证券代码，例如 AAPL,TSLA",
+                "输入美股或港股公司代码，例如 AAPL,0700.HK",
             )
         elif action_id == "data_health":
             await self._show_data_health()
@@ -1183,7 +1183,7 @@ class AlphaDeskApp(App[None]):
                 if not filing_symbols:
                     await self._replace_action_panel(
                         Static(
-                            "这个任务当前不适合自动拉取 SEC 公告。只有美股股票任务会启用该动作。",
+                            "这个任务当前不适合自动拉取公司公告。只有美股或港股股票任务会启用该动作。",
                             id="action-status",
                         )
                     )
@@ -2172,7 +2172,7 @@ def _display_data_request_action(action_type: str) -> str:
         "fund_metadata_import": "基金资料导入",
         "market": "行情",
         "news": "新闻",
-        "filings": "SEC 公告",
+        "filings": "公司公告",
         "verify": "下钻核验",
     }.get(action_type, action_type)
 

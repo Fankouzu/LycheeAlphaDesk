@@ -1856,6 +1856,68 @@ def test_pull_sec_filings_writes_filing_cache(tmp_path: Path) -> None:
     assert "000032019325000079" in cache["rows"][0]["source_url"]
 
 
+def test_pull_sec_filings_writes_hkex_announcements_for_hk_symbols(tmp_path: Path) -> None:
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        assert url.endswith("activestock_sehk_e.json")
+        return [{"i": 7609, "c": "00700", "n": "TENCENT", "s": 15487}]
+
+    def fetch_text(url: str, headers: dict[str, str] | None = None) -> str:
+        assert "titlesearch.xhtml" in url
+        assert "stockId=7609" in url
+        return """
+        <table><tbody>
+          <tr>
+            <td class="release-time">Release Time: 09/07/2026 17:58</td>
+            <td class="stock-short-name">Stock Short Name: TENCENT<br/>TENCENT-R</td>
+            <td>
+              <div class="headline">Next Day Disclosure Returns - [Share Buyback]<br/></div>
+              <div class="doc-link">
+                <a href="/listedco/listconews/sehk/2026/0709/2026070900827.pdf">
+                  Next Day Disclosure Return
+                </a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class="release-time">Release Time: 13/05/2026 16:31</td>
+            <td class="stock-short-name">Stock Short Name: TENCENT</td>
+            <td>
+              <div class="headline">
+                ANNOUNCEMENT OF THE RESULTS FOR THE THREE MONTHS ENDED 31 MARCH 2026
+              </div>
+              <div class="doc-link">
+                <a href="/listedco/listconews/sehk/2026/0513/2026051300999.pdf">
+                  Quarterly Results
+                </a>
+              </div>
+            </td>
+          </tr>
+        </tbody></table>
+        """
+
+    result = pull_sec_filings(
+        symbols=["0700.HK"],
+        output_dir=tmp_path,
+        fetch_json=fetch_json,
+        fetch_text=fetch_text,
+        limit_per_symbol=1,
+    )
+
+    assert result.provider == "hkexnews"
+    assert result.count == 1
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["rows"] == [
+        {
+            "date": "2026-07-09",
+            "company": "TENCENT",
+            "form": "HKEX 公告",
+            "summary": "HKEXnews 公告: Next Day Disclosure Returns - [Share Buyback]",
+            "source_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0709/2026070900827.pdf",
+            "symbol": "0700.HK",
+        }
+    ]
+
+
 def test_cached_snapshot_aggregates_live_cache_files(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()

@@ -307,6 +307,27 @@ def test_financial_fact_request_skips_sec_snapshot_for_etf(
     ]
 
 
+def test_hk_filing_request_adds_hkex_announcement_action(tmp_path: Path) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["补齐腾讯的港股公司公告和业绩披露。"],
+        display_name="Tencent",
+        symbol="0700.HK",
+        market="HK",
+    )
+
+    requests = list_research_data_requests(tmp_path, symbol="0700.HK")
+
+    assert [action.action_type for action in requests[0].suggested_actions] == [
+        "filings",
+        "verify",
+    ]
+    assert requests[0].suggested_commands == [
+        "lychee data pull filings --symbols 0700.HK",
+        "lychee research verify --symbol 0700.HK",
+    ]
+
+
 def test_fulfill_financial_fact_request_refreshes_snapshot_then_verifies(
     tmp_path: Path,
 ) -> None:

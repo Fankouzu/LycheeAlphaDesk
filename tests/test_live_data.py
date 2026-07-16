@@ -5,7 +5,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from lychee_alphadesk.core.cache_freshness import list_cache_entries, record_cache_entry
-from lychee_alphadesk.core.config import default_config, save_config
+from lychee_alphadesk.core.config import (
+    NewsProviderPluginConfig,
+    default_config,
+    save_config,
+)
 from lychee_alphadesk.core.live_data import (
     _parse_sec_financial_snapshot,
     build_cached_data_snapshot,
@@ -21,6 +25,13 @@ from lychee_alphadesk.core.live_data import (
     write_research_metric_cache,
 )
 from lychee_alphadesk.core.research_db import init_research_db
+from lychee_alphadesk.providers.demo import NewsEvent
+from lychee_alphadesk.providers.news_plugins import (
+    NewsProviderMetadata,
+    NewsProviderRegistry,
+    NewsProviderRequest,
+    NewsProviderSetting,
+)
 
 
 def test_pull_market_prices_writes_alpha_vantage_cache(tmp_path: Path) -> None:
@@ -1225,6 +1236,118 @@ def test_pull_news_events_writes_finnhub_cache(tmp_path: Path) -> None:
     assert len(entries) == 1
     assert entries[0].provider == "finnhub"
     assert entries[0].row_count == 1
+
+
+def test_auto_news_pull_prefers_configured_entity_news_plugin(tmp_path: Path) -> None:
+    class AuditedEntityNewsPlugin:
+        metadata = NewsProviderMetadata(
+            provider_id="audited_entity",
+            display_name="审计实体新闻",
+            description="按公司实体提供可核验新闻。",
+            capabilities=frozenset({"entity_news"}),
+            settings=(
+                NewsProviderSetting(
+                    key="api_key",
+                    label="API Key",
+                    description="新闻源访问凭据。",
+                ),
+            ),
+        )
+
+        def pull_news(self, request: NewsProviderRequest) -> list[NewsEvent]:
+            assert request.symbols == ("0700.HK",)
+            assert request.settings == {"api_key": "plugin-key"}
+            return [
+                NewsEvent(
+                    timestamp="2026-07-16T09:00:00+00:00",
+                    headline="Tencent cloud disclosure",
+                    summary="Issuer-level cloud disclosure for research verification.",
+                    symbols=["0700.HK"],
+                    source_url="https://issuer.example.com/tencent-cloud",
+                    is_symbol_scoped=True,
+                )
+            ]
+
+    config = default_config()
+    config.provider_plugins["audited_entity"] = NewsProviderPluginConfig(
+        settings={"api_key": "plugin-key"}
+    )
+    config_path = save_config(config, tmp_path / "config.yaml")
+    registry = NewsProviderRegistry(
+        providers={"audited_entity": AuditedEntityNewsPlugin()},
+        diagnostics=(),
+    )
+
+    result = pull_news_events(
+        symbols=["0700.HK"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        news_provider_registry=registry,
+    )
+
+    assert result.provider == "audited_entity"
+    assert result.count == 1
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["provider"] == "audited_entity"
+    assert cache["rows"][0]["source_url"] == "https://issuer.example.com/tencent-cloud"
+
+
+def test_auto_news_pull_falls_back_after_unexpected_entity_plugin_error(
+    tmp_path: Path,
+) -> None:
+    class FailingEntityNewsPlugin:
+        metadata = NewsProviderMetadata(
+            provider_id="failing_entity",
+            display_name="故障实体新闻",
+            description="用于验证插件故障隔离。",
+            capabilities=frozenset({"entity_news"}),
+            settings=(
+                NewsProviderSetting(
+                    key="token",
+                    label="访问令牌",
+                    description="新闻源访问凭据。",
+                ),
+            ),
+        )
+
+        def pull_news(self, request: NewsProviderRequest) -> list[NewsEvent]:
+            raise OSError(f"network error for {request.settings['token']}")
+
+    config = default_config()
+    config.provider_plugins["failing_entity"] = NewsProviderPluginConfig(
+        settings={"token": "plugin-secret"}
+    )
+    config_path = save_config(config, tmp_path / "config.yaml")
+    registry = NewsProviderRegistry(
+        providers={"failing_entity": FailingEntityNewsPlugin()},
+        diagnostics=(),
+    )
+
+    def fetch_json(url: str, _headers: dict[str, str] | None = None) -> object:
+        assert "api.gdeltproject.org" in url
+        return {
+            "articles": [
+                {
+                    "url": "https://example.com/tencent-news",
+                    "title": "Tencent issuer news fallback",
+                    "seendate": "20260716T084500Z",
+                }
+            ]
+        }
+
+    result = pull_news_events(
+        symbols=["0700.HK"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        fetch_json=fetch_json,
+        news_provider_registry=registry,
+    )
+
+    assert result.provider == "gdelt"
+    assert "故障实体新闻 请求失败" in result.warnings[0]
+    assert "plugin-secret" not in result.warnings[0]
 
 
 def test_pull_news_events_writes_gdelt_entity_mapped_cache(tmp_path: Path) -> None:

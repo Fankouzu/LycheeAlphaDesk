@@ -26,6 +26,7 @@ from lychee_alphadesk.core.config import (
     ProviderSetupInfo,
     ensure_config_file,
     load_config,
+    set_news_provider_plugin_value,
     set_openai_compatible_llm,
     set_provider_value,
 )
@@ -130,6 +131,10 @@ setup_app = typer.Typer(
 )
 llm_setup_app = typer.Typer(
     help="写入单项 LLM 服务配置值。",
+    invoke_without_command=True,
+)
+plugin_setup_app = typer.Typer(
+    help="写入单项新闻插件配置值。",
     invoke_without_command=True,
 )
 
@@ -1406,7 +1411,10 @@ def data_pull_news(
     ] = "",
     provider: Annotated[
         str,
-        typer.Option("--provider", help="新闻数据源: auto, marketaux, finnhub, newsapi。"),
+        typer.Option(
+            "--provider",
+            help="新闻数据源: auto、内置来源或已安装新闻插件 ID。",
+        ),
     ] = "auto",
     start_date: Annotated[
         str | None,
@@ -2945,6 +2953,26 @@ def setup_llm_set(
     console.print(f"已保存 OpenAI 兼容 LLM: {path}", soft_wrap=True)
 
 
+@plugin_setup_app.callback()
+def setup_plugin(ctx: typer.Context) -> None:
+    """要求使用非交互式新闻插件配置命令。"""
+    if ctx.invoked_subcommand is not None:
+        return
+    console.print("请使用 `lychee setup plugin set <插件ID> <设置项> <值>`。")
+    raise typer.Exit(code=2)
+
+
+@plugin_setup_app.command("set")
+def setup_plugin_set(provider_id: str, setting: str, value: str) -> None:
+    """保存某个新闻插件的一项配置值。"""
+    try:
+        path = set_news_provider_plugin_value(provider_id, setting, value)
+    except ValueError as error:
+        console.print(str(error))
+        raise typer.Exit(code=1) from error
+    console.print(f"已保存新闻插件配置: {path}", soft_wrap=True)
+
+
 def _run_configuration_center(path: Path) -> None:
     if not _keyboard_navigation_available():
         console.print("Lychee AlphaDesk 配置中心")
@@ -2956,6 +2984,10 @@ def _run_configuration_center(path: Path) -> None:
         console.print("自动化配置数据源: `lychee setup set <provider_id> <value>`。")
         console.print(
             "自动化配置 LLM: `lychee setup llm set <base_url> <api_key> MODEL_NAME`。",
+            soft_wrap=True,
+        )
+        console.print(
+            "自动化配置新闻插件: `lychee setup plugin set <插件ID> <设置项> <值>`。",
             soft_wrap=True,
         )
         raise typer.Exit(code=2)
@@ -3000,6 +3032,7 @@ data_app.add_typer(data_set_app, name="set")
 data_app.add_typer(data_guide_app, name="guide")
 app.add_typer(data_app, name="data")
 setup_app.add_typer(llm_setup_app, name="llm")
+setup_app.add_typer(plugin_setup_app, name="plugin")
 app.add_typer(setup_app, name="setup")
 
 

@@ -200,6 +200,16 @@ Lychee AlphaDesk 围绕 provider 接口设计。
 
 开源 MVP 必须在没有券商账户、没有付费 API key 的情况下运行。
 
+### 新闻 Provider 插件
+
+运行时可通过 Python 已安装发行包的
+`lychee_alphadesk.news_providers` 入口点发现新闻插件。插件需要声明自己
+提供的是实体、主题还是市场级新闻，以及所需配置项。用户配置文件只保存
+配置值，不保存 import 路径、下载地址或任何可执行插件代码。`auto` 只会选择
+已启用、能力匹配且必填配置完整的插件；插件数据仍写入同一份可审计缓存，并
+沿用内置 provider 的脱敏回退规则。开发者可阅读
+[插件 API 指南](docs/NEWS_PROVIDER_PLUGIN_API.zh-CN.md)。
+
 ## 🔑 CLI Setup 与 Provider Key
 
 当前 live data 路径会接入真实 provider，但任何 provider 都不应成为必选项。默认 demo 流程仍然支持离线运行。
@@ -221,9 +231,10 @@ lychee setup
 ```bash
 lychee setup set alpha_vantage "YOUR_API_KEY"
 lychee setup llm set "https://api.example.com/v1" "YOUR_API_KEY" "MODEL_NAME"
+lychee setup plugin set "issuer_news" "api_key" "YOUR_API_KEY"
 ```
 
-setup 命令会打开统一配置中心，数据 provider 和 LLM provider 都从这里配置。面向人的菜单使用 Textual `OptionList` 控件实现，并且必须只使用键盘导航：↑/↓/←/→/Tab 移动选择，Enter 确认，Esc 返回或退出。菜单选项不得使用数字或字母进行选择，项目不得为这条交互流程继续维护手写 raw-key parser。provider 菜单只显示展示名称和脱敏后的配置状态；注册链接只会在进入某个 provider 后显示。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。
+setup 命令会打开统一配置中心，数据 provider、LLM provider 和已安装新闻插件都从这里配置。面向人的菜单使用 Textual `OptionList` 控件实现，并且必须只使用键盘导航：↑/↓/←/→/Tab 移动选择，Enter 确认，Esc 返回或退出。菜单选项不得使用数字或字母进行选择，项目不得为这条交互流程继续维护手写 raw-key parser。菜单只显示展示名称和脱敏后的配置状态；内置 provider 的注册链接与插件的设置说明只会在进入具体项目后显示。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。
 
 第一版 LLM setup 只支持一个自定义 OpenAI-compatible endpoint，填写 `base_url`、API key 和模型名后写入 `~/.config/lychee-alphadesk/config.yaml`。配置中心会尝试读取 `{base_url}/models` 并让用户选择模型；如果接口不可用，就提示用户手动输入模型名。状态输出会脱敏 API key。非 TTY 环境不提供文本菜单 fallback，应使用上面的非交互式命令。
 
@@ -400,7 +411,7 @@ lychee
 当前 live provider：
 
 - 行情：Alpha Vantage 日线行情；配置 token 后，Tushare 会把 A 股股票、中国 ETF 风格代码和港股路由到对应日线接口，再由 Eastmoney 与 Yahoo chart 回退。Tushare 的接口权限错误会明确显示为权限缺口，不会误报为 API key 错误。
-- 新闻：Marketaux、Finnhub 或 NewsAPI，可用 `--provider` 指定；不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`auto` 会按请求类型使用第一个已配置且适用的 provider。
+- 新闻：内置 Marketaux、Finnhub、NewsAPI、GDELT 与已安装新闻插件均可用 `--provider` 指定；不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`auto` 会先考虑能力匹配且配置完整的已启用插件，再按内置 provider 顺序尝试。插件在 `auto` 中失败会脱敏并回退；显式指定插件时则会报告失败，不会静默换源。
 - 公告：美股使用 SEC EDGAR 近期 filings；港股使用无需 API Key 的 HKEXnews 官方公告；A 股股票使用巨潮资讯公告。巨潮路径会先解析官方股票清单，再以代码加机构 ID 查询公告，并把原始 PDF URL、中国本地发布日期、标题、代码和来源标签写入同一审计缓存；它使用公开网站查询，不调用另行授权的数据服务 API。
 - 财务快照：SEC EDGAR XBRL `companyfacts`，当前覆盖美股发行人。快照保留每项指标各自的报告区间、营收、净利润、经营现金流和官方来源 URL；只有同一指标定义、表单、财报期且期间长度可比的上年同期存在时，工作台才显示可审计的同比变化，无法同口径比较时保持为空，不会硬凑百分比。港股/A 股财务 provider 仍会明确显示为待接入，不会伪装成已覆盖。
 - 基金/ETF 资料：`data set fund` 会把已人工核验且带来源 URL 的跟踪指数、费用率和成分摘要写入 `fund-metadata.json`。工作台会把这些资料放入代理标的支持证据，并只对仍缺失的字段报缺口；系统不会自动编造基金费用或成分。

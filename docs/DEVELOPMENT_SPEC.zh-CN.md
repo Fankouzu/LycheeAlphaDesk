@@ -106,6 +106,7 @@ lad demo
 lad setup
 lad setup set alpha_vantage YOUR_API_KEY
 lad setup llm set https://api.example.com/v1 YOUR_API_KEY MODEL_NAME
+lad setup plugin set issuer_news api_key YOUR_API_KEY
 lychee setup
 lychee discover today
 lad discover today --markets us,hk,cn
@@ -132,10 +133,11 @@ lad
 
 - `lad` 打开 TUI，主界面第一个动作必须是 `今日市场发现`，第二个动作必须是 `研究工作台`，第三个动作必须是 `机会雷达`，然后是 `下一步行动队列`、`待判定证据队列`、研究复核历史、单条证据复核历史、研究备忘录历史、研究数据请求、数据源缺口队列，再进入手动股票代码钻取、数据健康检查、provider setup 指引、snapshot 和退出。
 - `lad demo` 检查 demo 文件和本地输出目录。
-- `lad setup` 打开统一交互式配置中心，数据 provider 和 LLM provider 都从这里配置。
+- `lad setup` 打开统一交互式配置中心，数据 provider、LLM provider 和已安装新闻插件都从这里配置。
 - `lad setup set` 为自动化脚本和 agent 单项写入一个 provider key 或 token。
 - `lad setup llm set` 为自动化脚本和 agent 单项写入一个 OpenAI-compatible LLM `base_url`、API key 和可选模型名。
-- 交互式配置中心在 TTY 环境使用 Textual `OptionList` 控件和键盘导航。面向人的菜单必须使用 ↑/↓/←/→/Tab 移动选择，Enter 确认，Esc 返回或退出。菜单不得使用数字或字母作为选项选择操作，并且这条流程不得继续使用手写 raw-key parser。非 TTY 环境不得 fallback 到文本菜单，应使用非交互式 setup 命令。provider 菜单只显示展示名称和脱敏配置状态；进入 provider 后再显示注册链接和面向用户的配置说明。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。
+- `lad setup plugin set` 为自动化脚本和 agent 单项写入已安装新闻插件的一个设置值。配置值不得选择 import 路径或执行插件代码。
+- 交互式配置中心在 TTY 环境使用 Textual `OptionList` 控件和键盘导航。面向人的菜单必须使用 ↑/↓/←/→/Tab 移动选择，Enter 确认，Esc 返回或退出。菜单不得使用数字或字母作为选项选择操作，并且这条流程不得继续使用手写 raw-key parser。非 TTY 环境不得 fallback 到文本菜单，应使用非交互式 setup 命令。provider 和插件菜单只显示展示名称和脱敏配置状态；进入后再显示面向用户的说明和设置标签。隐藏输入提交后会用 `✅` 或 `❌` 告诉用户是否收到内容。
 - LLM 配置区会写入自定义 OpenAI-compatible `base_url`、API key 和模型名。它会先读取 `{base_url}/models`；如果接口不可用或没有返回可用模型 ID，就提示用户手动输入模型名。
 - `lychee` 是推荐的 console command；`lad` 保留为短别名。
 - `lad data health --demo` 打印 provider 级数据质量检查。
@@ -144,7 +146,7 @@ lad
 - `lad discover today --markets us,hk,cn` 会先检查/拉取市场级新闻 cache，再以 `stream: true` 调用已配置的 OpenAI-compatible `/chat/completions` 接口，解析模型返回的 JSON，并写入本地 `llm-synthesized` discovery report cache，包含主题、关注候选、证据引用、warning 和下一步动作。如果没有可用新闻 provider、没有配置 LLM provider、API 请求失败，或模型没有返回有效 JSON，命令必须失败；不允许静默生成 fallback 报告。成功后必须同步写入 `.alphadesk/research.sqlite3`，作为研究队列和证据追踪的本地数据库。默认 LLM 读超时为 180 秒。
 - `lad discover radar` 必须在不调用 LLM、不要求用户输入股票代码的情况下，读取本地行情和新闻缓存，组合 symbol 新闻热度、主题关键词命中和成交量排名，生成“机会雷达”研究线索。每条线索必须包含市场、代码、主题、分数、行情快照、为什么值得研究、证据标题、下一步验证命令，以及从本地已缓存标的中映射出的可下钻目标。可下钻目标必须展示名称、市场、类别、映射理由、证据缺口和补数据/研究命令；未进入本地缓存的标的不得伪装成当前雷达结果。它只能回答“下一步研究什么”，不得输出买入、卖出、持有、仓位、目标价或收益预期。
 - `lad data pull market` 将日线行情写入本地 live cache。`auto` 对美股使用 Alpha Vantage；配置 Tushare token 后，对 A 股股票、中国 ETF 风格代码和港股依次使用 Tushare 的 `daily`、`fund_daily`、`hk_daily`，随后仍保留 Eastmoney 与 Yahoo chart 作为回退。未配置 Tushare token 时，港股/A 股从 Eastmoney 开始。默认使用行情 cache 的保质期和交易时段判断；`--force` 可强制刷新。Tushare `40203` 是接口权限缺口，不是漏填 key：CLI 必须提示用户在 Tushare 后台开通所需接口或套餐，不得建议重新填写 key 作为解决方案。
-- `lad data pull news` 将 Marketaux、Finnhub 或 NewsAPI 新闻事件写入本地 live cache。不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`--query` 可传入主题关键词，用于按研究主题补强新闻证据；主题查询应使用 Marketaux 或 NewsAPI，Finnhub 不支持主题关键词查询。默认使用新闻 cache 保质期；`--force` 可强制刷新。新闻缓存必须保留已有行并追加去重后的新行，避免刷新后改变 `news_001` 等 evidence ID 的含义。Finnhub 当前仅用于个股新闻；市场级新闻应使用 Marketaux 或 NewsAPI。自动回退警告必须保留已脱敏且可执行的认证失败、访问拒绝、限流或超时类别，不能压缩成泛化的 provider 失败；直接拉取和工作台诊断在认证失败或访问拒绝时必须显示 `lychee setup` 作为恢复入口。
+- `lad data pull news` 将内置 Marketaux、Finnhub、NewsAPI、GDELT 或已安装新闻插件的事件写入本地 live cache。不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`--query` 可传入主题关键词，用于按研究主题补强新闻证据；主题查询必须选择支持主题新闻的 provider。默认使用新闻 cache 保质期；`--force` 可强制刷新。新闻缓存必须保留已有行并追加去重后的新行，避免刷新后改变 `news_001` 等 evidence ID 的含义。已安装插件只能通过 Python 的 `lychee_alphadesk.news_providers` 入口点发现；`auto` 只能选择已启用、声明能力匹配且必填设置完整的插件。插件返回行必须保留为包含时间、标题和来源 URL 的 `NewsEvent`。插件异常必须视作不可信边界，脱敏后仅允许在 `auto` 模式回退。显式指定插件时，必须报告该插件失败，不能静默换源。
 - `lad data pull filings` 将美股代码的 SEC EDGAR 近期 filings、`.HK` 代码的 HKEXnews 官方公告，以及 `.SH` / `.SZ` A 股股票代码的巨潮资讯公告写入同一份本地 live cache。HKEX 路径必须先解析官方活跃证券清单，再读取发行人公告标题页，保留原始文件 URL、日期、标题和代码；不得把 HKEX 公告伪装成 SEC 文件。巨潮路径必须先解析官方股票清单，再用股票代码加机构 ID 查询公开公告接口，保留原始 PDF URL、中国本地发布日期、标题和代码；不得暗示调用了另行授权的数据服务 API。
 - `lad data pull financials` 将 SEC EDGAR XBRL `companyfacts` 写入 `financials.json`。第一版只覆盖美股发行人，并且每行必须保留表单类型、营收、净利润、经营现金流和官方来源 URL；每项金额必须保留各自的起止日期，禁止把单季度收入和年内累计现金流伪装成同一报告区间。只有指标定义、表单、财报期和期间长度一致，并且上一期间结束日落在上年同期比较窗口内时，才可保留上年同期数据；否则同比相关字段必须为空。不可用字段保持空值，禁止猜测。研究深挖、任务详情、核验项和证据板必须把已有快照作为可审计事实展示；港股/A 股财报 provider 未接入时必须明确标为不适用或待接入。
 - `lad data set fund` 将人工核验且带来源 URL 的基金/ETF 资料写入 `fund-metadata.json`，用于代理 ETF/指数核验里的跟踪指数、费用率、成分摘要、来源和资料日期。该命令必须要求来源 URL，不得把会漂移的基金费用或成分硬编码成生产事实。

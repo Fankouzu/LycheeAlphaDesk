@@ -25,6 +25,14 @@ from lychee_alphadesk.providers.demo import (
     NewsEvent,
     PriceRow,
 )
+from lychee_alphadesk.providers.news_plugins import (
+    NewsProviderPlugin,
+    NewsProviderRegistry,
+    NewsProviderRequest,
+    discover_news_provider_plugins,
+    missing_required_settings,
+    pull_plugin_news,
+)
 
 JsonFetcher = Callable[[str, dict[str, str] | None], object]
 JsonPoster = Callable[[str, dict[str, str] | None, dict[str, object]], object]
@@ -655,6 +663,7 @@ def pull_news_events(
     start_date: str | None = None,
     end_date: str | None = None,
     fetch_json: JsonFetcher | None = None,
+    news_provider_registry: NewsProviderRegistry | None = None,
     force: bool = False,
     now: datetime | None = None,
 ) -> PullResult:
@@ -704,12 +713,20 @@ def pull_news_events(
 
     fetcher = fetch_json or _fetch_json
     warnings: list[str] = [cache_gap_warning] if cache_gap_warning else []
+    registry = news_provider_registry or discover_news_provider_plugins()
+    warnings.extend(_sanitize_error_message(item) for item in registry.diagnostics)
     rows: list[NewsEvent] = []
     selected_provider = ""
     last_empty_provider = ""
     last_error: RuntimeError | None = None
 
-    for candidate in _news_provider_candidates(active_config, provider_id, symbols):
+    for candidate in _news_provider_candidates(
+        active_config,
+        provider_id,
+        symbols,
+        query,
+        registry,
+    ):
         if query and candidate == "finnhub":
             warnings.append("Finnhub 不支持主题关键词新闻查询，正在尝试下一个新闻数据源")
             continue
@@ -722,17 +739,24 @@ def pull_news_events(
                 end=end,
                 config=active_config,
                 fetch_json=fetcher,
+                news_provider_registry=registry,
             )
         except RuntimeError as error:
             last_error = RuntimeError(_sanitize_error_message(str(error)))
             if provider_id == "auto":
-                warnings.append(_news_provider_retry_warning(candidate, last_error))
+                warnings.append(
+                    _news_provider_retry_warning(
+                        candidate,
+                        last_error,
+                        provider_name=_news_provider_display_name(candidate, registry),
+                    )
+                )
                 continue
             raise last_error from error
         if not rows and provider_id == "auto":
             last_empty_provider = candidate
             warnings.append(
-                f"{_provider_display_name(candidate)} 没有返回匹配新闻，"
+                f"{_news_provider_display_name(candidate, registry)} 没有返回匹配新闻，"
                 "正在尝试下一个可用新闻数据源"
             )
             continue
@@ -747,7 +771,7 @@ def pull_news_events(
             raise last_error
         else:
             raise ValueError(
-                "尚未配置新闻数据源。请配置 Marketaux、Finnhub、NewsAPI，或使用无需 Key 的 GDELT。"
+                "尚未配置可用新闻数据源。请配置内置新闻来源，或安装并配置新闻插件。"
             )
 
     new_rows = [asdict(row) for row in rows]
@@ -1237,15 +1261,20 @@ def _sanitize_url(url: str) -> str:
     return _sanitize_error_message(url)
 
 
-def _news_provider_retry_warning(provider_id: str, error: RuntimeError) -> str:
-    provider_name = {
+def _news_provider_retry_warning(
+    provider_id: str,
+    error: RuntimeError,
+    *,
+    provider_name: str | None = None,
+) -> str:
+    display_name = provider_name or {
         "gdelt": "GDELT",
         "marketaux": "Marketaux",
         "finnhub": "Finnhub",
         "newsapi": "NewsAPI",
     }.get(provider_id, provider_id)
     reason = _news_provider_error_summary(str(error))
-    return f"{provider_name} {reason}，正在尝试下一个已配置新闻数据源"
+    return f"{display_name} {reason}，正在尝试下一个已配置新闻数据源"
 
 
 def _news_provider_error_summary(message: str) -> str:
@@ -1639,15 +1668,38 @@ def _news_provider_candidates(
     config: AlphaDeskConfig,
     provider_id: str,
     symbols: list[str],
+    query: str | None,
+    news_provider_registry: NewsProviderRegistry,
 ) -> list[str]:
     if provider_id != "auto":
-        if provider_id not in {"gdelt", "marketaux", "finnhub", "newsapi"}:
-            raise ValueError(f"不支持的新闻数据源: {provider_id}")
-        if not symbols and provider_id == "finnhub":
-            raise ValueError("Finnhub 当前仅支持个股新闻；市场级新闻请使用 Marketaux 或 NewsAPI。")
+        if provider_id in {"gdelt", "marketaux", "finnhub", "newsapi"}:
+            if not symbols and provider_id == "finnhub":
+                raise ValueError(
+                    "Finnhub 当前仅支持个股新闻；市场级新闻请使用 Marketaux 或 NewsAPI。"
+                )
+            return [provider_id]
+        plugin = news_provider_registry.providers.get(provider_id)
+        if plugin is None:
+            installed = ", ".join(sorted(news_provider_registry.providers)) or "无"
+            raise ValueError(
+                f"未安装新闻插件 '{provider_id}'。当前已安装插件: {installed}。"
+            )
+        _validate_news_plugin_request(
+            plugin,
+            config,
+            symbols,
+            query,
+        )
         return [provider_id]
 
-    candidates: list[str] = []
+    candidates = [
+        plugin.metadata.provider_id
+        for plugin in sorted(
+            news_provider_registry.providers.values(),
+            key=lambda item: (item.metadata.priority, item.metadata.provider_id),
+        )
+        if _news_plugin_is_eligible(plugin, config, symbols, query)
+    ]
     provider_order = (
         ("marketaux", "newsapi")
         if not symbols
@@ -1661,6 +1713,79 @@ def _news_provider_candidates(
     return candidates
 
 
+def _news_plugin_is_eligible(
+    plugin: NewsProviderPlugin,
+    config: AlphaDeskConfig,
+    symbols: list[str],
+    query: str | None,
+) -> bool:
+    plugin_config = config.provider_plugins.get(plugin.metadata.provider_id)
+    if plugin_config is None or not plugin_config.enabled:
+        return False
+    return not _missing_news_plugin_request_requirements(
+        plugin,
+        plugin_config.settings,
+        symbols,
+        query,
+    )
+
+
+def _validate_news_plugin_request(
+    plugin: NewsProviderPlugin,
+    config: AlphaDeskConfig,
+    symbols: list[str],
+    query: str | None,
+) -> None:
+    plugin_config = config.provider_plugins.get(plugin.metadata.provider_id)
+    settings = plugin_config.settings if plugin_config and plugin_config.enabled else {}
+    missing = _missing_news_plugin_request_requirements(plugin, settings, symbols, query)
+    if not missing:
+        return
+    if missing[0] == "capability":
+        required = _required_news_plugin_capability(symbols, query)
+        raise ValueError(
+            f"{plugin.metadata.display_name} 不支持当前请求；需要能力 '{required}'。"
+        )
+    missing_text = ", ".join(missing)
+    raise ValueError(
+        f"{plugin.metadata.display_name} 尚未完成配置，缺少: {missing_text}。"
+        f"请运行 `lychee setup plugin set {plugin.metadata.provider_id} <设置项> <值>`。"
+    )
+
+
+def _missing_news_plugin_request_requirements(
+    plugin: NewsProviderPlugin,
+    settings: dict[str, str],
+    symbols: list[str],
+    query: str | None,
+) -> tuple[str, ...]:
+    required_capability = _required_news_plugin_capability(symbols, query)
+    if required_capability not in plugin.metadata.capabilities:
+        return ("capability",)
+    return missing_required_settings(plugin, settings)
+
+
+def _required_news_plugin_capability(
+    symbols: list[str],
+    query: str | None,
+) -> str:
+    if symbols:
+        return "entity_news"
+    if query and query.strip():
+        return "topic_news"
+    return "market_news"
+
+
+def _news_provider_display_name(
+    provider_id: str,
+    news_provider_registry: NewsProviderRegistry,
+) -> str:
+    plugin = news_provider_registry.providers.get(provider_id)
+    if plugin is not None:
+        return plugin.metadata.display_name
+    return _provider_display_name(provider_id)
+
+
 def _pull_news_for_provider(
     *,
     provider_id: str,
@@ -1670,7 +1795,27 @@ def _pull_news_for_provider(
     end: str,
     config: AlphaDeskConfig,
     fetch_json: JsonFetcher,
+    news_provider_registry: NewsProviderRegistry,
 ) -> list[NewsEvent]:
+    plugin = news_provider_registry.providers.get(provider_id)
+    if plugin is not None:
+        plugin_config = config.provider_plugins.get(provider_id)
+        settings = plugin_config.settings if plugin_config else {}
+        try:
+            return pull_plugin_news(
+                plugin,
+                NewsProviderRequest(
+                    symbols=tuple(symbols),
+                    query=query,
+                    start_date=start,
+                    end_date=end,
+                    settings=settings,
+                ),
+            )
+        except Exception as error:  # Third-party plugin boundary; do not leak settings.
+            message = _sanitize_news_plugin_error(str(error), settings)
+            raise RuntimeError(f"{plugin.metadata.display_name} 插件拉取失败: {message}") from error
+
     if provider_id == "gdelt":
         return _pull_gdelt_news(symbols, query, fetch_json)
     if provider_id == "finnhub":
@@ -1685,6 +1830,15 @@ def _pull_news_for_provider(
         api_key = _configured_value(config.providers["newsapi"].value, "NewsAPI")
         return _pull_newsapi_events(symbols, query, start, end, api_key, fetch_json)
     raise ValueError(f"不支持的新闻数据源: {provider_id}")
+
+
+def _sanitize_news_plugin_error(message: str, settings: dict[str, str]) -> str:
+    sanitized = _sanitize_error_message(message)
+    for value in settings.values():
+        secret = value.strip()
+        if secret:
+            sanitized = sanitized.replace(secret, "***")
+    return sanitized
 
 
 def _date_window(start_date: str | None, end_date: str | None) -> tuple[str, str]:

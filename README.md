@@ -202,6 +202,17 @@ Lychee AlphaDesk is designed around provider interfaces.
 
 The open-source MVP must run without a broker account or paid API key.
 
+### News-provider plugins
+
+The runtime can discover installed Python distributions through the
+`lychee_alphadesk.news_providers` entry-point group. A plugin declares whether
+it supplies entity, topic, or market news plus the settings it requires. The
+user config stores values only; it never contains an import path, a download
+URL, or executable plugin code. `auto` selects only an enabled plugin whose
+capability and required settings match the request, then preserves the same
+auditable cache and sanitized fallback behavior as built-in providers. See
+[the plugin API guide](docs/NEWS_PROVIDER_PLUGIN_API.md).
+
 ## 🔑 CLI Setup And Provider Keys
 
 The live data path adds real providers without making any of them mandatory. The default demo flow still works offline.
@@ -223,9 +234,10 @@ Automation and coding agents can write one value at a time with non-interactive 
 ```bash
 lychee setup set alpha_vantage "YOUR_API_KEY"
 lychee setup llm set "https://api.example.com/v1" "YOUR_API_KEY" "MODEL_NAME"
+lychee setup plugin set "issuer_news" "api_key" "YOUR_API_KEY"
 ```
 
-The setup command opens one configuration center for data providers and LLM providers. Human-facing menus are implemented with Textual `OptionList` controls and must use keyboard navigation only: ↑/↓/←/→/Tab move selection, Enter selects, and Esc goes back or exits. Menus must not use numbers or letters for option selection, and the project must not maintain a hand-rolled raw-key parser for this flow. The provider menu only shows display names and masked configuration status; registration links appear only after opening a provider. Hidden key entry confirms whether a value was received with `✅` or `❌`.
+The setup command opens one configuration center for data providers, LLM providers, and installed news plugins. Human-facing menus are implemented with Textual `OptionList` controls and must use keyboard navigation only: ↑/↓/←/→/Tab move selection, Enter selects, and Esc goes back or exits. Menus must not use numbers or letters for option selection, and the project must not maintain a hand-rolled raw-key parser for this flow. Menus only show display names and masked configuration status; built-in provider registration links and plugin setting descriptions appear only after opening an item. Hidden key entry confirms whether a value was received with `✅` or `❌`.
 
 The initial LLM setup supports one custom OpenAI-compatible endpoint with a `base_url`, API key, and model name stored in `~/.config/lychee-alphadesk/config.yaml`. The configuration center tries to read `{base_url}/models` from OpenAI-compatible APIs and lets the user select a model when available; if the endpoint is unavailable, it prompts for a manual model name. API keys are masked in status output. Non-TTY environments do not get text-menu fallbacks; they should use the non-interactive commands above.
 
@@ -463,7 +475,7 @@ lychee
 Current live providers:
 
 - Market prices: Alpha Vantage daily time series; with a configured token, Tushare routes China stocks, China ETF-style codes, and HK symbols to the matching daily endpoint before Eastmoney and a final Yahoo chart fallback. Tushare interface-entitlement errors are surfaced as permission gaps, not as API-key errors.
-- News: Marketaux, Finnhub, or NewsAPI, selected with `--provider`; without `--symbols` it pulls market-level news, and with `--symbols` it pulls symbol-level news. `auto` uses the first configured provider that fits the request type.
+- News: built-in Marketaux, Finnhub, NewsAPI, and GDELT plus installed news plugins, selected with `--provider`; without `--symbols` it pulls market-level news, and with `--symbols` it pulls symbol-level news. `auto` first considers enabled plugins with matching declared capability and complete settings, then follows the built-in provider order. A plugin failure is sanitized and falls back in `auto`; an explicitly selected plugin reports the failure without silently changing sources.
 - Filings: SEC EDGAR recent filings for US-listed symbols, no-key HKEXnews announcements for HK-listed symbols, and CNINFO announcements for China A-share stock symbols. The CNINFO path resolves the official stock list, queries by code plus organization ID, then stores the original PDF URL, China-local publication date, headline, symbol, and source label in the common auditable cache. It uses the public website query path, not the separately licensed data-service API.
 - Financial snapshots: SEC EDGAR XBRL `companyfacts` for US issuers. Each metric keeps its own reporting interval alongside revenue, net income, operating cash flow, and the official source URL. When the same metric definition, form, fiscal period, and a comparable prior-year duration are available, the workbench also shows the audited year-over-year change; it leaves the comparison empty rather than forcing mismatched periods. HK/CN financial coverage remains explicitly unimplemented rather than implied.
 - Fund/ETF metadata: `data guide fund` creates a local beginner-friendly checklist and JSON template for tracking index, expense ratio, holdings summary, and source URL. After the template is filled from verified sources, `data set fund --from-file ...` imports it into `fund-metadata.json`; direct `data set fund --symbol ...` remains available for automation. The workbench uses source-backed metadata as proxy-instrument support evidence and reports only still-missing fields; it does not invent fund fees or constituents.

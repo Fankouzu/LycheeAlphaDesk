@@ -38,9 +38,15 @@ class LLMSettings(BaseModel):
     )
 
 
+class NewsProviderPluginConfig(BaseModel):
+    enabled: bool = True
+    settings: dict[str, str] = Field(default_factory=dict)
+
+
 class AlphaDeskConfig(BaseModel):
     version: int = 1
     providers: dict[str, ProviderSetupInfo]
+    provider_plugins: dict[str, NewsProviderPluginConfig] = Field(default_factory=dict)
     llm: LLMSettings = Field(default_factory=LLMSettings)
 
 
@@ -212,6 +218,7 @@ def load_config(path: Path | None = None) -> AlphaDeskConfig:
 def normalize_config(config: AlphaDeskConfig) -> AlphaDeskConfig:
     normalized = default_config()
     normalized.llm = config.llm
+    normalized.provider_plugins = config.provider_plugins
     for provider_id, existing_provider in config.providers.items():
         if provider_id not in normalized.providers:
             normalized.providers[provider_id] = existing_provider
@@ -243,6 +250,33 @@ def set_provider_value(provider_id: str, value: str, path: Path | None = None) -
         raise ValueError(f"数据源 '{provider_id}' 不需要配置 API Key 或 Token")
     provider.value = value
     config.providers[provider_id] = provider
+    return save_config(config, target)
+
+
+def set_news_provider_plugin_value(
+    provider_id: str,
+    setting_key: str,
+    value: str,
+    path: Path | None = None,
+) -> Path:
+    normalized_provider_id = provider_id.strip()
+    normalized_setting_key = setting_key.strip()
+    normalized_value = value.strip()
+    if not normalized_provider_id:
+        raise ValueError("新闻插件 ID 不能为空")
+    if not normalized_setting_key:
+        raise ValueError("新闻插件设置项不能为空")
+    if not normalized_value:
+        raise ValueError("新闻插件设置值不能为空")
+
+    target = path or config_file_path()
+    config = load_config(target)
+    plugin_config = config.provider_plugins.get(
+        normalized_provider_id,
+        NewsProviderPluginConfig(),
+    )
+    plugin_config.settings[normalized_setting_key] = normalized_value
+    config.provider_plugins[normalized_provider_id] = plugin_config
     return save_config(config, target)
 
 

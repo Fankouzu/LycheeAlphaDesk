@@ -18,6 +18,12 @@ from lychee_alphadesk.core.config import (
     ensure_config_file,
     load_config,
     save_config,
+    set_news_provider_plugin_value,
+)
+from lychee_alphadesk.providers.news_plugins import (
+    NewsProviderMetadata,
+    NewsProviderRegistry,
+    NewsProviderSetting,
 )
 from lychee_alphadesk.tui.setup import SetupApp
 
@@ -80,6 +86,7 @@ def test_setup_command_requires_keyboard_navigation_in_non_tty(
     assert "交互式配置需要可用的终端键盘导航" in result.stdout
     assert "lychee setup set" in result.stdout
     assert "lychee setup llm set" in result.stdout
+    assert "lychee setup plugin set" in result.stdout
 
 
 def test_setup_command_opens_keyboard_configuration_center(
@@ -110,6 +117,97 @@ def test_textual_setup_menu_uses_option_list_keyboard_navigation(tmp_path: Path)
             assert menu.highlighted == 1
 
     asyncio.run(run_case())
+
+
+def test_setup_center_lists_installed_news_plugins_with_keyboard_navigation(
+    monkeypatch, tmp_path: Path
+) -> None:
+    plugin = type(
+        "AuditedEntityNewsPlugin",
+        (),
+        {
+            "metadata": NewsProviderMetadata(
+                provider_id="audited_entity",
+                display_name="审计实体新闻",
+                description="按公司实体提供可核验新闻。",
+                capabilities=frozenset({"entity_news"}),
+                settings=(
+                    NewsProviderSetting(
+                        key="api_key",
+                        label="API Key",
+                        description="新闻源访问凭据。",
+                    ),
+                ),
+            ),
+            "pull_news": lambda self, request: [],
+        },
+    )()
+    monkeypatch.setattr(
+        "lychee_alphadesk.tui.setup.discover_news_provider_plugins",
+        lambda: NewsProviderRegistry(
+            providers={"audited_entity": plugin},
+            diagnostics=(),
+        ),
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = SetupApp(tmp_path / "config.yaml")
+        async with app.run_test() as pilot:
+            await pilot.press("down", "down", "enter")
+            await pilot.pause()
+
+            menu = app.query_one("#plugin-menu", OptionList)
+            assert menu.highlighted == 0
+
+    asyncio.run(run_case())
+
+
+def test_setup_center_can_store_selected_news_plugin_setting(
+    monkeypatch, tmp_path: Path
+) -> None:
+    plugin = type(
+        "AuditedEntityNewsPlugin",
+        (),
+        {
+            "metadata": NewsProviderMetadata(
+                provider_id="audited_entity",
+                display_name="审计实体新闻",
+                description="按公司实体提供可核验新闻。",
+                capabilities=frozenset({"entity_news"}),
+                settings=(
+                    NewsProviderSetting(
+                        key="api_key",
+                        label="API Key",
+                        description="新闻源访问凭据。",
+                    ),
+                ),
+            ),
+            "pull_news": lambda self, request: [],
+        },
+    )()
+    monkeypatch.setattr(
+        "lychee_alphadesk.tui.setup.discover_news_provider_plugins",
+        lambda: NewsProviderRegistry(
+            providers={"audited_entity": plugin},
+            diagnostics=(),
+        ),
+        raising=False,
+    )
+    config_path = tmp_path / "config.yaml"
+
+    async def run_case() -> None:
+        app = SetupApp(config_path)
+        async with app.run_test() as pilot:
+            await pilot.press("down", "down", "enter", "enter", "enter")
+            await pilot.press(*"plugin-secret")
+            await pilot.press("enter")
+            await pilot.pause()
+
+    asyncio.run(run_case())
+
+    config = load_config(config_path)
+    assert config.provider_plugins["audited_entity"].settings["api_key"] == "plugin-secret"
 
 
 def test_textual_setup_disables_text_selection_to_avoid_mouse_selection_crash() -> None:
@@ -195,6 +293,38 @@ def test_setup_set_still_writes_single_provider_secret(
     assert "已保存 Alpha Vantage" in result.stdout
     config = load_config(config_file_path())
     assert config.providers["alpha_vantage"].value == "demo-key"
+
+
+def test_news_provider_plugin_settings_persist_in_user_config(tmp_path: Path) -> None:
+    path = set_news_provider_plugin_value(
+        "audited_entity",
+        "api_key",
+        "plugin-secret",
+        tmp_path / "config.yaml",
+    )
+
+    config = load_config(path)
+
+    assert config.provider_plugins["audited_entity"].enabled is True
+    assert config.provider_plugins["audited_entity"].settings == {
+        "api_key": "plugin-secret"
+    }
+
+
+def test_setup_plugin_set_writes_single_plugin_setting(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["setup", "plugin", "set", "audited_entity", "api_key", "plugin-secret"],
+    )
+
+    assert result.exit_code == 0
+    assert "已保存新闻插件配置" in result.stdout
+    config = load_config(config_file_path())
+    assert config.provider_plugins["audited_entity"].settings["api_key"] == "plugin-secret"
 
 
 def test_setup_set_still_rejects_unknown_provider(

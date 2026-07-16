@@ -50,6 +50,7 @@ from lychee_alphadesk.core.live_data import (
     write_fund_metadata_cache,
     write_fund_metadata_cache_from_file,
     write_fund_metadata_guide,
+    write_manual_news_event,
     write_research_metric_cache,
 )
 from lychee_alphadesk.core.llm import LLMProviderError
@@ -105,8 +106,6 @@ from lychee_alphadesk.core.workbench import (
     suggest_pending_evidence_review,
     verify_research_task,
 )
-from lychee_alphadesk.tui.app import run_tui
-from lychee_alphadesk.tui.setup import run_setup_tui
 
 console = Console()
 app = typer.Typer(
@@ -134,6 +133,8 @@ llm_setup_app = typer.Typer(
 @app.callback()
 def root(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is None:
+        from lychee_alphadesk.tui.app import run_tui
+
         run_tui()
 
 
@@ -1635,6 +1636,50 @@ def data_set_metric(
     _print_pull_result(result_label="研究指标", count=result.count, result=result)
 
 
+@data_set_app.command("news")
+def data_set_news(
+    symbol: Annotated[
+        str,
+        typer.Option("--symbol", help="新闻对应的证券代码，例如 QQQ、STX、0700.HK。"),
+    ],
+    headline: Annotated[
+        str,
+        typer.Option("--headline", help="已核验新闻的标题。"),
+    ],
+    summary: Annotated[
+        str,
+        typer.Option("--summary", help="新闻摘要或与研究问题相关的关键事实。"),
+    ],
+    source_url: Annotated[
+        str,
+        typer.Option("--source-url", help="可审计的原文或官方披露 URL。"),
+    ],
+    published_at: Annotated[
+        str,
+        typer.Option("--published-at", help="发布时间，推荐 ISO 8601 格式。"),
+    ] = "",
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """写入人工核验过的新闻来源，用于恢复被证据缺口阻塞的研究。"""
+    try:
+        result = write_manual_news_event(
+            output_dir=output_dir,
+            symbol=symbol,
+            headline=headline,
+            summary=summary,
+            source_url=source_url,
+            published_at=published_at,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    console.print(f"人工新闻证据已写入: {symbol.strip().upper()}")
+    _print_pull_result(result_label="新闻证据", count=result.count, result=result)
+
+
 def _fund_symbol_from_result_path(path: Path) -> str:
     return (
         path.stem.removeprefix("fund-metadata-guide-").strip().upper()
@@ -2260,15 +2305,21 @@ def _print_research_data_requests(requests: list[ResearchDataRequest]) -> None:
         console.print(f"   请求: {item.request_text}", soft_wrap=True)
         needs_manual_source = research_data_request_needs_manual_source(item)
         if needs_manual_source:
-            console.print(
-                "   说明: 这类数据当前没有自动补数据命令，需要人工补来源或等待插件接入。",
-                soft_wrap=True,
+            has_manual_news_action = any(
+                action.action_type == "manual_source" for action in item.suggested_actions
             )
+            message = (
+                "   说明: 自动新闻已刷新但没有命中主题。请只录入已核验的原文或官方披露，"
+                "然后重新核验。"
+                if has_manual_news_action
+                else "   说明: 这类数据当前没有自动补数据命令，需要人工补来源或等待插件接入。"
+            )
+            console.print(message, soft_wrap=True)
         console.print("   建议命令:")
         for command in item.suggested_commands:
             console.print(f"   - {command}", soft_wrap=True)
         if needs_manual_source:
-            console.print("   自动执行: 已暂停，等待人工补充来源后再核验。", soft_wrap=True)
+            console.print("   自动执行: 已暂停，人工录入后再重新核验。", soft_wrap=True)
         else:
             console.print(
                 f"   执行支持的动作: lychee research run-data-request --request {index} "
@@ -2355,7 +2406,12 @@ def _print_action_queue(items: list[ActionQueueItem]) -> None:
 
 
 def _print_action_queue_execution(result: ActionQueueExecution) -> None:
-    console.print("下一步行动已执行")
+    heading = (
+        "下一步行动需要人工处理"
+        if result.status == "manual_required"
+        else "下一步行动已执行"
+    )
+    console.print(heading)
     console.print(f"行动: [{result.item.area}] {result.item.title}", soft_wrap=True)
     console.print(f"状态: {result.status}")
     console.print(f"结果: {result.message}", soft_wrap=True)
@@ -2780,6 +2836,8 @@ def _run_configuration_center(path: Path) -> None:
             soft_wrap=True,
         )
         raise typer.Exit(code=2)
+
+    from lychee_alphadesk.tui.setup import run_setup_tui
 
     run_setup_tui(path)
 

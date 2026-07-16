@@ -252,6 +252,18 @@ def execute_action_queue_item(
         raise ValueError(f"行动序号超出范围。请输入 1 到 {len(queue)} 之间的序号。")
 
     item = queue[action_index - 1]
+    if _is_manual_news_source_command(item.command):
+        return ActionQueueExecution(
+            item=item,
+            status="manual_required",
+            message=(
+                "需要人工录入已核验的新闻来源；为保留审计边界，系统不会自动执行模板命令。"
+            ),
+            count=0,
+            output_path=None,
+            next_command=item.command,
+            warnings=[],
+        )
     news_payload = _parse_pull_news_command(item.command)
     if news_payload is not None:
         return _execute_pull_news_action(
@@ -309,6 +321,10 @@ def execute_action_queue_item(
         f"这条行动暂不支持自动执行: [{item.area}] {item.title}。"
         f"请复制命令手动执行: {item.command}"
     )
+
+
+def _is_manual_news_source_command(command: str) -> bool:
+    return shlex.split(command)[:4] == ["lychee", "data", "set", "news"]
 
 
 def _execute_pull_news_action(
@@ -646,7 +662,27 @@ def _data_request_action(
     failure: ResearchDataRequestFulfillmentRecord | None = None,
 ) -> ActionQueueItem | None:
     if research_data_request_needs_manual_source(item):
-        return None
+        manual_source = next(
+            (
+                action
+                for action in item.suggested_actions
+                if action.action_type == "manual_source"
+            ),
+            None,
+        )
+        if manual_source is None:
+            return None
+        return ActionQueueItem(
+            priority=25,
+            area="人工证据",
+            title=f"补充可审计来源: {item.display_name}",
+            detail=(
+                "自动新闻已刷新但未形成主题证据。请只记录已核验的原文或官方披露；"
+                "写入后再重新核验。"
+            ),
+            command=manual_source.command,
+            source=_research_request_source(item.memo_path, item.verification_path),
+        )
     command = f"lychee research run-data-request --request {index} {_research_selector(item)}"
     if failure is not None:
         diagnostic = describe_research_data_request_failure(failure)

@@ -203,6 +203,37 @@ def test_data_set_metric_command_writes_source_backed_research_metric(
     assert cache["rows"][0]["source_url"] == "https://example.com/nasdaq100-breadth"
 
 
+def test_data_set_news_command_writes_manual_auditable_evidence(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "set",
+            "news",
+            "--symbol",
+            "0700.HK",
+            "--headline",
+            "Tencent cloud revenue grows in Hong Kong market",
+            "--summary",
+            "Tencent disclosed cloud growth in Hong Kong, relevant to the research question.",
+            "--source-url",
+            "https://example.com/tencent-cloud-source",
+            "--published-at",
+            "2026-07-16T08:00:00+00:00",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "人工新闻证据已写入" in result.stdout
+    assert "0700.HK" in result.stdout
+    cache = json.loads((tmp_path / "data" / "news-events.json").read_text("utf-8"))
+    assert cache["provider"] == "manual"
+    assert cache["rows"][0]["symbols"] == ["0700.HK"]
+    assert cache["rows"][0]["source_url"] == "https://example.com/tencent-cloud-source"
+
+
 def test_data_guide_fund_command_writes_beginner_metadata_template(
     tmp_path: Path,
 ) -> None:
@@ -2587,6 +2618,54 @@ def test_research_run_next_command_executes_selected_action(
     assert "新闻行数: 3" in result.stdout
     assert "lychee research run --symbol NVDA --force" in result.stdout
     assert "不是买卖建议" in result.stdout
+
+
+def test_research_run_next_command_labels_manual_handoff_without_execution(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    item = ActionQueueItem(
+        priority=25,
+        area="人工证据",
+        title="补充可审计来源: Invesco QQQ Trust",
+        detail="自动新闻已刷新但未形成主题证据。",
+        command=(
+            "lychee data set news --symbol QQQ --headline \"已核验标题\" "
+            "--summary \"与研究问题有关的关键事实\" "
+            "--source-url \"https://...\""
+        ),
+        source="research-verification-test.json",
+    )
+
+    def fake_execute_action_queue_item(
+        output_dir: Path, **kwargs: object
+    ) -> ActionQueueExecution:
+        assert output_dir == tmp_path
+        return ActionQueueExecution(
+            item=item,
+            status="manual_required",
+            message="需要人工录入已核验的新闻来源；系统不会自动执行模板命令。",
+            count=0,
+            output_path=None,
+            next_command=item.command,
+            warnings=[],
+        )
+
+    monkeypatch.setattr(
+        cli_app,
+        "execute_action_queue_item",
+        fake_execute_action_queue_item,
+    )
+
+    result = runner.invoke(
+        app,
+        ["research", "run-next", "--action", "1", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "下一步行动需要人工处理" in result.stdout
+    assert "下一步行动已执行" not in result.stdout
+    assert "系统不会自动执行模板命令" in result.stdout
 
 
 def test_research_run_next_command_explains_network_failures(

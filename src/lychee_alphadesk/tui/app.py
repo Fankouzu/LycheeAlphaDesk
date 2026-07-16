@@ -1619,6 +1619,9 @@ def _research_data_requests_text(requests: list[ResearchDataRequest]) -> str:
         )
     lines = ["研究数据请求"]
     for index, item in enumerate(requests, start=1):
+        has_manual_news_action = any(
+            action.action_type == "manual_source" for action in item.suggested_actions
+        )
         lines.extend(
             [
                 (
@@ -1628,7 +1631,12 @@ def _research_data_requests_text(requests: list[ResearchDataRequest]) -> str:
                 f"  时间: {item.created_at}",
                 f"  请求: {item.request_text}",
                 *(
-                    ["  说明: 这类数据当前没有自动补数据命令，需要人工补来源或等待插件接入。"]
+                    [
+                        "  说明: 自动新闻已刷新但没有命中主题。请只录入已核验的原文或官方披露，"
+                        "然后重新核验。"
+                    ]
+                    if has_manual_news_action
+                    else ["  说明: 这类数据当前没有自动补数据命令，需要人工补来源或等待插件接入。"]
                     if research_data_request_needs_manual_source(item)
                     else []
                 ),

@@ -136,9 +136,17 @@ def test_verification_request_stops_repeating_news_after_completed_refresh(
     assert "不要重复刷新同一查询" in requests[0].request_text
     assert research_data_request_needs_manual_source(requests[0])
     assert [action.action_type for action in requests[0].suggested_actions] == [
-        "manual_source"
+        "manual_source",
+        "verify",
     ]
-    assert requests[0].suggested_commands == ["lychee research verify --symbol QQQ"]
+    assert requests[0].suggested_commands == [
+        (
+            "lychee data set news --symbol QQQ --headline \"已核验标题\" "
+            "--summary \"与研究问题有关的关键事实\" "
+            "--source-url \"https://...\""
+        ),
+        "lychee research verify --symbol QQQ",
+    ]
     assert list_provider_backlog_items(tmp_path, symbol="QQQ") == []
 
 

@@ -384,6 +384,15 @@ lychee research data-requests
 
 `research data-requests` reads each task's latest memo first, extracts `next_data_requests`, and turns them into a workbench queue with suggested commands. If a task has no memo yet, the queue falls back to the latest drilldown verification artifact's `hypothesis_panel.next_data_requests`, so `research verify` can already produce actionable data requests before an LLM memo exists. Fund/ETF requests point to `data guide fund` and `data set fund --from-file`, market requests point to `data pull market`, news requests point to `data pull news`, US filing requests point to `data pull filings`, and explicit US-company financial-fact requests for revenue, net income, or operating cash flow also point to `data pull financials`. Every request ends with a `research verify` command so the user can close the evidence loop. Run `lychee research run-data-request --symbol QQQ --request 1` to execute the supported actions for one request: it can generate fund templates, refresh market/news/filing/financial-snapshot data, and rerun verification when local data changed. If a request has no supported automatic provider yet, the queue says it needs a manual source instead of pretending it was covered. When provider execution fails because of network permission, timeout, authentication, or access errors, CLI output keeps the raw audit message and adds a `数据源诊断` line with the likely cause and next check. The TUI home screen exposes the same queue as `研究数据请求` and lets the user execute a listed request with Enter. It is a data-collection queue, not an investment-decision list.
 
+When an automatic topic-news refresh returned rows but none of them match the research question, AlphaDesk stops repeating that query. `research data-requests` and `research next` instead show an `人工证据` handoff with a concrete `data set news` template. Record only a source you have checked; the system keeps the original missing discovery reference for audit and only treats the new record as research evidence when it matches the task's topic, market, and asset context.
+
+```bash
+lychee data set news --symbol 0700.HK --headline "Verified source title" --summary "Key fact relevant to this research question" --source-url "https://example.com/source"
+lychee research verify --symbol 0700.HK
+```
+
+`data set news` requires a symbol, headline, summary, and an `http(s)` source URL. It writes the audited record into the local news cache; it does not fetch a provider, infer facts, or turn the record into investment advice.
+
 For a failed request, run `lychee research data-request-diagnose --request 1 --symbol QQQ`. It reads only the local fulfillment record, shows the failed actions, a beginner-readable diagnosis, recovery steps, and the exact retry command. It never sends a provider request or exposes configured secrets. The unified next-action queue opens this diagnosis first, then stops for a human confirmation before any retry.
 
 List data-provider gaps extracted from manual-source research requests:

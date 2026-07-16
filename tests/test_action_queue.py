@@ -395,6 +395,100 @@ def test_action_queue_uses_verification_source_for_hypothesis_data_requests(
     assert queue[0].source == data_request.verification_path
 
 
+def test_action_queue_surfaces_manual_audited_news_source(tmp_path: Path) -> None:
+    data_request = ResearchDataRequest(
+        request_id="research-verification-test:hypothesis-data-request:1",
+        created_at="2026-07-05T10:02:00+00:00",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        confidence="需要补证据",
+        request_text="主题新闻已刷新，但没有形成可审计的主题证据。",
+        suggested_commands=[
+            (
+                "lychee data set news --symbol QQQ --headline \"已核验标题\" "
+                "--summary \"与研究问题有关的关键事实\" "
+                "--source-url \"https://...\""
+            ),
+            "lychee research verify --symbol QQQ",
+        ],
+        memo_path="",
+        verification_path=str(tmp_path / "research" / "research-verification-test.json"),
+        suggested_actions=[
+            ResearchDataRequestAction(
+                "manual_source",
+                (
+                    "lychee data set news --symbol QQQ --headline \"已核验标题\" "
+                    "--summary \"与研究问题有关的关键事实\" "
+                    "--source-url \"https://...\""
+                ),
+                auto_executable=False,
+            ),
+            ResearchDataRequestAction("verify", "lychee research verify --symbol QQQ"),
+        ],
+        source_type="verification",
+    )
+    workbench_result = SimpleNamespace(
+        candidates=[],
+        deepen_result=ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        ),
+        fill_result=ResearchGapFillResult(1, [], [], [], []),
+    )
+
+    queue = build_action_queue(
+        tmp_path,
+        workbench_runner=lambda **kwargs: workbench_result,
+        pending_reader=lambda **kwargs: [],
+        data_request_reader=lambda **kwargs: [data_request],
+        provider_backlog_reader=lambda **kwargs: [],
+        radar_reader=lambda **kwargs: OpportunityRadarReport(
+            created_at="2026-07-05T10:00:00+00:00",
+            status="empty",
+            signals=[],
+            warnings=[],
+            disclaimer="非投资建议。",
+        ),
+    )
+
+    assert len(queue) == 1
+    assert queue[0].area == "人工证据"
+    assert queue[0].title == "补充可审计来源: Invesco QQQ Trust"
+    assert queue[0].command.startswith("lychee data set news --symbol QQQ")
+    assert queue[0].source == data_request.verification_path
+
+
+def test_execute_action_queue_marks_manual_news_source_as_manual_required(
+    tmp_path: Path,
+) -> None:
+    item = action_queue.ActionQueueItem(
+        priority=25,
+        area="人工证据",
+        title="补充可审计来源: Invesco QQQ Trust",
+        detail="自动新闻已刷新但未形成主题证据。",
+        command=(
+            "lychee data set news --symbol QQQ --headline \"已核验标题\" "
+            "--summary \"与研究问题有关的关键事实\" "
+            "--source-url \"https://...\""
+        ),
+        source="research-verification-test.json",
+    )
+
+    result = action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        queue_builder=lambda *args, **kwargs: [item],
+    )
+
+    assert result.status == "manual_required"
+    assert result.count == 0
+    assert result.next_command == item.command
+    assert "不会自动执行" in result.message
+
+
 def test_action_queue_turns_failed_data_request_into_provider_diagnostic(
     tmp_path: Path,
 ) -> None:

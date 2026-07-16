@@ -15,6 +15,7 @@ from lychee_alphadesk.core.live_data import (
     read_research_metric_cache,
     run_cached_data_health,
     write_fund_metadata_cache,
+    write_manual_news_event,
     write_research_metric_cache,
 )
 from lychee_alphadesk.core.research_db import init_research_db
@@ -54,6 +55,38 @@ def test_pull_market_prices_writes_alpha_vantage_cache(tmp_path: Path) -> None:
         "volume": 51230000,
         "currency": "USD",
     }
+
+
+def test_write_manual_news_event_adds_auditable_source_to_news_cache(tmp_path: Path) -> None:
+    result = write_manual_news_event(
+        output_dir=tmp_path,
+        symbol="0700.HK",
+        headline="Tencent cloud revenue grows in Hong Kong market",
+        summary=(
+            "Tencent disclosed cloud growth in Hong Kong, which is relevant to the "
+            "platform-company research question."
+        ),
+        source_url="https://example.com/tencent-cloud-source",
+        published_at="2026-07-16T08:00:00+00:00",
+    )
+
+    assert result.domain == "news"
+    assert result.provider == "manual"
+    assert result.count == 1
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["provider"] == "manual"
+    assert cache["rows"] == [
+        {
+            "timestamp": "2026-07-16T08:00:00+00:00",
+            "headline": "Tencent cloud revenue grows in Hong Kong market",
+            "summary": (
+                "Tencent disclosed cloud growth in Hong Kong, which is relevant to the "
+                "platform-company research question."
+            ),
+            "symbols": ["0700.HK"],
+            "source_url": "https://example.com/tencent-cloud-source",
+        }
+    ]
 
 
 def test_pull_market_prices_cools_down_empty_provider_result_until_forced(

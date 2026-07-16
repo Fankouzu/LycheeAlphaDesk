@@ -640,7 +640,7 @@ def _verification_hypothesis_data_requests(
                 continue
             if news_refresh_exhausted and _looks_like_news_request(request_text.casefold()):
                 request_text = _manual_topic_news_request_text()
-                suggested_actions = [_manual_topic_news_action(record)]
+                suggested_actions = _manual_topic_news_actions(record)
             else:
                 suggested_actions = _suggest_data_request_actions(record, request_text)
             requests.append(
@@ -778,12 +778,24 @@ def _manual_topic_news_request_text() -> str:
     )
 
 
-def _manual_topic_news_action(record: ResearchMemoRecord) -> ResearchDataRequestAction:
-    return ResearchDataRequestAction(
-        "manual_source",
-        f"lychee research verify {_research_selector(record)}",
-        auto_executable=False,
-    )
+def _manual_topic_news_actions(record: ResearchMemoRecord) -> list[ResearchDataRequestAction]:
+    symbol = record.symbol.strip().upper() if record.symbol else "<证券代码>"
+    return [
+        ResearchDataRequestAction(
+            "manual_source",
+            (
+                f"lychee data set news --symbol {symbol} --headline \"已核验标题\" "
+                "--summary \"与研究问题有关的关键事实\" "
+                "--source-url \"https://...\""
+            ),
+            auto_executable=False,
+        ),
+        ResearchDataRequestAction(
+            "verify",
+            f"lychee research verify {_research_selector(record)}",
+            auto_executable=False,
+        ),
+    ]
 
 
 def _is_verification_data_request_text(text: str) -> bool:

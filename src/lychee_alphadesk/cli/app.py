@@ -1476,7 +1476,7 @@ def data_pull_filings(
         str,
         typer.Option(
             "--symbols",
-            help="用英文逗号分隔代码，例如 AAPL,TSLA,0700.HK。",
+            help="用英文逗号分隔代码，例如 AAPL,TSLA,0700.HK,000001.SZ。",
         ),
     ],
     limit: Annotated[
@@ -1488,7 +1488,7 @@ def data_pull_filings(
         typer.Option("--output-dir", help="实时缓存输出目录。"),
     ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
-    """拉取近期公司公告：美股使用 SEC EDGAR，港股使用 HKEXnews。"""
+    """拉取近期公司公告：美股使用 SEC EDGAR，港股使用 HKEXnews，A 股使用巨潮资讯。"""
     try:
         result = pull_sec_filings(
             symbols=parse_symbols(symbols),

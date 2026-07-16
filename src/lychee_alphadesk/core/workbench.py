@@ -822,13 +822,27 @@ def run_research_task(
             refreshed_packet,
         ),
     )
+    detail_commands = research_action_commands(refreshed_candidate, refreshed_packet)
+    if refreshed_candidate.data_gaps and any(
+        action.status in {"failed", "no_data"} for action in actions
+    ):
+        detail_commands = [
+            command
+            for command in detail_commands
+            if not command.startswith(("下钻核验:", "研究备忘录:"))
+        ]
     detail = render_research_task_detail(
         refreshed_candidate,
         refreshed_packet,
         action_status=action_status,
+        commands=detail_commands,
     )
     assessment = build_research_assessment(refreshed_candidate, refreshed_packet)
-    run_status = "completed" if all(action.status != "failed" for action in actions) else "partial"
+    run_status = (
+        "completed"
+        if all(action.status not in {"failed", "no_data"} for action in actions)
+        else "partial"
+    )
     artifact_path = _write_research_run_artifact(
         output_dir=output_dir,
         created_at=created_at,
@@ -934,9 +948,13 @@ def build_research_verification_checks(
             detail=_evidence_direction_detail(news_count, topic_relevance),
         )
     )
-    filings_required = candidate.market.upper() in {"US", "HK"} and asset_type == "stock"
+    filings_required = candidate.market.upper() in {"US", "HK", "CN"} and asset_type == "stock"
     if filings_required:
-        filing_source = "SEC 公告/财报" if candidate.market.upper() == "US" else "HKEX 公司公告"
+        filing_source = {
+            "US": "SEC 公告/财报",
+            "HK": "HKEX 公司公告",
+            "CN": "巨潮公司公告",
+        }[candidate.market.upper()]
         checks.append(
             ResearchVerificationCheck(
                 name="公告/财报核验",
@@ -951,7 +969,7 @@ def build_research_verification_checks(
             ResearchVerificationCheck(
                 name="公告/财报核验",
                 status="na",
-                detail="当前任务不要求 SEC 公告/财报核验。",
+                detail="当前任务不要求公司公告/财报核验。",
             )
         )
     if candidate.market.upper() == "US" and asset_type == "stock":
@@ -2595,6 +2613,7 @@ def render_research_task_detail(
     packet: ResearchPacket | None,
     *,
     action_status: str = "",
+    commands: list[str] | None = None,
 ) -> str:
     packet_payload = packet.packet if packet is not None else {}
     local_data = _dict_value(packet_payload.get("local_data"))
@@ -2611,7 +2630,9 @@ def render_research_task_detail(
     financials = _dict_list(local_data.get("financials"))
     research_metrics = _dict_list(local_data.get("research_metrics"))
     data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
-    commands = research_action_commands(candidate, packet)
+    detail_commands = (
+        commands if commands is not None else research_action_commands(candidate, packet)
+    )
     assessment = build_research_assessment(candidate, packet)
     lines = [
         "研究任务面板",
@@ -2682,7 +2703,7 @@ def render_research_task_detail(
     lines.extend(["", "可执行动作"])
     if action_status:
         lines.append(action_status)
-    lines.extend(f"- {command}" for command in commands)
+    lines.extend(f"- {command}" for command in detail_commands)
     lines.append("")
     lines.append("边界: 这是研究工作台快照，不是买卖建议。")
     return "\n".join(lines)
@@ -3193,7 +3214,7 @@ def research_filing_symbols(
     candidate: CandidateCheck,
     packet: ResearchPacket | None,
 ) -> list[str]:
-    if candidate.market.upper() not in {"US", "HK"} or not candidate.symbol:
+    if candidate.market.upper() not in {"US", "HK", "CN"} or not candidate.symbol:
         return []
     if _asset_type(packet) != "stock":
         return []
@@ -3330,14 +3351,27 @@ def _pull_research_action(
             warnings=[str(error)],
             message=f"{research_action_name(action_type)}失败。",
         )
+    if result.count == 0:
+        status = "failed" if result.refreshed and result.warnings else "no_data"
+        message = (
+            f"{research_action_name(action_type)}未完成。"
+            if status == "failed"
+            else f"{research_action_name(action_type)}没有获取到匹配数据。"
+        )
+    elif result.refreshed:
+        status = "pulled"
+        message = f"{research_action_name(action_type)}完成。"
+    else:
+        status = "cached"
+        message = f"{research_action_name(action_type)}使用本地缓存。"
     return ResearchRunAction(
         action_type=action_type,
-        status="pulled" if result.refreshed else "cached",
+        status=status,
         symbols=symbols,
         count=result.count,
         output_path=result.output_path,
         warnings=result.warnings,
-        message=f"{research_action_name(action_type)}完成。",
+        message=message,
     )
 
 

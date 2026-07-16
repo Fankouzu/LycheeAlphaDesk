@@ -1918,6 +1918,64 @@ def test_pull_sec_filings_writes_hkex_announcements_for_hk_symbols(tmp_path: Pat
     ]
 
 
+def test_pull_sec_filings_writes_cninfo_announcements_for_cn_symbols(tmp_path: Path) -> None:
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        assert headers and "LycheeAlphaDesk" in headers["User-Agent"]
+        assert url.endswith("szse_stock.json")
+        return {
+            "stockList": [
+                {
+                    "code": "000001",
+                    "orgId": "gssz0000001",
+                    "zwjc": "平安银行",
+                }
+            ]
+        }
+
+    def post_form_json(
+        url: str,
+        headers: dict[str, str] | None,
+        payload: dict[str, str],
+    ) -> object:
+        assert url.endswith("hisAnnouncement/query")
+        assert headers and headers["X-Requested-With"] == "XMLHttpRequest"
+        assert payload["column"] == "szse"
+        assert payload["stock"] == "000001,gssz0000001"
+        return {
+            "announcements": [
+                {
+                    "announcementTitle": "董事会决议公告",
+                    "announcementTime": 1783008000000,
+                    "adjunctUrl": "finalpage/2026-07-03/1225406051.PDF",
+                    "secCode": "000001",
+                    "secName": "平安银行",
+                }
+            ]
+        }
+
+    result = pull_sec_filings(
+        symbols=["000001.SZ"],
+        output_dir=tmp_path,
+        fetch_json=fetch_json,
+        post_form_json=post_form_json,
+        limit_per_symbol=1,
+    )
+
+    assert result.provider == "cninfo"
+    assert result.count == 1
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["rows"] == [
+        {
+            "date": "2026-07-03",
+            "company": "平安银行",
+            "form": "巨潮公告",
+            "summary": "巨潮资讯公告: 董事会决议公告",
+            "source_url": "https://static.cninfo.com.cn/finalpage/2026-07-03/1225406051.PDF",
+            "symbol": "000001.SZ",
+        }
+    ]
+
+
 def test_cached_snapshot_aggregates_live_cache_files(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir()

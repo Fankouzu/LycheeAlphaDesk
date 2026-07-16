@@ -373,6 +373,70 @@ def test_deepen_research_queue_requires_hkex_filings_for_hk_stocks(
     assert "缺少 0700.HK HKEX 公司公告缓存。" in result.packets[0].packet["data_gaps"]
 
 
+def test_deepen_research_queue_requires_cninfo_filings_for_cn_stocks(
+    tmp_path: Path,
+) -> None:
+    _write_cn_ping_an_seed(tmp_path)
+    (tmp_path / "data").mkdir()
+    _write_market_cache(tmp_path, ["000001.SZ"])
+
+    result = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    assert "缺少 000001.SZ 巨潮公司公告缓存。" in result.packets[0].packet["data_gaps"]
+
+
+def test_fill_research_data_gaps_pulls_cninfo_announcements_for_cn_stocks(
+    tmp_path: Path,
+) -> None:
+    _write_cn_ping_an_seed(tmp_path)
+    (tmp_path / "data").mkdir()
+    _write_market_cache(tmp_path, ["000001.SZ"])
+
+    def pull_filings(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == ["000001.SZ"]
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        output_path = output_dir / "data" / "filings.json"
+        output_path.write_text(
+            json.dumps(
+                {
+                    "provider": "cninfo",
+                    "rows": [
+                        {
+                            "date": "2026-07-05",
+                            "company": "平安银行",
+                            "form": "巨潮公告",
+                            "summary": "巨潮资讯公告: 董事会决议公告",
+                            "source_url": "https://example.com/pingan-board.pdf",
+                            "symbol": "000001.SZ",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("filings", "cninfo", 1, output_path, [])
+
+    result = fill_research_data_gaps(
+        output_dir=tmp_path,
+        fill_news=False,
+        pull_filings=pull_filings,
+    )
+    after = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    assert result.filing_symbols == ["000001.SZ"]
+    assert "缺少 000001.SZ 巨潮公司公告缓存。" not in after.packets[0].packet[
+        "data_gaps"
+    ]
+
+
 def test_fill_research_data_gaps_pulls_hkex_announcements_for_hk_stocks(
     tmp_path: Path,
 ) -> None:
@@ -844,6 +908,49 @@ def _write_hk_tencent_seed(tmp_path: Path) -> None:
                 evidence=[],
                 risk_flags=["市场噪音"],
                 next_actions=["复核主题新闻"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(
+        report,
+        tmp_path,
+        tmp_path / "data" / "discovery-today.json",
+    )
+
+
+def _write_cn_ping_an_seed(tmp_path: Path) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["CN"],
+        sources=[DiscoverySource("test-llm", "CN", "测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="中国金融观察",
+                markets=["CN"],
+                summary="观察 A 股公司公告能否进入研究证据链。",
+                evidence=[],
+                sectors=["Financials"],
+                risk_flags=["测试"],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="平安银行",
+                symbol="000001.SZ",
+                market="CN",
+                asset_type="stock",
+                related_theme="中国金融观察",
+                why_watch="用于验证 A 股公司公告数据链。",
+                evidence=[],
+                risk_flags=["测试"],
+                next_actions=["拉取行情", "拉取公司公告"],
                 confidence="medium",
                 recommendation="research",
             )

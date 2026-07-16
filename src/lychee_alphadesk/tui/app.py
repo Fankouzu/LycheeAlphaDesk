@@ -280,7 +280,7 @@ class AlphaDeskApp(App[None]):
         elif action_id == "pull_filings":
             await self._show_symbol_prompt(
                 "pull_filings",
-                "输入美股或港股公司代码，例如 AAPL,0700.HK",
+                "输入美股、港股或 A 股公司代码，例如 AAPL,0700.HK,000001.SZ",
             )
         elif action_id == "data_health":
             await self._show_data_health()
@@ -1183,7 +1183,8 @@ class AlphaDeskApp(App[None]):
                 if not filing_symbols:
                     await self._replace_action_panel(
                         Static(
-                            "这个任务当前不适合自动拉取公司公告。只有美股或港股股票任务会启用该动作。",
+                            "这个任务当前不适合自动拉取公司公告。"
+                            "只有美股、港股或 A 股股票任务会启用该动作。",
                             id="action-status",
                         )
                     )

@@ -44,12 +44,12 @@ from lychee_alphadesk.core.research_requests import (
 runner = CliRunner()
 
 
-def test_data_pull_filings_help_describes_us_and_hk_sources() -> None:
+def test_data_pull_filings_help_describes_us_hk_and_cn_sources() -> None:
     result = runner.invoke(app, ["data", "pull", "filings", "--help"])
 
     assert result.exit_code == 0
-    assert "美股使用 SEC EDGAR，港股使用 HKEXnews" in result.stdout
-    assert "AAPL,TSLA,0700.HK" in result.stdout
+    assert "美股使用 SEC EDGAR，港股使用 HKEXnews，A 股使用巨潮资讯" in result.stdout
+    assert "AAPL,TSLA,0700.HK,000001.SZ" in result.stdout
 
 
 def test_demo_command_reports_available_demo_files() -> None:

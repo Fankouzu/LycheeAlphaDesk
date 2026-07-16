@@ -5,7 +5,8 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from lychee_alphadesk.providers.demo import (
 
 JsonFetcher = Callable[[str, dict[str, str] | None], object]
 JsonPoster = Callable[[str, dict[str, str] | None, dict[str, object]], object]
+FormJsonPoster = Callable[[str, dict[str, str] | None, dict[str, str]], object]
 TextFetcher = Callable[[str, dict[str, str] | None], str]
 
 SEC_USER_AGENT = (
@@ -43,6 +45,10 @@ HKEX_ACTIVE_STOCKS_ENDPOINT = (
 )
 HKEX_TITLE_SEARCH_ENDPOINT = "https://www1.hkexnews.hk/search/titlesearch.xhtml"
 HKEX_NEWS_BASE_URL = "https://www1.hkexnews.hk"
+CNINFO_STOCK_LIST_ENDPOINT = "https://www.cninfo.com.cn/new/data/szse_stock.json"
+CNINFO_ANNOUNCEMENT_ENDPOINT = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
+CNINFO_STATIC_BASE_URL = "https://static.cninfo.com.cn/"
+CNINFO_TIMEZONE = timezone(timedelta(hours=8))
 NEWS_ENTITY_QUERIES: dict[str, str] = {
     "0700.HK": "Tencent OR 腾讯",
     "2800.HK": "Hang Seng Index OR 恒生指数 OR 盈富基金",
@@ -776,16 +782,27 @@ def pull_sec_filings(
     output_dir: Path,
     fetch_json: JsonFetcher | None = None,
     fetch_text: TextFetcher | None = None,
+    post_form_json: FormJsonPoster | None = None,
     limit_per_symbol: int = 5,
 ) -> PullResult:
     headers = {"User-Agent": SEC_USER_AGENT, "Accept": "application/json"}
     fetcher = fetch_json or _fetch_json
     text_fetcher = fetch_text or _fetch_text
+    form_poster = post_form_json or _post_form_json
     rows: list[FilingSummary] = []
     warnings: list[str] = []
     normalized_symbols = [symbol.strip().upper() for symbol in symbols if symbol.strip()]
     hk_symbols = [symbol for symbol in normalized_symbols if symbol.endswith(".HK")]
-    sec_symbols = [symbol for symbol in normalized_symbols if not symbol.endswith(".HK")]
+    cn_symbols = [
+        symbol
+        for symbol in normalized_symbols
+        if symbol.endswith((".SH", ".SZ"))
+    ]
+    sec_symbols = [
+        symbol
+        for symbol in normalized_symbols
+        if symbol not in {*hk_symbols, *cn_symbols}
+    ]
     providers: list[str] = []
 
     if sec_symbols:
@@ -865,6 +882,49 @@ def pull_sec_filings(
                     _parse_hkex_recent_filings(
                         symbol=symbol,
                         html=html,
+                        limit=limit_per_symbol,
+                    )
+                )
+
+    if cn_symbols:
+        providers.append("cninfo")
+        cninfo_headers = {
+            "User-Agent": SEC_USER_AGENT,
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Referer": "https://www.cninfo.com.cn/new/commonUrl?url=disclosure/list/search",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        try:
+            stock_payload = _fetch_provider_json(
+                fetcher,
+                CNINFO_STOCK_LIST_ENDPOINT,
+                headers,
+            )
+        except RuntimeError as error:
+            warnings.append(f"巨潮证券清单拉取失败: {error}")
+        else:
+            stocks = _parse_cninfo_stocks(stock_payload)
+            for symbol in cn_symbols:
+                stock = stocks.get(_cninfo_stock_code(symbol))
+                if stock is None:
+                    warnings.append(f"未在巨潮证券清单中找到 {symbol}")
+                    continue
+                try:
+                    payload = _post_provider_form_json(
+                        form_poster,
+                        CNINFO_ANNOUNCEMENT_ENDPOINT,
+                        cninfo_headers,
+                        _cninfo_announcement_payload(stock),
+                    )
+                except RuntimeError as error:
+                    warnings.append(f"{symbol} 巨潮公告拉取失败: {error}")
+                    continue
+                rows.extend(
+                    _parse_cninfo_recent_filings(
+                        symbol=symbol,
+                        company=stock.company,
+                        payload=payload,
                         limit=limit_per_symbol,
                     )
                 )
@@ -1097,6 +1157,24 @@ def _post_json(
         raise RuntimeError(f"无法从 {_sanitize_url(url)} 获取 JSON: {error}") from error
 
 
+def _post_form_json(
+    url: str,
+    headers: dict[str, str] | None,
+    payload: dict[str, str],
+) -> object:
+    request = urllib.request.Request(
+        url,
+        data=urllib.parse.urlencode(payload).encode("utf-8"),
+        headers=headers or {},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"无法从 {_sanitize_url(url)} 获取 JSON: {error}") from error
+
+
 def _fetch_provider_json(
     fetch_json: JsonFetcher,
     url: str,
@@ -1127,6 +1205,18 @@ def _post_provider_json(
 ) -> object:
     try:
         return post_json(url, headers, payload)
+    except RuntimeError as error:
+        raise RuntimeError(_sanitize_error_message(str(error))) from error
+
+
+def _post_provider_form_json(
+    post_form_json: FormJsonPoster,
+    url: str,
+    headers: dict[str, str] | None,
+    payload: dict[str, str],
+) -> object:
+    try:
+        return post_form_json(url, headers, payload)
     except RuntimeError as error:
         raise RuntimeError(_sanitize_error_message(str(error))) from error
 
@@ -2064,6 +2154,110 @@ def _hkex_company_name(value: str) -> str:
         if compact:
             return compact
     return _compact_hkex_text(cleaned)
+
+
+@dataclass(frozen=True)
+class _CNINFOStock:
+    code: str
+    organization_id: str
+    company: str
+
+
+def _parse_cninfo_stocks(payload: object) -> dict[str, _CNINFOStock]:
+    if not isinstance(payload, dict):
+        return {}
+    rows = payload.get("stockList")
+    if not isinstance(rows, list):
+        return {}
+    stocks: dict[str, _CNINFOStock] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("code") or "").strip().upper()
+        organization_id = str(row.get("orgId") or "").strip()
+        company = _compact_cninfo_text(str(row.get("zwjc") or ""))
+        if code and organization_id:
+            stocks[code] = _CNINFOStock(code, organization_id, company or code)
+    return stocks
+
+
+def _cninfo_stock_code(symbol: str) -> str:
+    return symbol.upper().split(".", maxsplit=1)[0]
+
+
+def _cninfo_announcement_payload(stock: _CNINFOStock) -> dict[str, str]:
+    return {
+        "pageNum": "1",
+        "pageSize": "30",
+        "column": "szse",
+        "tabName": "fulltext",
+        "plate": "",
+        "stock": f"{stock.code},{stock.organization_id}",
+        "searchkey": "",
+        "secid": "",
+        "category": "",
+        "trade": "",
+        "seDate": "",
+        "sortName": "",
+        "sortType": "",
+        "isHLtitle": "true",
+    }
+
+
+def _parse_cninfo_recent_filings(
+    *,
+    symbol: str,
+    company: str,
+    payload: object,
+    limit: int,
+) -> list[FilingSummary]:
+    if not isinstance(payload, dict):
+        return []
+    announcements = payload.get("announcements")
+    if not isinstance(announcements, list):
+        return []
+    rows: list[FilingSummary] = []
+    for announcement in announcements[:limit]:
+        if not isinstance(announcement, dict):
+            continue
+        filing_date = _cninfo_release_date(announcement.get("announcementTime"))
+        title = _compact_cninfo_text(str(announcement.get("announcementTitle") or ""))
+        source_path = str(announcement.get("adjunctUrl") or "").strip()
+        if not filing_date or not title or not source_path:
+            continue
+        rows.append(
+            FilingSummary(
+                date=filing_date,
+                company=_compact_cninfo_text(
+                    str(announcement.get("secName") or company or symbol)
+                ),
+                form="巨潮公告",
+                summary=f"巨潮资讯公告: {title}",
+                source_url=urllib.parse.urljoin(CNINFO_STATIC_BASE_URL, source_path),
+                symbol=symbol,
+            )
+        )
+    return rows
+
+
+def _cninfo_release_date(value: object) -> str:
+    if isinstance(value, int | float):
+        timestamp = float(value)
+        if timestamp > 10_000_000_000:
+            timestamp /= 1000
+        return datetime.fromtimestamp(timestamp, CNINFO_TIMEZONE).date().isoformat()
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        return ""
+
+
+def _compact_cninfo_text(value: str) -> str:
+    without_tags = re.sub(r"<[^>]+>", "", unescape(value))
+    return " ".join(without_tags.split())
 
 
 def _parse_sec_financial_snapshot(

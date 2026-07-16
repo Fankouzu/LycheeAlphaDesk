@@ -398,7 +398,7 @@ def _symbols_missing_filings(
         symbol = _normalized_symbol(item)
         if (
             symbol
-            and item.market in {"US", "HK"}
+            and item.market in {"US", "HK", "CN"}
             and item.asset_type.lower() == "stock"
             and (force or not _related_filings(symbol, item.display_name, filings))
         ):
@@ -1198,6 +1198,8 @@ def _data_gaps(
             gaps.append(f"缺少 {symbol} SEC 公告缓存。")
         elif item.market == "HK":
             gaps.append(f"缺少 {symbol} HKEX 公司公告缓存。")
+        elif item.market == "CN":
+            gaps.append(f"缺少 {symbol} 巨潮公司公告缓存。")
     return gaps
 
 

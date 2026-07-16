@@ -1009,7 +1009,7 @@ def _suggest_data_request_actions(
     if (
         _looks_like_filing_request(lowered)
         and record.symbol
-        and record.market.upper() in {"US", "HK"}
+        and record.market.upper() in {"US", "HK", "CN"}
     ):
         actions.append(
             ResearchDataRequestAction(

@@ -22,6 +22,7 @@ from lychee_alphadesk.core.workbench import (
     WorkbenchCheckResult,
     _next_step,
     _packet_related_news_count,
+    _pull_research_action,
     beginner_research_brief,
     build_research_evidence_change,
     build_research_verification_checks,
@@ -50,6 +51,40 @@ def test_next_step_summarizes_raw_data_gaps_as_a_single_user_action() -> None:
     assert step == "先补齐行情、新闻数据，再重新核验。"
     assert "discovery" not in step
     assert "。；" not in step
+
+
+def test_research_run_action_marks_empty_provider_warnings_as_failed() -> None:
+    action = _pull_research_action(
+        action_type="refresh_news",
+        symbols=["000001.SZ"],
+        call=lambda: PullResult(
+            "news",
+            "auto",
+            0,
+            Path("/tmp/news-events.json"),
+            ["Marketaux 被拒绝访问（HTTP 403）"],
+        ),
+    )
+
+    assert action.status == "failed"
+    assert action.message == "刷新新闻未完成。"
+
+
+def test_research_run_action_marks_empty_clean_response_as_no_data() -> None:
+    action = _pull_research_action(
+        action_type="refresh_news",
+        symbols=["000001.SZ"],
+        call=lambda: PullResult(
+            "news",
+            "auto",
+            0,
+            Path("/tmp/news-events.json"),
+            [],
+        ),
+    )
+
+    assert action.status == "no_data"
+    assert action.message == "刷新新闻没有获取到匹配数据。"
 
 
 def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
@@ -532,6 +567,41 @@ def test_research_action_commands_include_hkex_filings_for_hk_stocks() -> None:
     assert not any("刷新财务快照" in command for command in commands)
 
 
+def test_research_action_commands_include_cninfo_filings_for_cn_stocks() -> None:
+    candidate = CandidateCheck(
+        display_name="平安银行",
+        market="CN",
+        symbol="000001.SZ",
+        proxy_symbols=[],
+        evidence_count=0,
+        gap_count=1,
+        data_gaps=["缺少 000001.SZ 巨潮公司公告缓存。"],
+        status="blocked",
+        explanation="",
+        beginner_question="",
+        why_it_matters="",
+        observation_entry="000001.SZ",
+        what_to_check="",
+        next_step="补公司公告",
+        priority="P0 待补数据",
+        evidence_status="",
+    )
+    packet = ResearchPacket(
+        packet_id="research:test:cninfo-action",
+        candidate_id=1,
+        created_at="2026-07-05T10:00:00+00:00",
+        display_name="平安银行",
+        symbol="000001.SZ",
+        market="CN",
+        packet={"candidate": {"asset_type": "stock"}, "local_data": {}},
+    )
+
+    commands = research_action_commands(candidate, packet)
+
+    assert "刷新公司公告: lychee data pull filings --symbols 000001.SZ" in commands
+    assert not any("刷新财务快照" in command for command in commands)
+
+
 def test_research_verification_marks_hkex_announcements_as_required_for_hk_stocks() -> None:
     candidate = CandidateCheck(
         display_name="Tencent",
@@ -588,6 +658,64 @@ def test_research_verification_marks_hkex_announcements_as_required_for_hk_stock
 
     assert filing_check.status == "pass"
     assert filing_check.detail == "可核验 HKEX 公司公告 1 条。"
+
+
+def test_research_verification_marks_cninfo_announcements_as_required_for_cn_stocks() -> None:
+    candidate = CandidateCheck(
+        display_name="平安银行",
+        market="CN",
+        symbol="000001.SZ",
+        proxy_symbols=[],
+        evidence_count=1,
+        gap_count=0,
+        data_gaps=[],
+        status="ready",
+        explanation="",
+        beginner_question="",
+        why_it_matters="",
+        observation_entry="000001.SZ",
+        what_to_check="",
+        next_step="核验公告",
+        priority="P1 一致性复核",
+        evidence_status="",
+    )
+    packet = ResearchPacket(
+        packet_id="research:test:cninfo-verification",
+        candidate_id=1,
+        created_at="2026-07-05T10:00:00+00:00",
+        display_name="平安银行",
+        symbol="000001.SZ",
+        market="CN",
+        packet={
+            "candidate": {"asset_type": "stock"},
+            "local_data": {
+                "price": {
+                    "symbol": "000001.SZ",
+                    "date": "2026-07-05",
+                    "close": 12.0,
+                    "volume": 100000,
+                    "currency": "CNY",
+                },
+                "related_news": [],
+                "filings": [
+                    {
+                        "date": "2026-07-05",
+                        "company": "平安银行",
+                        "form": "巨潮公告",
+                        "summary": "巨潮资讯公告: 董事会决议公告",
+                        "symbol": "000001.SZ",
+                        "source_url": "https://example.com/pingan-board.pdf",
+                    }
+                ],
+            },
+        },
+    )
+
+    checks = build_research_verification_checks(candidate, packet)
+    filing_check = next(check for check in checks if check.name == "公告/财报核验")
+
+    assert filing_check.status == "pass"
+    assert filing_check.detail == "可核验 巨潮公司公告 1 条。"
 
 
 def test_workbench_check_marks_blocked_when_research_gaps_remain(
@@ -1334,6 +1462,49 @@ def test_research_run_refreshes_topic_news_for_weak_evidence(
     assert result.assessment.stage == "ready_for_drilldown"
     assert "阶段: 可下钻研究" in result.detail
     assert "AI storage demand growth improves" in result.detail
+
+
+def test_research_run_hides_followup_commands_after_unresolved_empty_refresh(
+    tmp_path: Path,
+) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(
+        tmp_path,
+        include_stock_price=True,
+        include_filings=True,
+    )
+    (tmp_path / "data" / "news-events.json").write_text(
+        json.dumps({"provider": "newsapi", "rows": []}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    def empty_news_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        return PullResult(
+            "news",
+            "auto",
+            0,
+            output_dir / "data" / "news-events.json",
+            ["NewsAPI 没有返回匹配新闻"],
+        )
+
+    result = run_research_task(
+        output_dir=tmp_path,
+        symbol="STX",
+        force=True,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+        pull_market=_fake_market_pull,
+        pull_news=empty_news_pull,
+        pull_filings=_fake_filings_pull,
+    )
+
+    assert result.status == "partial"
+    assert result.actions[1].status == "failed"
+    assert "刷新新闻 | 失败" in result.detail
+    assert "- 刷新新闻: lychee data pull news --symbols STX" in result.detail
+    assert "- 下钻核验: lychee research verify --symbol STX" not in result.detail
+    assert "- 研究备忘录: lychee research memo --symbol STX" not in result.detail
 
 
 def test_research_run_stops_repeating_topic_refresh_after_exhausted_news(

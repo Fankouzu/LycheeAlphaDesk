@@ -556,6 +556,8 @@ def list_provider_backlog_items(
         name=name,
         limit=limit,
     ):
+        if _is_manual_topic_news_request(request):
+            continue
         gap = _classify_provider_gap(request.request_text)
         if not research_data_request_needs_manual_source(request) and not gap.always_backlog:
             continue
@@ -579,6 +581,10 @@ def list_provider_backlog_items(
             )
         )
     return backlog
+
+
+def _is_manual_topic_news_request(request: ResearchDataRequest) -> bool:
+    return any(action.action_type == "manual_source" for action in request.suggested_actions)
 
 
 def _memo_task_key(record: ResearchMemoRecord) -> tuple[str, str, str]:
@@ -620,6 +626,11 @@ def _verification_hypothesis_data_requests(
         if latest_per_task and task_key in seen_tasks:
             continue
         seen_tasks.add(task_key)
+        news_refresh_exhausted = _verification_follows_completed_news_refresh(
+            output_dir,
+            record,
+            path,
+        )
         for index, request_text in enumerate(
             _verification_hypothesis_request_texts(payload),
             start=1,
@@ -627,7 +638,11 @@ def _verification_hypothesis_data_requests(
             request_id = f"{path.stem}:hypothesis-data-request:{index}"
             if request_id in handled_request_ids:
                 continue
-            suggested_actions = _suggest_data_request_actions(record, request_text)
+            if news_refresh_exhausted and _looks_like_news_request(request_text.casefold()):
+                request_text = _manual_topic_news_request_text()
+                suggested_actions = [_manual_topic_news_action(record)]
+            else:
+                suggested_actions = _suggest_data_request_actions(record, request_text)
             requests.append(
                 ResearchDataRequest(
                     request_id=request_id,
@@ -719,6 +734,58 @@ def _verification_hypothesis_request_texts(payload: dict[str, object]) -> list[s
     ]
 
 
+def _verification_follows_completed_news_refresh(
+    output_dir: Path,
+    record: ResearchMemoRecord,
+    verification_path: Path,
+) -> bool:
+    for fulfillment in list_research_data_request_fulfillments(output_dir, limit=500):
+        if not _fulfillment_matches_record(fulfillment, record):
+            continue
+        executions = _dict_list(fulfillment.payload.get("executions"))
+        has_news = any(
+            _string_value(execution.get("action_type")) == "news"
+            and _string_value(execution.get("status")) in {"completed", "cached"}
+            and _int_value(execution.get("count")) > 0
+            for execution in executions
+        )
+        if not has_news:
+            continue
+        return any(
+            _string_value(execution.get("action_type")) == "verify"
+            and _string_value(execution.get("status")) == "completed"
+            and _string_value(execution.get("output_path")) == str(verification_path)
+            for execution in executions
+        )
+    return False
+
+
+def _fulfillment_matches_record(
+    fulfillment: ResearchDataRequestFulfillmentRecord,
+    record: ResearchMemoRecord,
+) -> bool:
+    if fulfillment.market.strip().upper() != record.market.strip().upper():
+        return False
+    if fulfillment.symbol and record.symbol:
+        return fulfillment.symbol.strip().upper() == record.symbol.strip().upper()
+    return fulfillment.display_name.strip().casefold() == record.display_name.strip().casefold()
+
+
+def _manual_topic_news_request_text() -> str:
+    return (
+        "主题新闻已刷新，但没有形成可审计的主题证据。不要重复刷新同一查询；"
+        "请先复核现有新闻与研究问题的匹配度，必要时补充一手或可授权的来源。"
+    )
+
+
+def _manual_topic_news_action(record: ResearchMemoRecord) -> ResearchDataRequestAction:
+    return ResearchDataRequestAction(
+        "manual_source",
+        f"lychee research verify {_research_selector(record)}",
+        auto_executable=False,
+    )
+
+
 def _is_verification_data_request_text(text: str) -> bool:
     if not text or text == "暂无下一批数据请求。":
         return False
@@ -750,6 +817,16 @@ def _read_json_dict(path: Path) -> dict[str, object]:
 
 def _dict_value(value: object) -> dict[str, object]:
     return value if isinstance(value, dict) else {}
+
+
+def _dict_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _int_value(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def _string_value(value: object) -> str:
@@ -873,6 +950,15 @@ def _execute_data_request_action(
     write_fund_guide: WriteFundGuide,
 ) -> ResearchDataRequestExecution:
     try:
+        if action.action_type == "manual_source":
+            return ResearchDataRequestExecution(
+                action_type=action.action_type,
+                status="manual_required",
+                command=action.command,
+                count=0,
+                output_path=None,
+                message="请先补充可审计的主题来源，再重新核验。",
+            )
         if action.action_type == "fund_metadata_guide":
             if not request.symbol:
                 raise ValueError("基金资料向导需要证券代码。")

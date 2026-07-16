@@ -23,7 +23,9 @@ from lychee_alphadesk.core.research import (
     fill_research_data_gaps,
 )
 from lychee_alphadesk.core.research_db import (
+    ResearchDataRequestFulfillmentRecord,
     ResearchEvidenceReviewRecord,
+    list_research_data_request_fulfillments,
     list_research_evidence_reviews,
     write_research_evidence_review_record,
     write_research_review_record,
@@ -3744,11 +3746,20 @@ def _candidate_checks(
                 command_limit=command_limit,
             ),
         )
+        data_request_news_state = (
+            _latest_data_request_topic_news_state(output_dir, candidate_check, packet)
+            if output_dir is not None
+            else ""
+        )
         if output_dir is not None and _latest_verification_requires_fund_metadata(
             output_dir,
             candidate_check,
         ):
             candidate_check = _mark_fund_metadata_review(candidate_check)
+        elif data_request_news_state == "exhausted":
+            candidate_check = _mark_topic_news_exhausted(candidate_check)
+        elif data_request_news_state == "review_ready":
+            candidate_check = _mark_topic_news_review_ready(candidate_check)
         elif output_dir is not None and _latest_research_run_exhausted_topic_news(
             output_dir,
             candidate_check,
@@ -3859,6 +3870,42 @@ def _has_successful_topic_news_refresh(actions: list[ResearchRunAction]) -> bool
         and action.count > 0
     ]
     return bool(topic_refreshes)
+
+
+def _latest_data_request_topic_news_state(
+    output_dir: Path,
+    candidate: CandidateCheck,
+    packet: ResearchPacket | None,
+) -> str:
+    for record in list_research_data_request_fulfillments(output_dir, limit=500):
+        if not _fulfillment_matches_candidate(record, candidate):
+            continue
+        if not _fulfillment_refreshed_news(record):
+            return ""
+        return "review_ready" if _packet_topic_news_count(candidate, packet) else "exhausted"
+    return ""
+
+
+def _fulfillment_matches_candidate(
+    record: ResearchDataRequestFulfillmentRecord,
+    candidate: CandidateCheck,
+) -> bool:
+    if record.market.strip().upper() != candidate.market.strip().upper():
+        return False
+    if candidate.symbol and record.symbol:
+        return candidate.symbol.strip().upper() == record.symbol.strip().upper()
+    return record.display_name.strip().casefold() == candidate.display_name.strip().casefold()
+
+
+def _fulfillment_refreshed_news(record: ResearchDataRequestFulfillmentRecord) -> bool:
+    for execution in _dict_list(record.payload.get("executions")):
+        if _string_value(execution.get("action_type")) != "news":
+            continue
+        if _string_value(execution.get("status")) not in {"completed", "cached"}:
+            continue
+        if _int_value(execution.get("count")) > 0:
+            return True
+    return False
 
 
 def _latest_research_run_exhausted_topic_news(

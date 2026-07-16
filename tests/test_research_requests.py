@@ -3,7 +3,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from lychee_alphadesk.core.live_data import FundMetadataGuide, PullResult
-from lychee_alphadesk.core.research_db import write_research_memo_record
+from lychee_alphadesk.core.research_db import (
+    write_research_data_request_fulfillment_record,
+    write_research_memo_record,
+)
 from lychee_alphadesk.core.research_requests import (
     diagnose_research_data_request,
     fulfill_research_data_request,
@@ -87,6 +90,56 @@ def test_research_data_requests_include_verification_hypothesis_requests(
         "lychee research verify --symbol QQQ",
     ]
     assert requests[1].suggested_commands == ["lychee research verify --symbol QQQ"]
+
+
+def test_verification_request_stops_repeating_news_after_completed_refresh(
+    tmp_path: Path,
+) -> None:
+    verification_path = _write_verification_with_hypothesis_requests(
+        tmp_path,
+        ["补齐最高优先级缺口: 缺少可审计新闻证据，需先刷新个股新闻缓存。"],
+    )
+    fulfillment_path = tmp_path / "research" / "research-data-request-fulfillment.json"
+    fulfillment_path.write_text("{}", encoding="utf-8")
+    write_research_data_request_fulfillment_record(
+        output_dir=tmp_path,
+        fulfillment_id="research-data-request:QQQ:news",
+        created_at="2026-07-05T10:01:00+00:00",
+        request_id="research-verification:QQQ:news",
+        display_name="Invesco QQQ Trust",
+        symbol="QQQ",
+        market="US",
+        status="completed",
+        action_count=2,
+        fulfillment_path=fulfillment_path,
+        output_path=tmp_path / "data" / "news-events.json",
+        payload={
+            "executions": [
+                {
+                    "action_type": "news",
+                    "status": "completed",
+                    "count": 8,
+                },
+                {
+                    "action_type": "verify",
+                    "status": "completed",
+                    "count": 1,
+                    "output_path": str(verification_path),
+                },
+            ]
+        },
+    )
+
+    requests = list_research_data_requests(tmp_path, symbol="QQQ")
+
+    assert len(requests) == 1
+    assert "不要重复刷新同一查询" in requests[0].request_text
+    assert research_data_request_needs_manual_source(requests[0])
+    assert [action.action_type for action in requests[0].suggested_actions] == [
+        "manual_source"
+    ]
+    assert requests[0].suggested_commands == ["lychee research verify --symbol QQQ"]
+    assert list_provider_backlog_items(tmp_path, symbol="QQQ") == []
 
 
 def test_research_data_requests_prefer_latest_memo_over_verification_hypothesis(

@@ -2258,7 +2258,8 @@ def _print_research_data_requests(requests: list[ResearchDataRequest]) -> None:
             soft_wrap=True,
         )
         console.print(f"   请求: {item.request_text}", soft_wrap=True)
-        if research_data_request_needs_manual_source(item):
+        needs_manual_source = research_data_request_needs_manual_source(item)
+        if needs_manual_source:
             console.print(
                 "   说明: 这类数据当前没有自动补数据命令，需要人工补来源或等待插件接入。",
                 soft_wrap=True,
@@ -2266,11 +2267,14 @@ def _print_research_data_requests(requests: list[ResearchDataRequest]) -> None:
         console.print("   建议命令:")
         for command in item.suggested_commands:
             console.print(f"   - {command}", soft_wrap=True)
-        console.print(
-            f"   执行支持的动作: lychee research run-data-request --request {index} "
-            f"{_research_selector(item.symbol, item.display_name)}",
-            soft_wrap=True,
-        )
+        if needs_manual_source:
+            console.print("   自动执行: 已暂停，等待人工补充来源后再核验。", soft_wrap=True)
+        else:
+            console.print(
+                f"   执行支持的动作: lychee research run-data-request --request {index} "
+                f"{_research_selector(item.symbol, item.display_name)}",
+                soft_wrap=True,
+            )
         if item.source_type == "verification":
             console.print(f"   来源核验: {item.verification_path}", soft_wrap=True)
         else:

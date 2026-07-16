@@ -11,7 +11,10 @@ from lychee_alphadesk.core.discovery import (
 )
 from lychee_alphadesk.core.live_data import PullResult, write_research_metric_cache
 from lychee_alphadesk.core.research import ResearchPacket
-from lychee_alphadesk.core.research_db import write_discovery_research_run
+from lychee_alphadesk.core.research_db import (
+    write_discovery_research_run,
+    write_research_data_request_fulfillment_record,
+)
 from lychee_alphadesk.core.workbench import (
     CandidateCheck,
     ResearchDeepenResult,
@@ -1368,6 +1371,62 @@ def test_workbench_check_remembers_exhausted_topic_news_run(tmp_path: Path) -> N
     assert repeated_check.candidates[0].topic_news_exhausted is True
     assert repeated_check.candidates[0].next_command == "lychee research verify --symbol STX"
     assert "lychee research run --symbol STX --force" not in repeated_check.beginner_brief
+
+
+def test_workbench_stops_auto_news_refresh_after_data_request_returns_no_topic_evidence(
+    tmp_path: Path,
+) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(
+        tmp_path,
+        include_stock_price=True,
+        news_headline="Generic market commentary",
+        news_summary="Broad news without the AI storage research theme.",
+    )
+    (tmp_path / "data" / "news-events.json").write_text(
+        json.dumps({"provider": "newsapi", "rows": []}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    fulfillment_path = tmp_path / "research" / "request-fulfillment.json"
+    fulfillment_path.parent.mkdir(exist_ok=True)
+    fulfillment_path.write_text("{}", encoding="utf-8")
+    write_research_data_request_fulfillment_record(
+        output_dir=tmp_path,
+        fulfillment_id="data-request:2026-07-05T11:00:00+00:00:STX",
+        created_at="2026-07-05T11:00:00+00:00",
+        request_id="verification:STX:news",
+        display_name="Seagate",
+        symbol="STX",
+        market="US",
+        status="completed",
+        action_count=2,
+        fulfillment_path=fulfillment_path,
+        output_path=tmp_path / "data" / "news-events.json",
+        payload={
+            "executions": [
+                {
+                    "action_type": "news",
+                    "status": "completed",
+                    "count": 5,
+                },
+                {
+                    "action_type": "verify",
+                    "status": "completed",
+                    "count": 1,
+                },
+            ]
+        },
+    )
+
+    result = run_workbench_check(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 5, tzinfo=UTC),
+    )
+
+    candidate = result.candidates[0]
+    assert candidate.topic_news_exhausted is True
+    assert candidate.next_command == "lychee research verify --symbol STX"
+    assert "lychee research run --symbol STX --force" not in result.beginner_brief
 
 
 def test_research_run_routes_refreshed_mixed_news_to_verification(

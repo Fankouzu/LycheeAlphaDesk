@@ -1034,7 +1034,20 @@ def _pull_eastmoney_daily(
             "lmt": "5",
         }
     )
-    payload = _fetch_provider_json(fetcher, url, None)
+    try:
+        payload = _fetch_provider_json(
+            fetcher,
+            url,
+            {
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 Chrome/138 Safari/537.36"
+                ),
+                "Referer": "https://quote.eastmoney.com/",
+            },
+        )
+    except RuntimeError:
+        payload = _fetch_provider_json(fetcher, url, None)
     return _parse_eastmoney_daily(symbol, payload)
 
 

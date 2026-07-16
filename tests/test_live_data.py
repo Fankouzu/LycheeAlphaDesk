@@ -528,6 +528,9 @@ def test_pull_market_prices_auto_falls_back_after_tushare_permission_denial(
 
     def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
         assert "push2his.eastmoney.com" in url
+        assert headers is not None
+        assert headers["User-Agent"].startswith("Mozilla/5.0")
+        assert headers["Referer"] == "https://quote.eastmoney.com/"
         return {
             "data": {
                 "klines": [
@@ -550,6 +553,38 @@ def test_pull_market_prices_auto_falls_back_after_tushare_permission_denial(
         "600519.SH Tushare 行情拉取失败: Tushare daily 接口权限不足（40203）: "
         "抱歉，您没有接口(daily)访问权限；已改用 Eastmoney"
     ]
+
+
+def test_pull_market_prices_retries_eastmoney_without_headers_after_connection_failure(
+    tmp_path: Path,
+) -> None:
+    eastmoney_headers: list[dict[str, str] | None] = []
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        if "push2his.eastmoney.com" in url:
+            eastmoney_headers.append(headers)
+            if headers is not None:
+                raise RuntimeError("browser profile connection closed")
+            return {
+                "data": {
+                    "klines": [
+                        "2026-07-16,478.0,482.6,494.8,477.4,34417022,0,0,0,0,0"
+                    ]
+                }
+            }
+        raise RuntimeError("Yahoo unavailable")
+
+    result = pull_market_prices(
+        symbols=["0700.HK"],
+        output_dir=tmp_path,
+        provider_id="eastmoney",
+        fetch_json=fetch_json,
+    )
+
+    assert result.count == 1
+    assert result.warnings == []
+    assert eastmoney_headers[0] is not None
+    assert eastmoney_headers[1] is None
 
 
 def test_pull_market_prices_auto_keeps_alpha_rows_when_eastmoney_fails(

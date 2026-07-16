@@ -1225,6 +1225,116 @@ def test_pull_news_events_writes_finnhub_cache(tmp_path: Path) -> None:
     assert entries[0].row_count == 1
 
 
+def test_pull_news_events_writes_gdelt_entity_mapped_cache(tmp_path: Path) -> None:
+    config_path = save_config(default_config(), tmp_path / "config.yaml")
+    seen_urls: list[str] = []
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        seen_urls.append(url)
+        assert "api.gdeltproject.org/api/v2/doc/doc" in url
+        assert "Tencent" in url
+        return {
+            "articles": [
+                {
+                    "url": "https://example.com/tencent-ai",
+                    "title": "Tencent expands AI cloud services",
+                    "seendate": "20260716T084500Z",
+                    "domain": "example.com",
+                    "language": "English",
+                    "sourcecountry": "Hong Kong",
+                }
+            ]
+        }
+
+    result = pull_news_events(
+        symbols=["0700.HK"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="gdelt",
+        start_date="2026-07-10",
+        end_date="2026-07-16",
+        fetch_json=fetch_json,
+    )
+
+    assert result.provider == "gdelt"
+    assert result.count == 1
+    assert seen_urls
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["rows"][0]["symbols"] == ["0700.HK"]
+    assert cache["rows"][0]["headline"] == "Tencent expands AI cloud services"
+    assert cache["rows"][0]["timestamp"] == "2026-07-16T08:45:00+00:00"
+
+
+def test_auto_news_provider_uses_gdelt_after_configured_provider_denials(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["marketaux"].value = "demo-marketaux-key"
+    config.providers["finnhub"].value = "demo-finnhub-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        if "marketaux" in url or "finnhub" in url:
+            raise RuntimeError(f"Could not fetch JSON from {url}: HTTP Error 403: Forbidden")
+        assert "api.gdeltproject.org" in url
+        return {
+            "articles": [
+                {
+                    "url": "https://example.com/tencent-ai",
+                    "title": "Tencent AI update",
+                    "seendate": "20260716T084500Z",
+                }
+            ]
+        }
+
+    result = pull_news_events(
+        symbols=["0700.HK"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        fetch_json=fetch_json,
+    )
+
+    assert result.provider == "gdelt"
+    assert result.count == 1
+    assert len(result.warnings) == 2
+    assert all("被拒绝访问" in warning for warning in result.warnings)
+
+
+def test_auto_news_provider_uses_gdelt_when_configured_source_has_no_rows(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["newsapi"].value = "demo-newsapi-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        if "newsapi.org" in url:
+            return {"articles": []}
+        assert "api.gdeltproject.org" in url
+        return {
+            "articles": [
+                {
+                    "url": "https://example.com/tencent-ai",
+                    "title": "Tencent AI update",
+                    "seendate": "20260716T084500Z",
+                }
+            ]
+        }
+
+    result = pull_news_events(
+        symbols=["0700.HK"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        fetch_json=fetch_json,
+    )
+
+    assert result.provider == "gdelt"
+    assert result.count == 1
+    assert any("NewsAPI 没有返回匹配新闻" in warning for warning in result.warnings)
+
+
 def test_pull_news_events_without_symbols_writes_market_news_cache(tmp_path: Path) -> None:
     config = default_config()
     config.providers["newsapi"].value = "demo-newsapi-key"

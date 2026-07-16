@@ -2,6 +2,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
@@ -3811,6 +3812,25 @@ def test_data_source_diagnostic_retains_tushare_permission_with_timeout() -> Non
 
     assert "数据源接口权限不足" in diagnostic
     assert "备用数据源请求超时" in diagnostic
+
+
+def test_workbench_fallback_notice_does_not_escalate_successful_news_fallback() -> None:
+    actions = [
+        SimpleNamespace(
+            action_type="news_events",
+            status="partial",
+            count=67,
+            warnings=[
+                "Marketaux 被拒绝访问（HTTP 403）；请检查 API Key、套餐权限或地区限制，"
+                "正在尝试下一个已配置新闻数据源"
+            ],
+        )
+    ]
+
+    notice = cli_app._workbench_provider_fallback_notice(actions)
+
+    assert "备用新闻数据源不可用" in notice
+    assert "已经使用可用数据源继续收集" in notice
 
 
 def test_data_pull_news_command_passes_topic_query(

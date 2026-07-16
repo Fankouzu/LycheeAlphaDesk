@@ -379,6 +379,7 @@ def test_fill_research_data_gaps_refreshes_missing_symbol_news(
         assert isinstance(output_dir, Path)
         assert kwargs["symbols"] == ["STX"]
         assert kwargs["provider_id"] == "auto"
+        assert "storage" in str(kwargs["query"])
         (output_dir / "data" / "news-events.json").write_text(
             json.dumps(
                 {

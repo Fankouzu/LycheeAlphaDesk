@@ -214,10 +214,13 @@ def fill_research_data_gaps(
 
     snapshot = build_cached_data_snapshot(output_dir)
     market_symbols = _symbols_missing_prices(queue, snapshot.prices, force=force)
-    news_symbols = (
-        _symbols_missing_news(queue, snapshot.news_events, force=force)
+    news_items = (
+        _news_gap_items(queue, snapshot.news_events, force=force)
         if fill_news
         else []
+    )
+    news_symbols = _unique_preserving_order(
+        [symbol for item in news_items if (symbol := _normalized_symbol(item))]
     )
     filing_symbols = _symbols_missing_filings(queue, snapshot.filings, force=force)
     symbol_mapping_items = [item for item in queue if not _normalized_symbol(item)]
@@ -234,7 +237,7 @@ def fill_research_data_gaps(
         )
     )
     news_action = _pull_news_gap_action(
-        symbols=news_symbols,
+        items=news_items,
         output_dir=output_dir,
         force=force,
         pull_news=pull_news,
@@ -432,6 +435,20 @@ def _symbols_missing_news(
     return _unique_preserving_order(symbols)
 
 
+def _news_gap_items(
+    queue: list[ResearchQueueItem],
+    news_events: list[NewsEvent],
+    *,
+    force: bool,
+) -> list[ResearchQueueItem]:
+    missing_symbols = set(_symbols_missing_news(queue, news_events, force=force))
+    return [
+        item
+        for item in queue
+        if (symbol := _normalized_symbol(item)) and symbol in missing_symbols
+    ]
+
+
 def _unresolved_news_symbols_after_fill(
     *,
     queue: list[ResearchQueueItem],
@@ -560,11 +577,14 @@ def _pull_filings_gap_action(
 
 def _pull_news_gap_action(
     *,
-    symbols: list[str],
+    items: list[ResearchQueueItem],
     output_dir: Path,
     force: bool,
     pull_news: PullNews,
 ) -> ResearchGapFillAction:
+    symbols = _unique_preserving_order(
+        [symbol for item in items if (symbol := _normalized_symbol(item))]
+    )
     if not symbols:
         return ResearchGapFillAction(
             action_type="news_events",
@@ -575,23 +595,62 @@ def _pull_news_gap_action(
             warnings=[],
             message="新闻缓存没有需要自动补齐的 symbol。",
         )
-    try:
-        result = pull_news(
-            symbols=symbols,
-            output_dir=output_dir,
-            provider_id="auto",
-            force=force,
-        )
-    except (RuntimeError, ValueError) as error:
+    total_count = 0
+    warnings: list[str] = []
+    output_path: Path | None = None
+    completed_requests = 0
+    failed_symbols: list[str] = []
+    for item in items:
+        symbol = _normalized_symbol(item)
+        if not symbol:
+            continue
+        try:
+            result = pull_news(
+                symbols=[symbol],
+                query=_research_news_query(item),
+                output_dir=output_dir,
+                provider_id="auto",
+                force=force,
+            )
+        except (RuntimeError, ValueError) as error:
+            failed_symbols.append(symbol)
+            warnings.append(f"{symbol}: {error}")
+            continue
+        completed_requests += 1
+        total_count += result.count
+        warnings.extend(result.warnings)
+        output_path = result.output_path
+    if not completed_requests:
         return ResearchGapFillAction(
             action_type="news_events",
             status="failed",
             symbols=symbols,
             count=0,
             output_path=None,
-            warnings=[str(error)],
+            warnings=warnings,
             message="新闻补齐失败。",
         )
+    if failed_symbols:
+        return ResearchGapFillAction(
+            action_type="news_events",
+            status="partial" if total_count else "failed",
+            symbols=symbols,
+            count=total_count,
+            output_path=output_path,
+            warnings=warnings,
+            message=(
+                "部分主题新闻刷新失败: " + ", ".join(failed_symbols)
+                if total_count
+                else "新闻补齐失败。"
+            ),
+        )
+    result = PullResult(
+        "news",
+        "auto",
+        total_count,
+        output_path or output_dir / "data" / "news-events.json",
+        warnings,
+    )
     return ResearchGapFillAction(
         action_type="news_events",
         status=_gap_pull_status(result, requested_count=len(symbols)),
@@ -607,6 +666,10 @@ def _pull_news_gap_action(
             failed_message="新闻补齐未完成。",
         ),
     )
+
+
+def _research_news_query(item: ResearchQueueItem) -> str:
+    return " OR ".join(_research_topic_terms(item)[:8])
 
 
 def _symbol_mapping_gap_action(

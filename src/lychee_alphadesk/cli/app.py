@@ -1,4 +1,5 @@
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
 
@@ -1928,18 +1929,47 @@ def _print_workbench_auto_fill_diagnostics(result: WorkbenchCheckResult) -> None
             _display_gap_action_type(action.action_type),
             _display_gap_action_status(action.status),
             _display_values(action.symbols),
-            f"{action.count}/{len(action.symbols)}",
+            f"{action.count} 行 / {len(action.symbols)} 代码",
             action.message,
         )
     console.print(table)
     warning_details = [
         warning for action in actions for warning in action.warnings
     ]
-    diagnostic = _data_source_diagnostic(warning_details)
-    if diagnostic:
-        console.print(f"数据源诊断: {diagnostic}", soft_wrap=True)
-    _print_provider_setup_recovery(warning_details)
+    fallback_notice = _workbench_provider_fallback_notice(actions)
+    if fallback_notice:
+        console.print(f"数据源状态: {fallback_notice}", soft_wrap=True)
+    else:
+        diagnostic = _data_source_diagnostic(warning_details)
+        if diagnostic:
+            console.print(f"数据源诊断: {diagnostic}", soft_wrap=True)
+        _print_provider_setup_recovery(warning_details)
     console.print("未补齐的数据不会进入研究结论；完整诊断已写入自检报告。")
+
+
+def _workbench_provider_fallback_notice(actions: Sequence[object]) -> str:
+    for action in actions:
+        action_type = str(getattr(action, "action_type", ""))
+        status = str(getattr(action, "status", ""))
+        count = getattr(action, "count", 0)
+        warnings = getattr(action, "warnings", [])
+        if (
+            action_type != "news_events"
+            or status not in {"partial", "pulled"}
+            or not isinstance(count, int)
+            or count <= 0
+            or not isinstance(warnings, list)
+        ):
+            continue
+        diagnostic = _data_source_diagnostic(
+            [warning for warning in warnings if isinstance(warning, str)]
+        )
+        if diagnostic:
+            return (
+                "部分备用新闻数据源不可用，已经使用可用数据源继续收集；"
+                "未命中主题的材料仍保持待补状态。"
+            )
+    return ""
 
 
 def _print_research_run(result: ResearchRunResult) -> None:

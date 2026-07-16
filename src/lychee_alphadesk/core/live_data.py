@@ -35,6 +35,27 @@ MARKET_NEWS_QUERY = (
     "stock market OR financial markets OR earnings OR central bank "
     "OR US stocks OR Hong Kong stocks OR China stocks"
 )
+GDELT_DOC_ENDPOINT = "https://api.gdeltproject.org/api/v2/doc/doc"
+NEWS_ENTITY_QUERIES: dict[str, str] = {
+    "0700.HK": "Tencent OR 腾讯",
+    "2800.HK": "Hang Seng Index OR 恒生指数 OR 盈富基金",
+    "3033.HK": "Hang Seng TECH Index OR 恒生科技",
+    "3067.HK": "Hang Seng TECH Index OR 恒生科技",
+    "3456.HK": "HKEX Tech 100 OR 港交所科技100",
+    "510300.SH": "CSI 300 OR 沪深300",
+    "512480.SH": "China semiconductor OR 中国半导体",
+    "515050.SH": "China 5G OR 中国5G",
+    "159819.SZ": "China artificial intelligence OR 中国人工智能",
+    "NVDA": "NVIDIA",
+    "TSLA": "Tesla",
+    "BABA": "Alibaba OR 阿里巴巴",
+    "AAPL": "Apple Inc",
+    "MSFT": "Microsoft",
+    "AMZN": "Amazon",
+    "GOOGL": "Alphabet OR Google",
+    "META": "Meta Platforms",
+    "STX": "Seagate Technology",
+}
 COMMON_SEC_COMPANIES: dict[str, tuple[int, str]] = {
     "AAPL": (320193, "Apple Inc."),
     "MSFT": (789019, "Microsoft Corp."),
@@ -671,6 +692,7 @@ def pull_news_events(
     warnings: list[str] = [cache_gap_warning] if cache_gap_warning else []
     rows: list[NewsEvent] = []
     selected_provider = ""
+    last_empty_provider = ""
     last_error: RuntimeError | None = None
 
     for candidate in _news_provider_candidates(active_config, provider_id, symbols):
@@ -693,15 +715,26 @@ def pull_news_events(
                 warnings.append(_news_provider_retry_warning(candidate, last_error))
                 continue
             raise last_error from error
+        if not rows and provider_id == "auto":
+            last_empty_provider = candidate
+            warnings.append(
+                f"{_provider_display_name(candidate)} 没有返回匹配新闻，"
+                "正在尝试下一个可用新闻数据源"
+            )
+            continue
         selected_provider = candidate
         break
 
     if not selected_provider:
-        if last_error:
+        if last_empty_provider:
+            selected_provider = last_empty_provider
+            rows = []
+        elif last_error:
             raise last_error
-        raise ValueError(
-            "尚未配置新闻数据源。请配置 Marketaux、Finnhub 或 NewsAPI。"
-        )
+        else:
+            raise ValueError(
+                "尚未配置新闻数据源。请配置 Marketaux、Finnhub、NewsAPI，或使用无需 Key 的 GDELT。"
+            )
 
     new_rows = [asdict(row) for row in rows]
     cache_rows = _merge_news_cache_rows(output_dir, new_rows)
@@ -1035,6 +1068,7 @@ def _sanitize_url(url: str) -> str:
 
 def _news_provider_retry_warning(provider_id: str, error: RuntimeError) -> str:
     provider_name = {
+        "gdelt": "GDELT",
         "marketaux": "Marketaux",
         "finnhub": "Finnhub",
         "newsapi": "NewsAPI",
@@ -1088,6 +1122,10 @@ def _provider_display_name(provider_id: str) -> str:
     return {
         "alpha_vantage": "Alpha Vantage",
         "eastmoney": "Eastmoney",
+        "gdelt": "GDELT",
+        "marketaux": "Marketaux",
+        "finnhub": "Finnhub",
+        "newsapi": "NewsAPI",
         "tushare": "Tushare Pro",
         "auto": "Auto",
     }.get(provider_id, provider_id)
@@ -1432,7 +1470,7 @@ def _news_provider_candidates(
     symbols: list[str],
 ) -> list[str]:
     if provider_id != "auto":
-        if provider_id not in {"marketaux", "finnhub", "newsapi"}:
+        if provider_id not in {"gdelt", "marketaux", "finnhub", "newsapi"}:
             raise ValueError(f"不支持的新闻数据源: {provider_id}")
         if not symbols and provider_id == "finnhub":
             raise ValueError("Finnhub 当前仅支持个股新闻；市场级新闻请使用 Marketaux 或 NewsAPI。")
@@ -1448,6 +1486,7 @@ def _news_provider_candidates(
         provider = config.providers[candidate]
         if provider.value and provider.value.strip():
             candidates.append(candidate)
+    candidates.append("gdelt")
     return candidates
 
 
@@ -1461,6 +1500,8 @@ def _pull_news_for_provider(
     config: AlphaDeskConfig,
     fetch_json: JsonFetcher,
 ) -> list[NewsEvent]:
+    if provider_id == "gdelt":
+        return _pull_gdelt_news(symbols, query, fetch_json)
     if provider_id == "finnhub":
         if query and query.strip():
             raise ValueError("Finnhub 当前不支持主题关键词新闻查询。")
@@ -1512,6 +1553,84 @@ def _pull_finnhub_news(
     return rows
 
 
+def _pull_gdelt_news(
+    symbols: list[str],
+    query: str | None,
+    fetch_json: JsonFetcher,
+) -> list[NewsEvent]:
+    targets = _gdelt_targets(symbols, query)
+    rows: list[NewsEvent] = []
+    for target_symbols, target_query in targets:
+        url = GDELT_DOC_ENDPOINT + "?" + urllib.parse.urlencode(
+            {
+                "query": target_query,
+                "mode": "artlist",
+                "format": "json",
+                "maxrecords": "10",
+                "timespan": "1week",
+            }
+        )
+        payload = _fetch_provider_json(fetch_json, url, None)
+        if not isinstance(payload, dict):
+            continue
+        articles = payload.get("articles")
+        if not isinstance(articles, list):
+            continue
+        for article in articles:
+            if not isinstance(article, dict):
+                continue
+            title = str(article.get("title") or "").strip()
+            source_url = str(article.get("url") or "").strip()
+            if not title or not source_url:
+                continue
+            rows.append(
+                NewsEvent(
+                    timestamp=_gdelt_timestamp(article.get("seendate")),
+                    headline=title,
+                    summary=_gdelt_article_metadata(article),
+                    symbols=target_symbols,
+                    source_url=source_url,
+                )
+            )
+    return rows
+
+
+def _gdelt_targets(
+    symbols: list[str],
+    query: str | None,
+) -> list[tuple[list[str], str]]:
+    if not symbols:
+        return [([MARKET_NEWS_SYMBOL], query.strip() if query else MARKET_NEWS_QUERY)]
+    targets: list[tuple[list[str], str]] = []
+    for symbol in symbols:
+        normalized_symbol = symbol.strip().upper()
+        if not normalized_symbol:
+            continue
+        entity_query = NEWS_ENTITY_QUERIES.get(normalized_symbol, normalized_symbol)
+        if query and query.strip():
+            entity_query = f"({entity_query}) ({query.strip()})"
+        targets.append(([normalized_symbol], entity_query))
+    return targets
+
+
+def _gdelt_timestamp(value: object) -> str:
+    text = str(value or "").strip()
+    try:
+        return datetime.strptime(text, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC).isoformat()
+    except ValueError:
+        return text
+
+
+def _gdelt_article_metadata(article: dict[str, object]) -> str:
+    parts = [
+        str(article.get("domain") or "").strip(),
+        str(article.get("language") or "").strip(),
+        str(article.get("sourcecountry") or "").strip(),
+    ]
+    metadata = " | ".join(part for part in parts if part)
+    return f"GDELT 文章元数据: {metadata}" if metadata else "GDELT 文章元数据。"
+
+
 def _pull_marketaux_news(
     symbols: list[str],
     query: str | None,
@@ -1561,40 +1680,63 @@ def _pull_newsapi_events(
     api_key: str,
     fetch_json: JsonFetcher,
 ) -> list[NewsEvent]:
-    effective_query = query.strip() if query and query.strip() else ""
-    if not effective_query:
-        effective_query = " OR ".join(symbols) if symbols else MARKET_NEWS_QUERY
-    url = "https://newsapi.org/v2/everything?" + urllib.parse.urlencode(
-        {
-            "q": effective_query,
-            "from": start,
-            "to": end,
-            "sortBy": "publishedAt",
-            "pageSize": "20",
-            "apiKey": api_key,
-        }
-    )
-    payload = _fetch_provider_json(fetch_json, url, None)
-    if not isinstance(payload, dict):
-        return []
-    articles = payload.get("articles")
-    if not isinstance(articles, list):
-        return []
-
     rows: list[NewsEvent] = []
-    for item in articles:
-        if not isinstance(item, dict):
-            continue
-        rows.append(
-            NewsEvent(
-                timestamp=str(item.get("publishedAt") or ""),
-                headline=str(item.get("title") or ""),
-                summary=str(item.get("description") or ""),
-                symbols=symbols or [MARKET_NEWS_SYMBOL],
-                source_url=str(item.get("url") or ""),
-            )
+    for target_symbols, effective_query in _newsapi_targets(symbols, query):
+        url = "https://newsapi.org/v2/everything?" + urllib.parse.urlencode(
+            {
+                "q": effective_query,
+                "from": start,
+                "to": end,
+                "sortBy": "publishedAt",
+                "pageSize": "20",
+                "apiKey": api_key,
+            }
         )
+        payload = _fetch_provider_json(fetch_json, url, None)
+        if not isinstance(payload, dict):
+            continue
+        articles = payload.get("articles")
+        if not isinstance(articles, list):
+            continue
+        for item in articles:
+            if not isinstance(item, dict):
+                continue
+            rows.append(
+                NewsEvent(
+                    timestamp=str(item.get("publishedAt") or ""),
+                    headline=str(item.get("title") or ""),
+                    summary=str(item.get("description") or ""),
+                    symbols=target_symbols,
+                    source_url=str(item.get("url") or ""),
+                )
+            )
     return rows
+
+
+def _newsapi_targets(
+    symbols: list[str],
+    query: str | None,
+) -> list[tuple[list[str], str]]:
+    if not symbols:
+        return [
+            (
+                [MARKET_NEWS_SYMBOL],
+                query.strip() if query and query.strip() else MARKET_NEWS_QUERY,
+            )
+        ]
+    targets: list[tuple[list[str], str]] = []
+    for symbol in symbols:
+        normalized_symbol = symbol.strip().upper()
+        if not normalized_symbol:
+            continue
+        entity_query = NEWS_ENTITY_QUERIES.get(normalized_symbol, normalized_symbol)
+        effective_query = (
+            f"({entity_query}) AND ({query.strip()})"
+            if query and query.strip()
+            else entity_query
+        )
+        targets.append(([normalized_symbol], effective_query))
+    return targets
 
 
 def _marketaux_symbols(item: dict[str, object], fallback: list[str]) -> list[str]:

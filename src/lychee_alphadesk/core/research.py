@@ -1061,6 +1061,12 @@ def _related_filings(
     terms = _match_terms(symbol, display_name)
     rows: list[dict[str, object]] = []
     for filing in filings:
+        if filing.symbol:
+            if symbol and filing.symbol.upper() == symbol.upper():
+                rows.append(asdict(filing))
+            if len(rows) >= 5:
+                break
+            continue
         text = f"{filing.company} {filing.summary}".lower()
         if any(term in text for term in terms):
             rows.append(asdict(filing))

@@ -556,7 +556,7 @@ def list_provider_backlog_items(
         name=name,
         limit=limit,
     ):
-        if _is_manual_topic_news_request(request):
+        if _is_manual_evidence_request(request):
             continue
         gap = _classify_provider_gap(request.request_text)
         if not research_data_request_needs_manual_source(request) and not gap.always_backlog:
@@ -583,8 +583,11 @@ def list_provider_backlog_items(
     return backlog
 
 
-def _is_manual_topic_news_request(request: ResearchDataRequest) -> bool:
-    return any(action.action_type == "manual_source" for action in request.suggested_actions)
+def _is_manual_evidence_request(request: ResearchDataRequest) -> bool:
+    return any(
+        action.action_type in {"manual_source", "manual_filing"}
+        for action in request.suggested_actions
+    )
 
 
 def _memo_task_key(record: ResearchMemoRecord) -> tuple[str, str, str]:
@@ -798,6 +801,41 @@ def _manual_topic_news_actions(record: ResearchMemoRecord) -> list[ResearchDataR
     ]
 
 
+def _manual_filing_actions(
+    record: ResearchMemoRecord,
+    request_text: str,
+) -> list[ResearchDataRequestAction]:
+    lowered = request_text.casefold()
+    if _has_any(lowered, ("form 4", "4 表", "4表", "内部人交易")):
+        form = "4"
+    elif "8-k" in lowered:
+        form = "8-K"
+    elif "10-q" in lowered:
+        form = "10-Q"
+    elif "10-k" in lowered:
+        form = "10-K"
+    else:
+        form = "<表单类型>"
+    return [
+        ResearchDataRequestAction(
+            "manual_filing",
+            (
+                "lychee data set filing "
+                f"--symbol {record.symbol or '<证券代码>'} "
+                f"--company {_quote_cli_value(record.display_name)} --form \"{form}\" "
+                "--date YYYY-MM-DD --summary \"已核验的关键事实\" "
+                '--source-url "https://..."'
+            ),
+            auto_executable=False,
+        ),
+        ResearchDataRequestAction(
+            "verify",
+            f"lychee research verify {_research_selector(record)}",
+            auto_executable=False,
+        ),
+    ]
+
+
 def _is_verification_data_request_text(text: str) -> bool:
     if not text or text == "暂无下一批数据请求。":
         return False
@@ -881,6 +919,8 @@ def _suggest_data_request_actions(
     actions: list[ResearchDataRequestAction] = []
     selector = _research_selector(record)
     lowered = request_text.casefold()
+    if _looks_like_manual_filing_content_request(lowered):
+        return _manual_filing_actions(record, request_text)
     if _looks_like_fund_metadata_request(lowered) and record.symbol:
         actions.extend(
             [
@@ -970,6 +1010,15 @@ def _execute_data_request_action(
                 count=0,
                 output_path=None,
                 message="请先补充可审计的主题来源，再重新核验。",
+            )
+        if action.action_type == "manual_filing":
+            return ResearchDataRequestExecution(
+                action_type=action.action_type,
+                status="manual_required",
+                command=action.command,
+                count=0,
+                output_path=None,
+                message="请先补充已核验的公告或表单摘要，再重新核验。",
             )
         if action.action_type == "fund_metadata_guide":
             if not request.symbol:
@@ -1124,6 +1173,27 @@ def _looks_like_fund_metadata_request(text: str) -> bool:
         "holdings",
     )
     return any(keyword in text for keyword in keywords)
+
+
+def _looks_like_manual_filing_content_request(text: str) -> bool:
+    return _has_any(
+        text,
+        (
+            "公告正文",
+            "表单正文",
+            "form 4",
+            "4 表",
+            "4表",
+            "内部人交易",
+            "8-k 正文",
+            "8-k body",
+            "8-k content",
+            "10-q 正文",
+            "10-q body",
+            "10-k 正文",
+            "10-k body",
+        ),
+    )
 
 
 def _looks_like_market_request(text: str) -> bool:

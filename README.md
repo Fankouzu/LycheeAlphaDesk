@@ -394,6 +394,15 @@ lychee research verify --symbol 0700.HK
 `data set news` requires a symbol, headline, summary, and an `http(s)` source URL. It writes the audited record into the local news cache; it does not fetch a provider, infer facts, or turn the record into investment advice.
 In the TUI, choose the `人工证据` item from `下一步行动队列`, fill in the title, key fact, and source URL, then select `保存已核验来源`. The form does not save on field entry and offers `重新下钻核验` only after the record is written.
 
+Requests to inspect a filing's body, a Form 4, or whether an SEC document is only an insider-trading disclosure are a different evidence type. They appear as `人工文件证据`, never as a generic metric or provider backlog. Record only a checked summary and the original document URL:
+
+```bash
+lychee data set filing --symbol NVDA --company NVIDIA --form "4" --date 2026-07-06 --summary "Verified key fact" --source-url "https://www.sec.gov/..."
+lychee research verify --symbol NVDA
+```
+
+`data set filing` requires the linked research symbol, company, form, filing date, checked summary, and an `http(s)` source URL. It merges into `filings.json` without deleting SEC-cached or earlier manual rows. Subsequent SEC refreshes preserve the manual record, and filing evidence with a symbol is matched only to that symbol. The TUI opens the same explicit-save form from the `人工文件证据` action, then offers rerun verification.
+
 For a failed request, run `lychee research data-request-diagnose --request 1 --symbol QQQ`. It reads only the local fulfillment record, shows the failed actions, a beginner-readable diagnosis, recovery steps, and the exact retry command. It never sends a provider request or exposes configured secrets. The unified next-action queue opens this diagnosis first, then stops for a human confirmation before any retry.
 
 List data-provider gaps extracted from manual-source research requests:

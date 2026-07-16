@@ -50,6 +50,7 @@ from lychee_alphadesk.core.live_data import (
     write_fund_metadata_cache,
     write_fund_metadata_cache_from_file,
     write_fund_metadata_guide,
+    write_manual_filing_summary,
     write_manual_news_event,
     write_research_metric_cache,
 )
@@ -106,6 +107,7 @@ from lychee_alphadesk.core.workbench import (
     suggest_pending_evidence_review,
     verify_research_task,
 )
+from lychee_alphadesk.tui.setup import run_setup_tui
 
 console = Console()
 app = typer.Typer(
@@ -1680,6 +1682,56 @@ def data_set_news(
     _print_pull_result(result_label="新闻证据", count=result.count, result=result)
 
 
+@data_set_app.command("filing")
+def data_set_filing(
+    company: Annotated[
+        str,
+        typer.Option("--company", help="公告所属公司名称，例如 NVIDIA、Apple Inc.。"),
+    ],
+    form: Annotated[
+        str,
+        typer.Option("--form", help="公告或表单类型，例如 4、8-K、10-Q。"),
+    ],
+    date: Annotated[
+        str,
+        typer.Option("--date", help="公告日期，格式 YYYY-MM-DD。"),
+    ],
+    summary: Annotated[
+        str,
+        typer.Option("--summary", help="已核验的关键事实，不要复制未经核验的全文。"),
+    ],
+    source_url: Annotated[
+        str,
+        typer.Option("--source-url", help="可审计的原文或官方披露 URL。"),
+    ],
+    symbol: Annotated[
+        str,
+        typer.Option("--symbol", help="关联研究任务的证券代码，例如 NVDA。"),
+    ],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """写入人工核验过的公告/表单摘要，用于补齐文件证据。"""
+    try:
+        result = write_manual_filing_summary(
+            output_dir=output_dir,
+            symbol=symbol,
+            company=company,
+            form=form,
+            date=date,
+            summary=summary,
+            source_url=source_url,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    identifier = symbol.strip().upper() or company.strip()
+    console.print(f"人工文件证据已写入: {identifier} {form.strip().upper()}")
+    _print_pull_result(result_label="文件证据", count=result.count, result=result)
+
+
 def _fund_symbol_from_result_path(path: Path) -> str:
     return (
         path.stem.removeprefix("fund-metadata-guide-").strip().upper()
@@ -2308,10 +2360,16 @@ def _print_research_data_requests(requests: list[ResearchDataRequest]) -> None:
             has_manual_news_action = any(
                 action.action_type == "manual_source" for action in item.suggested_actions
             )
+            has_manual_filing_action = any(
+                action.action_type == "manual_filing" for action in item.suggested_actions
+            )
             message = (
                 "   说明: 自动新闻已刷新但没有命中主题。请只录入已核验的原文或官方披露，"
                 "然后重新核验。"
                 if has_manual_news_action
+                else "   说明: 这条请求需要核验公告或表单正文。请录入已核验的关键事实和原始链接，"
+                "然后重新核验。"
+                if has_manual_filing_action
                 else "   说明: 这类数据当前没有自动补数据命令，需要人工补来源或等待插件接入。"
             )
             console.print(message, soft_wrap=True)
@@ -2836,8 +2894,6 @@ def _run_configuration_center(path: Path) -> None:
             soft_wrap=True,
         )
         raise typer.Exit(code=2)
-
-    from lychee_alphadesk.tui.setup import run_setup_tui
 
     run_setup_tui(path)
 

@@ -234,6 +234,38 @@ def test_data_set_news_command_writes_manual_auditable_evidence(tmp_path: Path) 
     assert cache["rows"][0]["source_url"] == "https://example.com/tencent-cloud-source"
 
 
+def test_data_set_filing_command_writes_manual_auditable_evidence(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "set",
+            "filing",
+            "--symbol",
+            "NVDA",
+            "--company",
+            "NVIDIA",
+            "--form",
+            "4",
+            "--date",
+            "2026-07-06",
+            "--summary",
+            "已核验：该 Form 4 为内部人交易披露。",
+            "--source-url",
+            "https://www.sec.gov/Archives/edgar/data/1045810/form4.html",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "人工文件证据已写入" in result.stdout
+    cache = json.loads((tmp_path / "data" / "filings.json").read_text("utf-8"))
+    assert cache["provider"] == "manual"
+    assert cache["rows"][0]["form"] == "4"
+    assert cache["rows"][0]["symbol"] == "NVDA"
+
+
 def test_data_guide_fund_command_writes_beginner_metadata_template(
     tmp_path: Path,
 ) -> None:

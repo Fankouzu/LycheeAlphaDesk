@@ -30,6 +30,7 @@ class FilingSummary:
     form: str
     summary: str
     source_url: str
+    symbol: str = ""
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,7 @@ class DemoFilingProvider:
                 form=item["form"],
                 summary=item["summary"],
                 source_url=item["source_url"],
+                symbol=str(item.get("symbol") or ""),
             )
             for item in _read_jsonl(self.path)
         ]

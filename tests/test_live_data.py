@@ -15,6 +15,7 @@ from lychee_alphadesk.core.live_data import (
     read_research_metric_cache,
     run_cached_data_health,
     write_fund_metadata_cache,
+    write_manual_filing_summary,
     write_manual_news_event,
     write_research_metric_cache,
 )
@@ -87,6 +88,48 @@ def test_write_manual_news_event_adds_auditable_source_to_news_cache(tmp_path: P
             "source_url": "https://example.com/tencent-cloud-source",
         }
     ]
+
+
+def test_manual_filing_summary_is_auditable_and_survives_sec_refresh(
+    tmp_path: Path,
+) -> None:
+    manual = write_manual_filing_summary(
+        output_dir=tmp_path,
+        symbol="NVDA",
+        company="NVIDIA Corp.",
+        form="4",
+        date="2026-07-06",
+        summary="已核验：该 Form 4 为内部人交易披露，未包含经营业绩更新。",
+        source_url="https://www.sec.gov/Archives/edgar/data/1045810/manual-form4.html",
+    )
+
+    def fetch_json(url: str, _headers: dict[str, str] | None = None) -> object:
+        if url.endswith("company_tickers.json"):
+            return {"0": {"ticker": "NVDA", "cik_str": 1045810, "title": "NVIDIA Corp."}}
+        return {
+            "filings": {
+                "recent": {
+                    "form": ["8-K"],
+                    "filingDate": ["2026-07-15"],
+                    "accessionNumber": ["0001045810-26-000001"],
+                    "primaryDocument": ["nvda8k.htm"],
+                }
+            }
+        }
+
+    refreshed = pull_sec_filings(
+        symbols=["NVDA"],
+        output_dir=tmp_path,
+        fetch_json=fetch_json,
+    )
+
+    assert manual.provider == "manual"
+    assert refreshed.provider == "sec_edgar"
+    cache = json.loads((tmp_path / "data" / "filings.json").read_text(encoding="utf-8"))
+    assert {row["form"] for row in cache["rows"]} == {"4", "8-K"}
+    assert any(
+        row["source_url"].endswith("manual-form4.html") for row in cache["rows"]
+    )
 
 
 def test_pull_market_prices_cools_down_empty_provider_result_until_forced(

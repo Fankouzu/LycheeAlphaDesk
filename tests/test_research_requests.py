@@ -61,6 +61,51 @@ def test_research_data_requests_map_memo_requests_to_precise_commands(
     assert research_data_request_needs_manual_source(requests[2])
 
 
+def test_research_data_request_routes_form4_content_to_manual_filing_evidence(
+    tmp_path: Path,
+) -> None:
+    write_research_memo_record(
+        output_dir=tmp_path,
+        memo_id="research-memo:2026-07-16T09:05:00+00:00",
+        created_at="2026-07-16T09:05:00+00:00",
+        display_name="NVIDIA",
+        symbol="NVDA",
+        market="US",
+        confidence="medium",
+        summary="需要核验 Form 4 内容。",
+        support_count=1,
+        skeptic_count=1,
+        missing_count=1,
+        next_step_count=1,
+        memo_path=tmp_path / "research" / "research-memo-nvda.json",
+        verification_path=tmp_path / "research" / "research-verification-nvda.json",
+        payload={
+            "memo": {
+                "next_data_requests": [
+                    "复核 2026-07-06 的 Form 4 正文，确认其是否仅为内部人交易披露。"
+                ]
+            }
+        },
+    )
+
+    requests = list_research_data_requests(tmp_path, symbol="NVDA")
+
+    assert len(requests) == 1
+    assert research_data_request_needs_manual_source(requests[0])
+    assert requests[0].suggested_commands == [
+        (
+            "lychee data set filing --symbol NVDA --company NVIDIA --form \"4\" --date YYYY-MM-DD "
+            '--summary "已核验的关键事实" --source-url "https://..."'
+        ),
+        "lychee research verify --symbol NVDA",
+    ]
+    assert [action.action_type for action in requests[0].suggested_actions] == [
+        "manual_filing",
+        "verify",
+    ]
+    assert list_provider_backlog_items(tmp_path, symbol="NVDA") == []
+
+
 def test_research_data_requests_include_verification_hypothesis_requests(
     tmp_path: Path,
 ) -> None:

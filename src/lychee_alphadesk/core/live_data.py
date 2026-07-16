@@ -362,6 +362,55 @@ def write_manual_news_event(
     return PullResult("news", "manual", 1, output_path, [])
 
 
+def write_manual_filing_summary(
+    *,
+    output_dir: Path,
+    company: str,
+    form: str,
+    date: str,
+    summary: str,
+    source_url: str,
+    symbol: str = "",
+) -> PullResult:
+    normalized_symbol = symbol.strip().upper()
+    clean_company = company.strip()
+    clean_form = form.strip().upper()
+    clean_date = date.strip()
+    clean_summary = summary.strip()
+    clean_source_url = source_url.strip()
+    if not clean_company:
+        raise ValueError("请提供公告所属公司名称。")
+    if not clean_form:
+        raise ValueError("请提供公告或表单类型，例如 4、8-K、10-Q。")
+    try:
+        datetime.fromisoformat(f"{clean_date}T00:00:00")
+    except ValueError as error:
+        raise ValueError("请提供公告日期，格式为 YYYY-MM-DD。") from error
+    if not clean_summary:
+        raise ValueError("请提供已核验的公告关键事实。")
+    source_parts = urllib.parse.urlparse(clean_source_url)
+    if source_parts.scheme not in {"http", "https"} or not source_parts.netloc:
+        raise ValueError("请提供可审计的 http(s) 来源 URL。")
+
+    row = FilingSummary(
+        date=clean_date,
+        company=clean_company,
+        form=clean_form,
+        summary=clean_summary,
+        source_url=clean_source_url,
+        symbol=normalized_symbol,
+    )
+    rows = _merge_filing_cache_rows(output_dir, [asdict(row)])
+    output_path = _write_cache(
+        output_dir=output_dir,
+        filename="filings.json",
+        provider="manual",
+        rows=rows,
+        warnings=[],
+    )
+    return PullResult("filings", "manual", 1, output_path, [])
+
+
 def read_research_metric_cache(output_dir: Path) -> list[ResearchMetric]:
     cache = _read_cache(output_dir, "research-metrics.json")
     return [_research_metric_from_dict(row) for row in cache.rows]
@@ -730,11 +779,12 @@ def pull_sec_filings(
             )
         )
 
+    cache_rows = _merge_filing_cache_rows(output_dir, [asdict(row) for row in rows])
     output_path = _write_cache(
         output_dir=output_dir,
         filename="filings.json",
         provider="sec_edgar",
-        rows=[asdict(row) for row in rows],
+        rows=cache_rows,
         warnings=warnings,
     )
     return PullResult("filings", "sec_edgar", len(rows), output_path, warnings)
@@ -1638,6 +1688,7 @@ def _parse_sec_recent_filings(
                     "https://www.sec.gov/Archives/edgar/data/"
                     f"{cik}/{accession_path}/{document}"
                 ),
+                symbol=symbol,
             )
         )
     return rows
@@ -1973,6 +2024,32 @@ def _merge_news_cache_rows(
     return merged
 
 
+def _merge_filing_cache_rows(
+    output_dir: Path,
+    new_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    existing = _read_cache(output_dir, "filings.json").rows
+    merged: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for row in [*existing, *new_rows]:
+        key = _filing_cache_row_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(row)
+    return merged
+
+
+def _filing_cache_row_key(row: dict[str, object]) -> str:
+    source_url = str(row.get("source_url") or "").strip()
+    if source_url:
+        return f"url:{source_url}"
+    company = str(row.get("company") or "").strip().casefold()
+    form = str(row.get("form") or "").strip().upper()
+    filing_date = str(row.get("date") or "").strip()
+    return f"filing:{company}:{form}:{filing_date}"
+
+
 def _news_cache_row_key(row: dict[str, object]) -> str:
     source_url = str(row.get("source_url") or "").strip()
     if source_url:
@@ -2117,6 +2194,7 @@ def _filing_summary_from_dict(row: dict[str, object]) -> FilingSummary:
         form=str(row["form"]),
         summary=str(row["summary"]),
         source_url=str(row["source_url"]),
+        symbol=str(row.get("symbol") or "").upper(),
     )
 
 

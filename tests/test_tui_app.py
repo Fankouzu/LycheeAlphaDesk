@@ -46,3 +46,43 @@ def test_tui_manual_news_entry_writes_audited_source(tmp_path: Path) -> None:
             assert app.query_one("#manual-news-followup-menu")
 
     asyncio.run(scenario())
+
+
+def test_tui_manual_filing_entry_writes_audited_source(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        item = ActionQueueItem(
+            priority=25,
+            area="人工文件证据",
+            title="补充已核验文件: NVIDIA",
+            detail="请只记录已核验的公告或表单关键事实及原始链接。",
+            command=(
+                "lychee data set filing --symbol NVDA --company NVIDIA --form \"4\" "
+                '--date YYYY-MM-DD --summary "已核验的关键事实" '
+                '--source-url "https://..."'
+            ),
+            source="research-memo-nvda.json",
+        )
+        async with app.run_test() as pilot:
+            app.action_queue_items = [item]
+            await app._run_next_action_item("next_action_item:0")
+            await pilot.pause()
+            app.query_one("#manual-filing-date", Input).value = "2026-07-06"
+            app.query_one("#manual-filing-summary", Input).value = (
+                "已核验：该 Form 4 为内部人交易披露。"
+            )
+            app.query_one("#manual-filing-source-url", Input).value = (
+                "https://www.sec.gov/Archives/edgar/data/1045810/form4.html"
+            )
+
+            await app._save_manual_filing_entry()
+            await pilot.pause()
+
+            cache = json.loads(
+                (tmp_path / "data" / "filings.json").read_text(encoding="utf-8")
+            )
+            assert cache["rows"][0]["symbol"] == "NVDA"
+            assert cache["rows"][0]["form"] == "4"
+            assert app.query_one("#manual-filing-followup-menu")
+
+    asyncio.run(scenario())

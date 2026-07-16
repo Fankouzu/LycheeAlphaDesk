@@ -489,6 +489,78 @@ def test_execute_action_queue_marks_manual_news_source_as_manual_required(
     assert "不会自动执行" in result.message
 
 
+def test_action_queue_surfaces_manual_filing_evidence_without_auto_execution(
+    tmp_path: Path,
+) -> None:
+    data_request = ResearchDataRequest(
+        request_id="memo:nvda:data-request:1",
+        created_at="2026-07-16T09:05:00+00:00",
+        display_name="NVIDIA",
+        symbol="NVDA",
+        market="US",
+        confidence="medium",
+        request_text="复核 2026-07-06 的 Form 4 正文，确认其是否仅为内部人交易披露。",
+        suggested_commands=[
+            (
+                "lychee data set filing --symbol NVDA --company NVIDIA --form \"4\" "
+                '--date YYYY-MM-DD --summary "已核验的关键事实" '
+                '--source-url "https://..."'
+            ),
+            "lychee research verify --symbol NVDA",
+        ],
+        memo_path=str(tmp_path / "research" / "research-memo-nvda.json"),
+        verification_path=str(tmp_path / "research" / "research-verification-nvda.json"),
+        suggested_actions=[
+            ResearchDataRequestAction(
+                "manual_filing",
+                (
+                    "lychee data set filing --symbol NVDA --company NVIDIA --form \"4\" "
+                    '--date YYYY-MM-DD --summary "已核验的关键事实" '
+                    '--source-url "https://..."'
+                ),
+                auto_executable=False,
+            ),
+            ResearchDataRequestAction("verify", "lychee research verify --symbol NVDA"),
+        ],
+    )
+    workbench_result = SimpleNamespace(
+        candidates=[],
+        deepen_result=ResearchDeepenResult(
+            created_at="2026-07-16T09:05:00+00:00",
+            packets=[],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        ),
+        fill_result=ResearchGapFillResult(1, [], [], [], []),
+    )
+
+    queue = build_action_queue(
+        tmp_path,
+        workbench_runner=lambda **kwargs: workbench_result,
+        pending_reader=lambda **kwargs: [],
+        data_request_reader=lambda **kwargs: [data_request],
+        provider_backlog_reader=lambda **kwargs: [],
+        radar_reader=lambda **kwargs: OpportunityRadarReport(
+            created_at="2026-07-16T09:05:00+00:00",
+            status="empty",
+            signals=[],
+            warnings=[],
+            disclaimer="非投资建议。",
+        ),
+    )
+
+    assert len(queue) == 1
+    assert queue[0].area == "人工文件证据"
+    assert queue[0].title == "补充已核验文件: NVIDIA"
+    result = action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        queue_builder=lambda *args, **kwargs: queue,
+    )
+    assert result.status == "manual_required"
+    assert "不会自动执行" in result.message
+
+
 def test_action_queue_turns_failed_data_request_into_provider_diagnostic(
     tmp_path: Path,
 ) -> None:

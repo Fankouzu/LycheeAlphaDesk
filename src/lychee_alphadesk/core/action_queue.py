@@ -252,12 +252,12 @@ def execute_action_queue_item(
         raise ValueError(f"行动序号超出范围。请输入 1 到 {len(queue)} 之间的序号。")
 
     item = queue[action_index - 1]
-    if _is_manual_news_source_command(item.command):
+    if _is_manual_evidence_command(item.command):
         return ActionQueueExecution(
             item=item,
             status="manual_required",
             message=(
-                "需要人工录入已核验的新闻来源；为保留审计边界，系统不会自动执行模板命令。"
+                "需要人工录入已核验的来源；为保留审计边界，系统不会自动执行模板命令。"
             ),
             count=0,
             output_path=None,
@@ -323,8 +323,11 @@ def execute_action_queue_item(
     )
 
 
-def _is_manual_news_source_command(command: str) -> bool:
-    return shlex.split(command)[:4] == ["lychee", "data", "set", "news"]
+def _is_manual_evidence_command(command: str) -> bool:
+    return tuple(shlex.split(command)[:4]) in {
+        ("lychee", "data", "set", "news"),
+        ("lychee", "data", "set", "filing"),
+    }
 
 
 def _execute_pull_news_action(
@@ -666,18 +669,25 @@ def _data_request_action(
             (
                 action
                 for action in item.suggested_actions
-                if action.action_type == "manual_source"
+                if action.action_type in {"manual_source", "manual_filing"}
             ),
             None,
         )
         if manual_source is None:
             return None
+        is_manual_filing = manual_source.action_type == "manual_filing"
         return ActionQueueItem(
             priority=25,
-            area="人工证据",
-            title=f"补充可审计来源: {item.display_name}",
+            area="人工文件证据" if is_manual_filing else "人工证据",
+            title=(
+                f"补充已核验文件: {item.display_name}"
+                if is_manual_filing
+                else f"补充可审计来源: {item.display_name}"
+            ),
             detail=(
-                "自动新闻已刷新但未形成主题证据。请只记录已核验的原文或官方披露；"
+                "请只记录已核验的公告或表单关键事实及原始链接；写入后再重新核验。"
+                if is_manual_filing
+                else "自动新闻已刷新但未形成主题证据。请只记录已核验的原文或官方披露；"
                 "写入后再重新核验。"
             ),
             command=manual_source.command,

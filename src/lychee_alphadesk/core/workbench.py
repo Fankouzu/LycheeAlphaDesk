@@ -822,12 +822,22 @@ def run_research_task(
             refreshed_packet,
         ),
     )
+    evidence_incomplete = (
+        bool(refreshed_candidate.data_gaps)
+        or refreshed_candidate.topic_news_exhausted
+    )
     detail_commands = research_action_commands(refreshed_candidate, refreshed_packet)
     if refreshed_candidate.data_gaps:
         detail_commands = [
             command
             for command in detail_commands
             if not command.startswith(("下钻核验:", "研究备忘录:"))
+        ]
+    elif evidence_incomplete:
+        detail_commands = [
+            command
+            for command in detail_commands
+            if not command.startswith("研究备忘录:")
         ]
     detail = render_research_task_detail(
         refreshed_candidate,
@@ -839,6 +849,7 @@ def run_research_task(
     run_status = (
         "completed"
         if all(action.status not in {"failed", "no_data"} for action in actions)
+        and not evidence_incomplete
         else "partial"
     )
     artifact_path = _write_research_run_artifact(

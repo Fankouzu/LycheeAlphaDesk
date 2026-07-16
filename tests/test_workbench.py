@@ -1636,17 +1636,29 @@ def test_research_run_stops_repeating_topic_refresh_after_exhausted_news(
         )
         return PullResult("news", "newsapi", len(rows), output_path, [])
 
+    def fresh_market_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        return PullResult(
+            "market",
+            "auto",
+            1,
+            output_dir / "data" / "market-prices.json",
+            [],
+        )
+
     result = run_research_task(
         output_dir=tmp_path,
         symbol="STX",
         force=True,
         now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
-        pull_market=_fake_market_pull,
+        pull_market=fresh_market_pull,
         pull_news=fake_news_pull,
         pull_filings=_fake_filings_pull,
     )
 
     assert result.candidate.topic_news_exhausted is True
+    assert result.status == "partial"
     assert result.candidate.next_command == "lychee research verify --symbol STX"
     assert "不要重复刷新同一主题新闻" in result.assessment.next_decision
     assert "下一步判断: 不要重复刷新同一主题新闻" in result.detail
@@ -1654,6 +1666,8 @@ def test_research_run_stops_repeating_topic_refresh_after_exhausted_news(
     assert "数据完整性: 无" in result.detail
     assert "研究缺口: 主题新闻已刷新，但没有回答当前研究问题的材料。" in result.detail
     assert "- 刷新主题新闻: lychee data pull news" not in result.detail
+    assert "- 下钻核验: lychee research verify --symbol STX" in result.detail
+    assert "- 研究备忘录: lychee research memo --symbol STX" not in result.detail
 
 
 def test_research_run_expands_pool_for_explicit_symbol(tmp_path: Path) -> None:

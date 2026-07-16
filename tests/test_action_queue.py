@@ -1904,3 +1904,39 @@ def test_execute_action_queue_seeds_radar_target_before_research_run(
             "next_actions": [item.command],
         }
     ]
+
+
+def test_execute_action_queue_preserves_etf_name_for_radar_followup(
+    tmp_path: Path,
+) -> None:
+    item = action_queue.ActionQueueItem(
+        priority=20,
+        area="机会雷达",
+        title="继续研究 半导体 ETF: AI 基础设施扩散",
+        detail="主题新闻已补到，下一步进入研究链。",
+        command="lychee research run --symbol 512480.SH --force",
+        source="opportunity-radar",
+    )
+    seeded: list[dict[str, object]] = []
+
+    def fake_seed_candidate(**kwargs: object) -> Path:
+        seeded.append(kwargs)
+        return tmp_path / "research.sqlite3"
+
+    def fake_run_research(**kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            status="completed",
+            actions=[],
+            artifact_path=tmp_path / "research" / "research-run-512480.json",
+        )
+
+    action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        queue_builder=lambda *args, **kwargs: [item],
+        run_research=fake_run_research,
+        radar_candidate_writer=fake_seed_candidate,
+    )
+
+    assert seeded[0]["display_name"] == "半导体 ETF"
+    assert seeded[0]["related_theme"] == "AI 基础设施扩散"

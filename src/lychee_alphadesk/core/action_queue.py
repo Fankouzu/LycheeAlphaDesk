@@ -943,9 +943,10 @@ def _radar_title_parts(
     title: str,
     payload: dict[str, str | None],
 ) -> tuple[str, str]:
-    if title.startswith("下钻 ") and ":" in title:
-        display_name, related_theme = title.removeprefix("下钻 ").split(":", 1)
-        return display_name.strip(), related_theme.strip()
+    for prefix in ("下钻 ", "继续研究 "):
+        if title.startswith(prefix) and ":" in title:
+            display_name, related_theme = title.removeprefix(prefix).split(":", 1)
+            return display_name.strip(), related_theme.strip()
     fallback = payload["symbol"] or payload["name"] or "机会雷达候选"
     return fallback, "机会雷达下钻"
 

@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import urllib.parse
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -1264,6 +1265,40 @@ def test_pull_news_events_writes_gdelt_entity_mapped_cache(tmp_path: Path) -> No
     assert cache["rows"][0]["symbols"] == ["0700.HK"]
     assert cache["rows"][0]["headline"] == "Tencent expands AI cloud services"
     assert cache["rows"][0]["timestamp"] == "2026-07-16T08:45:00+00:00"
+
+
+def test_pull_news_events_uses_company_query_for_unknown_cn_symbol(
+    tmp_path: Path,
+) -> None:
+    config_path = save_config(default_config(), tmp_path / "config.yaml")
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        decoded_url = urllib.parse.unquote_plus(url)
+        assert "api.gdeltproject.org/api/v2/doc/doc" in url
+        assert "平安银行" in decoded_url
+        assert "000001.SZ" not in decoded_url
+        return {
+            "articles": [
+                {
+                    "url": "https://example.com/pingan-bank",
+                    "title": "平安银行发布公司公告",
+                    "seendate": "20260716T084500Z",
+                }
+            ]
+        }
+
+    result = pull_news_events(
+        symbols=["000001.SZ"],
+        query="平安银行",
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="gdelt",
+        fetch_json=fetch_json,
+    )
+
+    assert result.count == 1
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["rows"][0]["symbols"] == ["000001.SZ"]
 
 
 def test_auto_news_provider_uses_gdelt_after_configured_provider_denials(

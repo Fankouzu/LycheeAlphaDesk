@@ -23,6 +23,7 @@ from lychee_alphadesk.core.workbench import (
     _next_step,
     _packet_related_news_count,
     _pull_research_action,
+    _research_candidate_news_query,
     beginner_research_brief,
     build_research_evidence_change,
     build_research_verification_checks,
@@ -85,6 +86,29 @@ def test_research_run_action_marks_empty_clean_response_as_no_data() -> None:
 
     assert action.status == "no_data"
     assert action.message == "刷新新闻没有获取到匹配数据。"
+
+
+def test_research_news_query_uses_cn_stock_display_name() -> None:
+    candidate = CandidateCheck(
+        display_name="平安银行",
+        market="CN",
+        symbol="000001.SZ",
+        proxy_symbols=[],
+        evidence_count=0,
+        gap_count=0,
+        data_gaps=[],
+        status="new",
+        explanation="",
+        beginner_question="",
+        why_it_matters="",
+        observation_entry="000001.SZ",
+        what_to_check="",
+        next_step="",
+        priority="P1",
+        evidence_status="",
+    )
+
+    assert _research_candidate_news_query(candidate) == "平安银行"
 
 
 def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
@@ -1503,6 +1527,59 @@ def test_research_run_hides_followup_commands_after_unresolved_empty_refresh(
     assert result.actions[1].status == "failed"
     assert "刷新新闻 | 失败" in result.detail
     assert "- 刷新新闻: lychee data pull news --symbols STX" in result.detail
+    assert "- 下钻核验: lychee research verify --symbol STX" not in result.detail
+    assert "- 研究备忘录: lychee research memo --symbol STX" not in result.detail
+
+
+def test_research_run_hides_followup_commands_after_off_topic_news_refresh(
+    tmp_path: Path,
+) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(
+        tmp_path,
+        include_stock_price=True,
+        include_filings=True,
+    )
+    (tmp_path / "data" / "news-events.json").write_text(
+        json.dumps({"provider": "newsapi", "rows": []}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    def noisy_news_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        return PullResult(
+            "news",
+            "newsapi",
+            20,
+            output_dir / "data" / "news-events.json",
+            [],
+        )
+
+    def fresh_market_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        return PullResult(
+            "market",
+            "auto",
+            1,
+            output_dir / "data" / "market-prices.json",
+            [],
+        )
+
+    result = run_research_task(
+        output_dir=tmp_path,
+        symbol="STX",
+        force=True,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+        pull_market=fresh_market_pull,
+        pull_news=noisy_news_pull,
+        pull_filings=_fake_filings_pull,
+    )
+
+    assert result.actions[1].status == "pulled"
+    assert result.candidate.data_gaps
+    assert "第一步: lychee research verify --symbol STX" not in result.detail
     assert "- 下钻核验: lychee research verify --symbol STX" not in result.detail
     assert "- 研究备忘录: lychee research memo --symbol STX" not in result.detail
 

@@ -823,9 +823,7 @@ def run_research_task(
         ),
     )
     detail_commands = research_action_commands(refreshed_candidate, refreshed_packet)
-    if refreshed_candidate.data_gaps and any(
-        action.status in {"failed", "no_data"} for action in actions
-    ):
+    if refreshed_candidate.data_gaps:
         detail_commands = [
             command
             for command in detail_commands
@@ -2642,7 +2640,7 @@ def render_research_task_detail(
         f"排序理由: {candidate.ranking_reason}",
         f"证据状态: {candidate.evidence_status}",
         "",
-        *_research_start_lines(candidate),
+        *_research_start_lines(candidate, has_data_gaps=bool(data_gaps)),
         "",
         "研究状态",
         f"- 阶段: {assessment.stage_label}",
@@ -2897,7 +2895,11 @@ _FINANCIAL_MARKET_CONTEXT_TERMS = [
 ]
 
 
-def _research_start_lines(candidate: CandidateCheck) -> list[str]:
+def _research_start_lines(
+    candidate: CandidateCheck,
+    *,
+    has_data_gaps: bool = False,
+) -> list[str]:
     selector = _research_selector_arg(candidate)
     limit_arg = _research_limit_arg(candidate.command_limit)
     lines = [
@@ -2911,6 +2913,9 @@ def _research_start_lines(candidate: CandidateCheck) -> list[str]:
         lines.append(
             "- 先核验代理: 确认代理标的是否真的覆盖原主题、是否有足够流动性。"
         )
+    if has_data_gaps:
+        lines.append("- 第一步: 先运行下方刷新数据动作，补齐当前数据完整性问题。")
+        return lines
     lines.extend(
         [
             f"- 第一步: lychee research verify {selector}{limit_arg}",
@@ -3113,6 +3118,13 @@ def research_action_symbols(candidate: CandidateCheck) -> list[str]:
     return candidate.proxy_symbols
 
 
+def _research_candidate_news_query(candidate: CandidateCheck) -> str | None:
+    symbol = candidate.symbol or ""
+    if candidate.market.upper() != "CN" or not symbol.upper().endswith((".SH", ".SZ")):
+        return None
+    return candidate.display_name.strip() or None
+
+
 def topic_news_query(candidate: CandidateCheck, packet: ResearchPacket | None) -> str:
     packet_payload = packet.packet if packet is not None else {}
     packet_candidate = _dict_value(packet_payload.get("candidate"))
@@ -3285,6 +3297,7 @@ def _run_research_refresh_actions(
                 symbols=symbols,
                 call=lambda: pull_news(
                     symbols=symbols,
+                    query=_research_candidate_news_query(candidate),
                     output_dir=output_dir,
                     provider_id="auto",
                     force=force,

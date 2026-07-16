@@ -1779,9 +1779,14 @@ def _gdelt_targets(
         normalized_symbol = symbol.strip().upper()
         if not normalized_symbol:
             continue
-        entity_query = NEWS_ENTITY_QUERIES.get(normalized_symbol, normalized_symbol)
+        mapped_entity = NEWS_ENTITY_QUERIES.get(normalized_symbol)
+        entity_query = mapped_entity or normalized_symbol
         if query and query.strip():
-            entity_query = f"({entity_query}) ({query.strip()})"
+            entity_query = (
+                f"({entity_query}) ({query.strip()})"
+                if mapped_entity
+                else query.strip()
+            )
         targets.append(([normalized_symbol], entity_query))
     return targets
 
@@ -1903,12 +1908,16 @@ def _newsapi_targets(
         normalized_symbol = symbol.strip().upper()
         if not normalized_symbol:
             continue
-        entity_query = NEWS_ENTITY_QUERIES.get(normalized_symbol, normalized_symbol)
-        effective_query = (
-            f"({entity_query}) AND ({query.strip()})"
-            if query and query.strip()
-            else entity_query
-        )
+        mapped_entity = NEWS_ENTITY_QUERIES.get(normalized_symbol)
+        entity_query = mapped_entity or normalized_symbol
+        if query and query.strip():
+            effective_query = (
+                f"({entity_query}) AND ({query.strip()})"
+                if mapped_entity
+                else query.strip()
+            )
+        else:
+            effective_query = entity_query
         targets.append(([normalized_symbol], effective_query))
     return targets
 

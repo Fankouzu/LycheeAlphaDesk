@@ -305,6 +305,7 @@ def _build_research_packet(
     )
     auditable_topic_news = _auditable_topic_news(
         related_news,
+        symbol=symbol,
         market=item.market,
         asset_type=item.asset_type,
         topic_terms=_research_topic_terms(item),
@@ -426,6 +427,7 @@ def _symbols_missing_news(
         )
         auditable_topic_news = _auditable_topic_news(
             related_news,
+            symbol=symbol,
             market=item.market,
             asset_type=item.asset_type,
             topic_terms=_research_topic_terms(item),
@@ -936,13 +938,14 @@ def _related_news(
     for event in news_events:
         text = f"{event.headline} {event.summary}".lower()
         event_symbols = {event_symbol.upper() for event_symbol in event.symbols}
-        matches_symbol = bool(symbol and symbol in event_symbols)
+        matches_symbol = bool(symbol and symbol.upper() in event_symbols)
         topic_score = _news_topic_score(text, normalized_topic_terms)
         matches_topic = _matches_auditable_topic_news(
             text,
             market_terms=market_terms,
             asset_type=asset_type,
             topic_terms=normalized_topic_terms,
+            is_symbol_scoped=bool(event.is_symbol_scoped and matches_symbol),
         )
         if matches_symbol or any(term in text for term in terms) or matches_topic:
             row = asdict(event)
@@ -957,6 +960,7 @@ def _related_news(
 def _auditable_topic_news(
     rows: list[dict[str, object]],
     *,
+    symbol: str | None,
     market: str,
     asset_type: str,
     topic_terms: list[str],
@@ -970,8 +974,18 @@ def _auditable_topic_news(
             market_terms=market_terms,
             asset_type=asset_type,
             topic_terms=topic_terms,
+            is_symbol_scoped=_row_is_symbol_scoped_for(row, symbol),
         )
     ]
+
+
+def _row_is_symbol_scoped_for(row: dict[str, object], symbol: str | None) -> bool:
+    if not symbol or row.get("is_symbol_scoped") is not True:
+        return False
+    values = row.get("symbols")
+    if not isinstance(values, list):
+        return False
+    return symbol.upper() in {str(value).upper() for value in values}
 
 
 def _matches_auditable_topic_news(
@@ -980,10 +994,11 @@ def _matches_auditable_topic_news(
     market_terms: list[str],
     asset_type: str,
     topic_terms: list[str],
+    is_symbol_scoped: bool = False,
 ) -> bool:
     return (
         _news_topic_score(text, topic_terms) > 0
-        and _matches_market_context(text, market_terms)
+        and (is_symbol_scoped or _matches_market_context(text, market_terms))
         and _matches_asset_context(text, asset_type)
     )
 

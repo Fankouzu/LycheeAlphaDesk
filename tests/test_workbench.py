@@ -394,6 +394,80 @@ def test_research_task_detail_separates_off_topic_related_news() -> None:
     assert _packet_related_news_count(candidate, packet) == 1
 
 
+def test_research_task_detail_accepts_symbol_scoped_hk_news_without_market_literal() -> None:
+    candidate = CandidateCheck(
+        display_name="Tencent",
+        market="HK",
+        symbol="0700.HK",
+        proxy_symbols=[],
+        evidence_count=1,
+        gap_count=0,
+        data_gaps=[],
+        status="ready",
+        explanation="",
+        beginner_question="",
+        why_it_matters="",
+        observation_entry="0700.HK",
+        what_to_check="",
+        next_step="复核主题新闻",
+        priority="P2",
+        evidence_status="证据质量待复核",
+    )
+    packet = ResearchPacket(
+        packet_id="research:test:scoped-news",
+        candidate_id=1,
+        created_at="2026-07-05T10:00:00+00:00",
+        display_name="Tencent",
+        symbol="0700.HK",
+        market="HK",
+        packet={
+            "candidate": {
+                "asset_type": "stock",
+                "related_theme": "AI 云与平台流动性",
+                "why_watch": "",
+            },
+            "evidence": [],
+            "local_data": {
+                "price": {},
+                "related_news": [
+                    {
+                        "headline": "Tencent cloud demand improves platform liquidity",
+                        "summary": "AI cloud demand and platform liquidity improved.",
+                        "symbols": ["0700.HK"],
+                        "is_symbol_scoped": True,
+                        "source_url": "https://example.com/tencent-cloud",
+                    },
+                    {
+                        "headline": "Tencent SDK release 3.1.133",
+                        "summary": "A Python SDK package release.",
+                        "symbols": ["0700.HK"],
+                        "is_symbol_scoped": True,
+                        "source_url": "https://example.com/tencent-sdk",
+                    },
+                    {
+                        "headline": "Tencent legacy cloud demand improves platform liquidity",
+                        "summary": "AI cloud demand and platform liquidity improved.",
+                        "symbols": ["0700.HK"],
+                        "source_url": "https://example.com/legacy-batch-row",
+                    },
+                ],
+                "filings": [],
+                "symbol_mapping": [],
+            },
+            "data_gaps": [],
+        },
+    )
+
+    detail = render_research_task_detail(candidate, packet)
+
+    related_section = detail.split("相关新闻", 1)[1].split("离题/已过滤", 1)[0]
+    assert "Tencent cloud demand improves platform liquidity" in related_section
+    assert "Tencent SDK release 3.1.133" not in related_section
+    assert "Tencent legacy cloud demand improves platform liquidity" not in related_section
+    assert "Tencent SDK release 3.1.133" in detail.split("离题/已过滤", 1)[1]
+    assert _packet_related_news_count(candidate, packet) == 1
+
+
 def test_workbench_check_marks_blocked_when_research_gaps_remain(
     tmp_path: Path,
 ) -> None:
@@ -1207,6 +1281,8 @@ def test_research_run_stops_repeating_topic_refresh_after_exhausted_news(
     assert "不要重复刷新同一主题新闻" in result.assessment.next_decision
     assert "下一步判断: 不要重复刷新同一主题新闻" in result.detail
     assert "主题新闻过滤: 本次拉取 2 条，0 条进入相关新闻。" in result.detail
+    assert "数据完整性: 无" in result.detail
+    assert "研究缺口: 主题新闻已刷新，但没有回答当前研究问题的材料。" in result.detail
     assert "- 刷新主题新闻: lychee data pull news" not in result.detail
 
 

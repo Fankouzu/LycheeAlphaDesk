@@ -370,6 +370,7 @@ def write_manual_news_event(
         summary=clean_summary,
         symbols=[normalized_symbol],
         source_url=clean_source_url,
+        is_symbol_scoped=True,
     )
     rows = _merge_news_cache_rows(output_dir, [asdict(row)])
     output_path = _write_cache(
@@ -1548,6 +1549,7 @@ def _pull_finnhub_news(
                         summary=str(item.get("summary") or ""),
                         symbols=[symbol],
                         source_url=str(item.get("url") or ""),
+                        is_symbol_scoped=True,
                     )
                 )
     return rows
@@ -1590,6 +1592,7 @@ def _pull_gdelt_news(
                     summary=_gdelt_article_metadata(article),
                     symbols=target_symbols,
                     source_url=source_url,
+                    is_symbol_scoped=_is_symbol_scoped_news_target(target_symbols),
                 )
             )
     return rows
@@ -1708,6 +1711,7 @@ def _pull_newsapi_events(
                     summary=str(item.get("description") or ""),
                     symbols=target_symbols,
                     source_url=str(item.get("url") or ""),
+                    is_symbol_scoped=_is_symbol_scoped_news_target(target_symbols),
                 )
             )
     return rows
@@ -1737,6 +1741,10 @@ def _newsapi_targets(
         )
         targets.append(([normalized_symbol], effective_query))
     return targets
+
+
+def _is_symbol_scoped_news_target(symbols: list[str]) -> bool:
+    return len(symbols) == 1 and symbols[0].upper() != MARKET_NEWS_SYMBOL
 
 
 def _marketaux_symbols(item: dict[str, object], fallback: list[str]) -> list[str]:
@@ -2155,15 +2163,21 @@ def _merge_news_cache_rows(
     new_rows: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     existing = _read_cache(output_dir, "news-events.json").rows
-    merged: list[dict[str, object]] = []
-    seen: set[str] = set()
-    for row in [*existing, *new_rows]:
+    keys: list[str] = []
+    merged_by_key: dict[str, dict[str, object]] = {}
+    for row in existing:
         key = _news_cache_row_key(row)
-        if key in seen:
+        if key in merged_by_key:
             continue
-        seen.add(key)
-        merged.append(row)
-    return merged
+        keys.append(key)
+        merged_by_key[key] = row
+    for row in new_rows:
+        key = _news_cache_row_key(row)
+        if key not in merged_by_key:
+            keys.append(key)
+        # A fresh provider response upgrades stale rows from older cache schemas.
+        merged_by_key[key] = row
+    return [merged_by_key[key] for key in keys]
 
 
 def _merge_filing_cache_rows(
@@ -2326,6 +2340,7 @@ def _news_event_from_dict(row: dict[str, object]) -> NewsEvent:
         summary=str(row["summary"]),
         symbols=[str(symbol) for symbol in symbols] if isinstance(symbols, list) else [],
         source_url=str(row["source_url"]),
+        is_symbol_scoped=row.get("is_symbol_scoped") is True,
     )
 
 

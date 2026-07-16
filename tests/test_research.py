@@ -285,6 +285,79 @@ def test_deepen_research_queue_rejects_broad_hk_technology_news_for_index_theme(
     assert "Hong Kong technology researchers publish AI security study" not in headlines
 
 
+def test_deepen_research_queue_accepts_symbol_scoped_hk_topic_news_without_market_literal(
+    tmp_path: Path,
+) -> None:
+    _write_hk_tencent_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    rows = [
+        {
+            "timestamp": "2026-07-05T09:00:00+00:00",
+            "headline": "Tencent platform liquidity improves with AI cloud demand",
+            "summary": "Tencent cloud demand and platform liquidity are improving.",
+            "symbols": ["0700.HK"],
+            "source_url": "https://example.com/tencent-platform",
+            "is_symbol_scoped": True,
+        },
+    ]
+    (data_dir / "news-events.json").write_text(
+        json.dumps({"provider": "newsapi", "rows": rows}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    _write_market_cache(tmp_path, ["0700.HK"])
+
+    result = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    packet = result.packets[0].packet
+    related_news = packet["local_data"]["related_news"]
+    assert [row["source_url"] for row in related_news] == [
+        "https://example.com/tencent-platform"
+    ]
+    assert "缺少可审计新闻证据，需先刷新市场级或个股新闻缓存。" not in packet[
+        "data_gaps"
+    ]
+
+
+def test_deepen_research_queue_rejects_unscoped_hk_news_without_market_literal(
+    tmp_path: Path,
+) -> None:
+    _write_hk_tencent_seed(tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "legacy-newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-05T10:00:00+00:00",
+                        "headline": "Tencent platform liquidity improves with AI cloud demand",
+                        "summary": "Tencent cloud demand and platform liquidity are improving.",
+                        "symbols": ["0700.HK"],
+                        "source_url": "https://example.com/legacy-batch-row",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    _write_market_cache(tmp_path, ["0700.HK"])
+
+    result = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    assert "缺少可审计新闻证据，需先刷新市场级或个股新闻缓存。" in result.packets[
+        0
+    ].packet["data_gaps"]
+
+
 def test_fill_research_data_gaps_pulls_proxy_mapping_prices_without_mutating_candidate(
     tmp_path: Path,
 ) -> None:
@@ -664,6 +737,49 @@ def _write_hk_technology_index_seed(tmp_path: Path) -> None:
                 evidence=["news_001"],
                 risk_flags=["指数不能直接交易"],
                 next_actions=["映射到可交易 ETF"],
+                confidence="medium",
+                recommendation="research",
+            )
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(
+        report,
+        tmp_path,
+        tmp_path / "data" / "discovery-today.json",
+    )
+
+
+def _write_hk_tencent_seed(tmp_path: Path) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["HK"],
+        sources=[DiscoverySource("test-llm", "HK", "测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="AI 云与平台流动性观察",
+                markets=["HK"],
+                summary="观察 AI 云需求与平台流动性是否互相印证。",
+                evidence=[],
+                sectors=["Technology"],
+                risk_flags=["市场噪音"],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            DiscoveryCandidate(
+                display_name="Tencent",
+                symbol="0700.HK",
+                market="HK",
+                asset_type="stock",
+                related_theme="AI 云与平台流动性观察",
+                why_watch="观察 AI 云需求与平台流动性。",
+                evidence=[],
+                risk_flags=["市场噪音"],
+                next_actions=["复核主题新闻"],
                 confidence="medium",
                 recommendation="research",
             )

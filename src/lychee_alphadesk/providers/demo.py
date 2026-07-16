@@ -21,6 +21,7 @@ class NewsEvent:
     summary: str
     symbols: list[str]
     source_url: str
+    is_symbol_scoped: bool = False
 
 
 @dataclass(frozen=True)

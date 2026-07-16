@@ -2236,7 +2236,7 @@ def _news_topic_relevance(
         *_dict_list(packet_payload.get("evidence")),
         *_dict_list(local_data.get("related_news")),
     ]
-    terms = _topic_terms(candidate, packet)
+    terms = _research_theme_terms(candidate, packet)
     market_terms = _market_context_terms(candidate.market)
     asset_type = _asset_type(packet)
     matched_rows: list[dict[str, object]] = []
@@ -2260,7 +2260,10 @@ def _news_topic_relevance(
             continue
         if (
             _text_matches_any_topic_term(text, terms)
-            and _matches_market_context(text, market_terms)
+            and (
+                _is_symbol_scoped_news_for_candidate(row, candidate)
+                or _matches_market_context(text, market_terms)
+            )
             and _matches_financial_context_for_asset(text, asset_type)
             and _matches_direct_fund_context(candidate, packet, text, asset_type)
         ):
@@ -2669,7 +2672,8 @@ def render_research_task_detail(
         "财务快照",
         *_financial_snapshot_lines(financials),
         "",
-        f"数据缺口: {_gap_summary(data_gaps)}",
+        f"数据完整性: {_gap_summary(data_gaps)}",
+        f"研究缺口: {_research_gap_summary(candidate, data_gaps)}",
         f"下一步动作: {candidate.next_step}",
     ]
     if candidate.proxy_symbols:
@@ -2688,7 +2692,7 @@ def _detail_related_news(
     packet: ResearchPacket | None,
     related_news: list[dict[str, object]],
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    terms = _topic_terms(candidate, packet)
+    terms = _research_theme_terms(candidate, packet)
     market_terms = _market_context_terms(candidate.market)
     asset_type = _asset_type(packet)
     matched: list[dict[str, object]] = []
@@ -2697,7 +2701,10 @@ def _detail_related_news(
         text = _news_text(row)
         if (
             _text_matches_any_topic_term(text, terms)
-            and _matches_market_context(text, market_terms)
+            and (
+                _is_symbol_scoped_news_for_candidate(row, candidate)
+                or _matches_market_context(text, market_terms)
+            )
             and _matches_financial_context_for_asset(text, asset_type)
             and _matches_direct_fund_context(candidate, packet, text, asset_type)
         ):
@@ -2711,6 +2718,18 @@ def _matches_financial_context_for_asset(text: str, asset_type: str) -> bool:
     if asset_type.strip().lower() not in {"etf", "fund", "index", "sector"}:
         return True
     return _text_matches_any_topic_term(text, _FINANCIAL_MARKET_CONTEXT_TERMS)
+
+
+def _is_symbol_scoped_news_for_candidate(
+    row: dict[str, object],
+    candidate: CandidateCheck,
+) -> bool:
+    if row.get("is_symbol_scoped") is not True or not candidate.symbol:
+        return False
+    symbols = row.get("symbols")
+    if not isinstance(symbols, list):
+        return False
+    return candidate.symbol.upper() in {str(symbol).upper() for symbol in symbols}
 
 
 def _matches_direct_fund_context(
@@ -3379,7 +3398,10 @@ def _packet_topic_news_count(
         1
         for row in _dict_list(local_data.get("related_news"))
         if _text_matches_any_topic_term(_news_text(row), theme_terms)
-        and _matches_market_context(_news_text(row), market_terms)
+        and (
+            _is_symbol_scoped_news_for_candidate(row, candidate)
+            or _matches_market_context(_news_text(row), market_terms)
+        )
         and _matches_financial_context_for_asset(_news_text(row), asset_type)
         and _matches_direct_fund_context(candidate, packet, _news_text(row), asset_type)
     )
@@ -4271,7 +4293,8 @@ def _evidence_matrix_lines(
         f"- 财务快照: {len(financials)} 条",
         f"- 研究指标: {len(research_metrics)} 条",
         f"- 代理标的: {proxy_status}",
-        f"- 数据缺口: {_gap_summary(data_gaps)}",
+        f"- 数据完整性: {_gap_summary(data_gaps)}",
+        f"- 研究缺口: {_research_gap_summary(candidate, data_gaps)}",
     ]
 
 
@@ -4351,6 +4374,16 @@ def _gap_summary(data_gaps: list[str]) -> str:
     if not data_gaps:
         return "无"
     return "；".join(gap.rstrip("。；;,.， ") for gap in data_gaps if gap.strip())
+
+
+def _research_gap_summary(candidate: CandidateCheck, data_gaps: list[str]) -> str:
+    if data_gaps:
+        return "先处理数据完整性问题。"
+    if candidate.topic_news_exhausted:
+        return "主题新闻已刷新，但没有回答当前研究问题的材料。"
+    if candidate.topic_news_review_ready:
+        return "已有主题材料，等待区分支持、反向或待判定证据。"
+    return "无"
 
 
 def _display_values(values: list[str]) -> str:

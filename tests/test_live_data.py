@@ -86,6 +86,7 @@ def test_write_manual_news_event_adds_auditable_source_to_news_cache(tmp_path: P
             ),
             "symbols": ["0700.HK"],
             "source_url": "https://example.com/tencent-cloud-source",
+            "is_symbol_scoped": True,
         }
     ]
 
@@ -1473,6 +1474,69 @@ def test_pull_news_events_preserves_existing_news_rows(tmp_path: Path) -> None:
     assert [row["headline"] for row in cache["rows"]] == [
         "Original discovery evidence",
         "AI storage demand improves",
+    ]
+
+
+def test_pull_news_events_upgrades_existing_row_with_symbol_scope(tmp_path: Path) -> None:
+    config = default_config()
+    config.providers["newsapi"].value = "demo-newsapi-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "legacy-newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-06T10:00:00Z",
+                        "headline": "Tencent expands AI cloud services",
+                        "summary": "Tencent cloud expansion.",
+                        "symbols": ["0700.HK"],
+                        "source_url": "https://example.com/tencent-ai",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        assert "newsapi.org" in url
+        return {
+            "articles": [
+                {
+                    "publishedAt": "2026-07-06T10:00:00Z",
+                    "title": "Tencent expands AI cloud services",
+                    "description": "Tencent cloud expansion.",
+                    "url": "https://example.com/tencent-ai",
+                }
+            ]
+        }
+
+    result = pull_news_events(
+        symbols=["0700.HK"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="newsapi",
+        start_date="2026-07-01",
+        end_date="2026-07-07",
+        fetch_json=fetch_json,
+        force=True,
+    )
+
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert result.count == 1
+    assert cache["rows"] == [
+        {
+            "timestamp": "2026-07-06T10:00:00Z",
+            "headline": "Tencent expands AI cloud services",
+            "summary": "Tencent cloud expansion.",
+            "symbols": ["0700.HK"],
+            "source_url": "https://example.com/tencent-ai",
+            "is_symbol_scoped": True,
+        }
     ]
 
 

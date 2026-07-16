@@ -383,10 +383,11 @@ def verify_research_task(
     pull_filings: PullFilings | None = None,
 ) -> ResearchVerificationResult:
     created_at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
+    candidate_limit = limit
     workbench = run_workbench_check(
         output_dir=output_dir,
         status=status,
-        limit=limit,
+        limit=candidate_limit,
         force=False,
         fill_news=False,
         now=now,
@@ -398,6 +399,23 @@ def verify_research_task(
         symbol=symbol,
         name=name,
     )
+    if selected_index is None and (symbol or name):
+        candidate_limit = max(limit, 50)
+        workbench = run_workbench_check(
+            output_dir=output_dir,
+            status=status,
+            limit=candidate_limit,
+            force=False,
+            fill_news=False,
+            now=now,
+            pull_market=pull_market,
+            pull_filings=pull_filings,
+        )
+        selected_index = select_research_candidate_index(
+            workbench,
+            symbol=symbol,
+            name=name,
+        )
     if selected_index is None:
         raise ValueError("没有找到匹配的研究任务。")
     candidate = workbench.candidates[selected_index]

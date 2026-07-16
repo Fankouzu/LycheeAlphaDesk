@@ -1783,6 +1783,72 @@ def test_research_run_expands_pool_for_explicit_symbol(tmp_path: Path) -> None:
     assert result.candidate.symbol == "NVDA"
 
 
+def test_research_verify_expands_pool_for_explicit_symbol(tmp_path: Path) -> None:
+    report = DiscoveryReport(
+        mode="llm-synthesized",
+        created_at="2026-07-05T10:00:00+00:00",
+        markets=["US"],
+        sources=[DiscoverySource(provider="test-llm", market="US", description="测试来源")],
+        themes=[
+            DiscoveryTheme(
+                name="AI 基础设施扩散",
+                markets=["US"],
+                summary="测试显式代码是否能超出默认候选范围。",
+                evidence=["news_001"],
+                sectors=["Technology"],
+                risk_flags=[],
+                confidence="medium",
+            )
+        ],
+        candidates=[
+            *[
+                DiscoveryCandidate(
+                    display_name=f"前排候选 {index}",
+                    symbol=f"FAST{index}",
+                    market="US",
+                    asset_type="stock",
+                    related_theme="AI 基础设施扩散",
+                    why_watch="占据默认候选范围。",
+                    evidence=["news_001", "news_002"],
+                    risk_flags=[],
+                    next_actions=["继续研究"],
+                    confidence="medium",
+                    recommendation="research",
+                )
+                for index in range(1, 6)
+            ],
+            DiscoveryCandidate(
+                display_name="后排候选",
+                symbol="LATE",
+                market="US",
+                asset_type="stock",
+                related_theme="AI 基础设施扩散",
+                why_watch="需要超出默认范围后才能被选中。",
+                evidence=["news_001"],
+                risk_flags=[],
+                next_actions=["继续研究"],
+                confidence="medium",
+                recommendation="research",
+            ),
+        ],
+        warnings=["候选仅用于研究"],
+        next_actions=["继续收集证据"],
+        disclaimer="非投资建议。",
+    )
+    write_discovery_research_run(report, tmp_path, tmp_path / "data" / "discovery.json")
+
+    result = verify_research_task(
+        output_dir=tmp_path,
+        symbol="LATE",
+        limit=1,
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+        pull_market=_fake_market_pull,
+        pull_filings=_fake_filings_pull,
+    )
+
+    assert result.candidate.symbol == "LATE"
+
+
 def test_evidence_review_expands_pool_for_explicit_symbol(tmp_path: Path) -> None:
     _write_explicit_symbol_pool_seed(tmp_path)
 

@@ -2865,6 +2865,17 @@ def _cache_health_check(
             message=f"{filename} 已存在，但不包含{noun}。",
         )
 
+    if payload.warnings:
+        return DataQualityCheck(
+            name=name,
+            status="warning",
+            provider=payload.provider or "local-cache",
+            message=(
+                f"已加载 {len(payload.rows)} 条{noun}，"
+                f"但最近数据源警告: {'；'.join(payload.warnings[:2])}"
+            ),
+        )
+
     return DataQualityCheck(
         name=name,
         status="pass",

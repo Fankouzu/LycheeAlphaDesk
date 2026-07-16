@@ -2089,6 +2089,39 @@ def test_cached_data_health_reports_missing_and_present_cache_files(tmp_path: Pa
     assert checks["news-cache-present"].status == "error"
 
 
+def test_cached_data_health_surfaces_provider_warnings_with_cached_rows(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "news-events.json").write_text(
+        json.dumps(
+            {
+                "provider": "newsapi",
+                "rows": [
+                    {
+                        "timestamp": "2026-07-16T08:45:00+00:00",
+                        "headline": "Unrelated provider output",
+                        "summary": "Retained only for audit.",
+                        "symbols": ["000001.SZ"],
+                        "source_url": "https://example.com/unrelated",
+                    }
+                ],
+                "warnings": ["Marketaux 被拒绝访问（HTTP 403）"],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    checks = {check.name: check for check in run_cached_data_health(tmp_path)}
+
+    assert checks["news-cache-present"].status == "warning"
+    assert checks["news-cache-present"].provider == "newsapi"
+    assert "已加载 1 条新闻事件" in checks["news-cache-present"].message
+    assert "Marketaux 被拒绝访问" in checks["news-cache-present"].message
+
+
 def test_cached_data_health_reports_market_coverage_and_tushare_entitlement_gap(
     tmp_path: Path,
 ) -> None:

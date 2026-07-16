@@ -847,10 +847,59 @@ def test_verify_research_task_requires_direct_etf_fund_metadata(
         now=datetime(2026, 7, 5, 11, 5, tzinfo=UTC),
     )
     candidate = workbench.candidates[0]
+    assert workbench.status == "blocked"
+    assert candidate.status == "blocked"
+    assert candidate.gap_count == 1
+    assert candidate.data_gaps == []
+    assert "核验阻塞: 待补基金资料" in candidate.evidence_status
     assert candidate.priority == "P2 待补基金资料"
     assert "先生成 ETF/基金资料补齐向导" in candidate.next_step
     assert "lychee data guide fund --symbol 3456.HK" in candidate.next_command
     assert "lychee data guide fund --symbol 3456.HK" in workbench.beginner_brief
+
+
+def test_workbench_uses_latest_ready_verification_as_next_research_step(
+    tmp_path: Path,
+) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(
+        tmp_path,
+        include_stock_price=True,
+        include_filings=True,
+        news_headline="STX AI storage demand expands",
+        news_summary="AI storage demand supports the Seagate research question.",
+    )
+    research_dir = tmp_path / "research"
+    research_dir.mkdir(exist_ok=True)
+    (research_dir / "research-verification-ready.json").write_text(
+        json.dumps(
+            {
+                "created_at": "2026-07-05T11:00:00+00:00",
+                "candidate": {
+                    "display_name": "Seagate",
+                    "symbol": "STX",
+                    "market": "US",
+                },
+                "decision_board": {
+                    "workflow_state": "ready_for_review",
+                    "workflow_label": "可进入人工一致性复核",
+                    "next_steps": ["记录继续研究，并进入人工一致性复核。"],
+                    "next_commands": ["lychee research memo --symbol STX"],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    workbench = run_workbench_check(output_dir=tmp_path)
+
+    candidate = workbench.candidates[0]
+    assert candidate.status == "ready"
+    assert candidate.priority == "P1 一致性复核"
+    assert candidate.next_step == "记录继续研究，并进入人工一致性复核。"
+    assert candidate.next_command == "lychee research memo --symbol STX"
+    assert "lychee research memo --symbol STX" in workbench.beginner_brief
 
 
 def test_verify_research_task_uses_direct_etf_fund_metadata(
@@ -1418,9 +1467,15 @@ def test_workbench_stops_auto_news_refresh_after_data_request_returns_no_topic_e
         },
     )
 
+    def no_news_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        return PullResult("news", "newsapi", 0, output_dir / "data" / "news-events.json", [])
+
     result = run_workbench_check(
         output_dir=tmp_path,
         now=datetime(2026, 7, 5, 11, 5, tzinfo=UTC),
+        pull_news=no_news_pull,
     )
 
     candidate = result.candidates[0]

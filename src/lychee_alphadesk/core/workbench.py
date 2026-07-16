@@ -3772,6 +3772,13 @@ def _candidate_checks(
             packet,
         ):
             candidate_check = _mark_topic_news_review_ready(candidate_check)
+        elif output_dir is not None and (
+            ready_for_review := _latest_verification_ready_for_review(
+                output_dir,
+                candidate_check,
+            )
+        ) is not None:
+            candidate_check = _mark_ready_for_review(candidate_check, ready_for_review)
         if output_dir is not None and _candidate_market_is_in_no_data_cooldown(
             output_dir,
             candidate_check,
@@ -3832,10 +3839,50 @@ def _latest_verification_requires_fund_metadata(
 def _mark_fund_metadata_review(candidate: CandidateCheck) -> CandidateCheck:
     return replace(
         candidate,
+        status="blocked",
+        gap_count=max(1, candidate.gap_count),
         priority="P2 待补基金资料",
         ranking_reason="最近一次下钻核验要求先补 ETF/基金成分、跟踪指数、费用和来源。",
         next_step="先生成 ETF/基金资料补齐向导；补齐后重新运行下钻核验。",
+        evidence_status=candidate.evidence_status + "；核验阻塞: 待补基金资料",
         next_command=_fund_metadata_guide_command(candidate),
+    )
+
+
+def _latest_verification_ready_for_review(
+    output_dir: Path,
+    candidate: CandidateCheck,
+) -> tuple[str, str] | None:
+    path = _latest_matching_verification_artifact(output_dir, candidate)
+    if path is None:
+        return None
+    payload = _read_json_dict(path)
+    decision_board = _dict_value(payload.get("decision_board"))
+    if _string_value(decision_board.get("workflow_state")) != "ready_for_review":
+        return None
+    commands = _text_list(decision_board.get("next_commands"))
+    memo_command = next(
+        (command for command in commands if command.startswith("lychee research memo ")),
+        "",
+    )
+    if not memo_command:
+        return None
+    steps = _text_list(decision_board.get("next_steps"))
+    step = steps[0] if steps else "记录继续研究，并进入人工一致性复核。"
+    return step, memo_command
+
+
+def _mark_ready_for_review(
+    candidate: CandidateCheck,
+    ready_for_review: tuple[str, str],
+) -> CandidateCheck:
+    next_step, next_command = ready_for_review
+    return replace(
+        candidate,
+        priority="P1 一致性复核",
+        ranking_reason="最近一次下钻核验已完成基础证据检查，下一步进入人工一致性复核。",
+        next_step=next_step,
+        next_command=next_command,
     )
 
 
@@ -4059,7 +4106,11 @@ def _workbench_gates(
         proxy_detail = f"代理行情覆盖 {proxy_price_count}/{proxy_total}。"
     gates.append(WorkbenchGate("代理行情", proxy_status, proxy_detail))
 
-    blocked = [candidate for candidate in candidates if candidate.data_gaps]
+    blocked = [
+        candidate
+        for candidate in candidates
+        if candidate.status == "blocked" or candidate.data_gaps
+    ]
     if blocked:
         gates.append(
             WorkbenchGate(

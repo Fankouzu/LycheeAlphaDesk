@@ -713,7 +713,7 @@ The project still supports a demo-first local workflow without a brokerage accou
 | Version | Goal |
 | --- | --- |
 | Current prototype | Demo data, policy rules, local SQLite/JSON audit, Chinese-first TUI, market discovery, research queues, evidence verification, LLM memos, optional TimesFM forecasts, read-only portfolio import, and IPO/new-share research. |
-| Next stage | Stable provider/plugin API, more authorized data sources, Hong Kong/Mainland China financial snapshots, and broader real broker CSV acceptance coverage. |
+| Next stage | Stable provider/plugin API, more authorized data sources, an automated Hong Kong numeric-financial provider, and broader real broker CSV acceptance coverage. |
 | Explicitly out of scope | Automatic live trading, high-frequency/ultra-short execution, margin/options/futures execution, return guarantees, and automated investment advice. |
 
 ## 📚 Development Spec

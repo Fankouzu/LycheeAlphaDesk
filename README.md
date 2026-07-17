@@ -617,6 +617,8 @@ The import requires `symbol,name,quantity,avg_cost,currency,asset_type,as_of` an
 
 When the latest portfolio check still lacks prices, FX, or reconciliation data, `lychee research next` surfaces a `组合审计` action with the next data command. A complete read-only valuation snapshot does not create another action.
 
+`lychee research check` also shows a `组合风险上下文` section above research tasks with audit status, valuation coverage, base currency, drift readings, and the data needed before research. This is a data-completeness context only; it does not change candidates or produce rebalancing advice.
+
 For dated FX context from the ECB Data Portal:
 
 ```bash

@@ -579,6 +579,8 @@ lychee portfolio check --file portfolio.csv --policy policy.yaml \
 
 如果最近一次组合检查仍缺少行情、FX 或持仓核对信息，`lychee research next` 会把它加入“组合审计”行动队列，并给出下一条可执行的数据命令；完整的只读估值快照不会重复制造行动。
 
+`lychee research check` 也会在研究任务顶部显示“组合风险上下文”：当前组合审计状态、估值覆盖数量、基础货币、目标偏离读数和研究前需要补齐的内容。它只是研究前的数据完整性提示，不会改变研究候选，更不会生成调仓建议。
+
 FX 练习数据使用 ECB Data Portal 的带日期日频参考汇率：
 
 ```bash

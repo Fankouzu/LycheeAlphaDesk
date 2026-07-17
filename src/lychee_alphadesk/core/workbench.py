@@ -72,6 +72,17 @@ class CandidateCheck:
 
 
 @dataclass(frozen=True)
+class PortfolioContext:
+    status: str
+    source: str
+    base_currency: str
+    valuation_count: int
+    drift_readings: list[str]
+    next_action: str
+    artifact_path: str
+
+
+@dataclass(frozen=True)
 class WorkbenchCheckResult:
     created_at: str
     status: str
@@ -86,6 +97,9 @@ class WorkbenchCheckResult:
     artifact_path: Path | None
     fill_result: ResearchGapFillResult
     deepen_result: ResearchDeepenResult
+    portfolio_context: PortfolioContext = field(
+        default_factory=lambda: _empty_portfolio_context()
+    )
 
     @property
     def is_ready(self) -> bool:
@@ -342,7 +356,12 @@ def run_workbench_check(
     proxy_price_count, proxy_total = _proxy_price_coverage(deepen_result.packets)
     gates = _workbench_gates(candidates, proxy_price_count, proxy_total)
     result_status = "blocked" if any(gate.status == "fail" for gate in gates) else "ready"
-    beginner_brief = _beginner_brief(result_status, candidates)
+    portfolio_context = _latest_portfolio_context(output_dir)
+    beginner_brief = _beginner_brief(
+        result_status,
+        candidates,
+        portfolio_context=portfolio_context,
+    )
     artifact_path = _write_workbench_check_artifact(
         output_dir=output_dir,
         created_at=created_at,
@@ -353,6 +372,7 @@ def run_workbench_check(
         proxy_total=proxy_total,
         beginner_brief=beginner_brief,
         fill_result=fill_result,
+        portfolio_context=portfolio_context,
     )
     return WorkbenchCheckResult(
         created_at=created_at,
@@ -368,6 +388,7 @@ def run_workbench_check(
         artifact_path=artifact_path,
         fill_result=fill_result,
         deepen_result=deepen_result,
+        portfolio_context=portfolio_context,
     )
 
 
@@ -4320,7 +4341,12 @@ def _candidate_evidence_quality(
     )
 
 
-def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
+def _beginner_brief(
+    status: str,
+    candidates: list[CandidateCheck],
+    *,
+    portfolio_context: PortfolioContext | None = None,
+) -> str:
     ready = [candidate for candidate in candidates if candidate.status == "ready"]
     blocked = [candidate for candidate in candidates if candidate.status == "blocked"]
     lines = [
@@ -4331,6 +4357,7 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
             f"可执行 {len(ready)} | 阻塞 {len(blocked)} | 总任务 {len(candidates)}"
         ),
     ]
+    lines.extend(_portfolio_context_lines(portfolio_context))
 
     lines.append("")
     lines.append("现在先做")
@@ -4392,6 +4419,85 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
     else:
         lines.append("- 无。")
     return "\n".join(lines)
+
+
+def _empty_portfolio_context() -> PortfolioContext:
+    return PortfolioContext(
+        status="未配置",
+        source="",
+        base_currency="",
+        valuation_count=0,
+        drift_readings=[],
+        next_action="先运行只读组合检查，建立当前持仓审计上下文。",
+        artifact_path="",
+    )
+
+
+def _latest_portfolio_context(output_dir: Path) -> PortfolioContext:
+    artifacts = list((output_dir / "research").glob("portfolio-check-*.json"))
+    if not artifacts:
+        return _empty_portfolio_context()
+    artifact = max(artifacts, key=lambda path: path.stat().st_mtime)
+    payload = _read_json_dict(artifact)
+    status = _string_value(payload.get("status_label")) or "状态未记录"
+    source = _string_value(payload.get("position_source"))
+    base_currency = _string_value(payload.get("base_currency"))
+    valuations = _dict_list(payload.get("valuations"))
+    drift_readings = [
+        f"{_string_value(row.get('symbol'))}: {_format_drift(row.get('drift'))}"
+        for row in valuations
+        if _string_value(row.get("symbol")) and row.get("drift") is not None
+    ]
+    missing_prices = _text_list(payload.get("missing_price_symbols"))
+    missing_fx = _text_list(payload.get("missing_fx_currencies"))
+    valuation_gaps = _text_list(payload.get("valuation_gaps"))
+    audit_gaps = _text_list(payload.get("position_audit_gaps"))
+    errors = _text_list(payload.get("errors"))
+    if errors:
+        next_action = "先修正组合政策检查错误。"
+    elif missing_prices:
+        next_action = "先补齐组合行情: " + ", ".join(missing_prices[:6])
+    elif missing_fx:
+        next_action = "先补齐组合 FX: " + ", ".join(missing_fx[:6])
+    elif valuation_gaps:
+        next_action = "先处理组合估值缺口: " + "；".join(valuation_gaps[:2])
+    elif audit_gaps:
+        next_action = "先核对组合审计信息: " + "；".join(audit_gaps[:2])
+    else:
+        next_action = "组合审计已生成，可将其作为研究前的数据完整性上下文。"
+    return PortfolioContext(
+        status=status,
+        source=source,
+        base_currency=base_currency,
+        valuation_count=len(valuations),
+        drift_readings=drift_readings[:6],
+        next_action=next_action,
+        artifact_path=str(artifact),
+    )
+
+
+def _portfolio_context_lines(context: PortfolioContext | None) -> list[str]:
+    context = context or _empty_portfolio_context()
+    lines = ["", "组合风险上下文"]
+    if not context.artifact_path:
+        lines.append(f"- {context.next_action}")
+        return lines
+    currency = f" | 基础货币: {context.base_currency}" if context.base_currency else ""
+    source = f" | 来源: {context.source}" if context.source else ""
+    lines.append(
+        f"- 组合审计: {context.status} | 已生成估值 {context.valuation_count} 项"
+        f"{currency}{source}"
+    )
+    if context.drift_readings:
+        lines.append("  目标偏离读数: " + "；".join(context.drift_readings[:3]))
+    lines.append(f"  研究前动作: {context.next_action}")
+    return lines
+
+
+def _format_drift(value: object) -> str:
+    if isinstance(value, (int, float)):
+        return f"{value:+.2%}"
+    return "未记录"
 
 
 def _proxy_followup_line() -> str:
@@ -4842,6 +4948,7 @@ def _write_workbench_check_artifact(
     proxy_total: int,
     beginner_brief: str,
     fill_result: ResearchGapFillResult,
+    portfolio_context: PortfolioContext,
 ) -> Path:
     research_dir = output_dir / "research"
     research_dir.mkdir(parents=True, exist_ok=True)
@@ -4863,6 +4970,7 @@ def _write_workbench_check_artifact(
                 "gates": [asdict(gate) for gate in gates],
                 "candidates": [asdict(candidate) for candidate in candidates],
                 "beginner_brief": beginner_brief,
+                "portfolio_context": asdict(portfolio_context),
             },
             ensure_ascii=False,
             indent=2,

@@ -21,6 +21,7 @@ from lychee_alphadesk.core.workbench import (
     ResearchGapFillResult,
     WorkbenchCheckResult,
     _headline_lines,
+    _latest_portfolio_context,
     _next_step,
     _packet_related_news_count,
     _pull_research_action,
@@ -37,6 +38,42 @@ from lychee_alphadesk.core.workbench import (
     suggest_pending_evidence_review,
     verify_research_task,
 )
+
+
+def test_workbench_reads_portfolio_audit_as_beginner_risk_context(
+    tmp_path: Path,
+) -> None:
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    artifact = research_dir / "portfolio-check-test.json"
+    artifact.write_text(
+        json.dumps(
+            {
+                "status_label": "政策通过，已生成估值快照",
+                "position_source": "ibkr_csv",
+                "base_currency": "USD",
+                "valuations": [
+                    {"symbol": "QQQ", "drift": -0.0191},
+                    {"symbol": "CASH", "drift": 0.0098},
+                ],
+                "missing_price_symbols": [],
+                "missing_fx_currencies": [],
+                "valuation_gaps": [],
+                "position_audit_gaps": [],
+                "errors": [],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    context = _latest_portfolio_context(tmp_path)
+
+    assert context.status == "政策通过，已生成估值快照"
+    assert context.source == "ibkr_csv"
+    assert context.valuation_count == 2
+    assert "QQQ: -1.91%" in context.drift_readings
+    assert "研究前的数据完整性上下文" in context.next_action
 
 
 def test_next_step_summarizes_raw_data_gaps_as_a_single_user_action() -> None:
@@ -150,6 +187,7 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert result.artifact_path.exists()
     assert "AlphaDesk 研究工作台" in result.beginner_brief
     assert "边界: 研究任务台，不给买卖建议。" in result.beginner_brief
+    assert "组合风险上下文" in result.beginner_brief
     assert "现在先做" in result.beginner_brief
     assert "为什么先做:" in result.beginner_brief
     assert "你要回答:" in result.beginner_brief

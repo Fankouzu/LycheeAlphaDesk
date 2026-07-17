@@ -240,6 +240,63 @@ def test_portfolio_import_transactions_is_read_only(tmp_path: Path) -> None:
     assert (tmp_path / "data" / "portfolio-transactions.json").exists()
 
 
+def test_ipo_guide_and_set_commands_are_manual_only(tmp_path: Path) -> None:
+    guide_result = runner.invoke(
+        app,
+        [
+            "data",
+            "guide",
+            "ipo",
+            "--market",
+            "HK",
+            "--name",
+            "Demo Technology IPO",
+            "--symbol",
+            "09999.HK",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert guide_result.exit_code == 0
+    assert "IPO/打新资料补齐向导" in guide_result.stdout
+    guide_path = tmp_path / "data" / "ipo-guide-Demo-Technology-IPO.json"
+    payload = json.loads(guide_path.read_text(encoding="utf-8"))
+    payload["rows"] = [
+        {
+            "symbol": "09999.HK",
+            "name": "Demo Technology IPO",
+            "market": "HK",
+            "exchange": "HKEX",
+            "announcement_date": "2026-07-01",
+            "subscription_start": "2026-07-02",
+            "subscription_end": "2026-07-05",
+            "listing_date": "2026-07-10",
+            "status": "announced",
+            "source_url": "https://example.com/ipo",
+        }
+    ]
+    guide_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    set_result = runner.invoke(
+        app,
+        [
+            "data",
+            "set",
+            "ipo",
+            "--from-file",
+            str(guide_path),
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert set_result.exit_code == 0
+    assert "IPO/打新资料已写入: 1 条" in set_result.stdout
+    assert "不确认申购资格" in set_result.stdout
+    assert (tmp_path / "data" / "ipo-events.json").exists()
+
+
 def test_report_demo_generates_markdown_report(tmp_path: Path) -> None:
     result = runner.invoke(app, ["report", "--demo", "--output-dir", str(tmp_path)])
 

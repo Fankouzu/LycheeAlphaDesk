@@ -1,0 +1,21 @@
+{
+  "rows": [
+    {
+      "symbol": "09999.HK",
+      "name": "Demo Technology IPO",
+      "market": "HK",
+      "exchange": "HKEX",
+      "announcement_date": "2026-07-01",
+      "subscription_start": "2026-07-02",
+      "subscription_end": "2026-07-05",
+      "listing_date": "2026-07-10",
+      "status": "announced",
+      "source_url": "https://example.com/ipo",
+      "price_min": 10,
+      "price_max": 12,
+      "lot_size": 100,
+      "account_eligibility_note": "仅演示字段；实际资格需人工核对",
+      "risk_note": "仅演示资料"
+    }
+  ]
+}

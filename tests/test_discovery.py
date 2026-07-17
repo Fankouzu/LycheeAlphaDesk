@@ -171,6 +171,23 @@ def test_discovery_summary_expands_news_evidence_ids(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
+    (data_dir / "ipo-events.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "name": "Demo Technology IPO",
+                        "market": "HK",
+                        "subscription_start": "2026-07-02",
+                        "subscription_end": "2026-07-05",
+                        "source_url": "https://example.com/ipo",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     report = _report_with_news_evidence_id()
 
     summary = discovery_report_summary(report, output_dir=tmp_path)
@@ -179,6 +196,8 @@ def test_discovery_summary_expands_news_evidence_ids(tmp_path: Path) -> None:
     assert "news_001" in summary
     assert "The AI infrastructure boom is sending these stocks soaring" in summary
     assert "https://example.com/ai-infra" in summary
+    assert "IPO/打新资料" in summary
+    assert "Demo Technology IPO" in summary
 
 
 def test_today_discovery_rejects_non_id_evidence_when_pack_exists(

@@ -607,6 +607,10 @@ lychee data pull fx --base USD --currencies HKD,CNY
 
 第一个公开版本聚焦研究，不聚焦执行。它应该在没有券商账户、LLM key、TimesFM 权重、付费行情数据的情况下也有价值。
 
+IPO/打新资料采用人工核验入口：`lychee data guide ipo --market HK --name "公司名称"` 生成模板，填写交易所/发行人公告后使用 `lychee data set ipo --from-file ...` 导入。系统只记录申购期、上市期、价格区间、手数、账户资格说明和来源，不确认资格、不预测收益，也不执行申购。
+
+仓库提供了 `examples/demo/ipo.json` 作为本地导入样例。
+
 v0.1 核心范围：
 
 - Demo 模式，包含模拟组合、模拟新闻和样例报告。

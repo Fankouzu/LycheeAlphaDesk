@@ -645,6 +645,10 @@ Rates are stored in `fx-rates.json` with a 24-hour freshness record. They are re
 
 The first public version should focus on research, not execution. It should be useful without a broker account, an LLM key, TimesFM weights, or paid market data.
 
+IPO/new-share data uses a manually verified path: `lychee data guide ipo --market HK --name "Company"` creates a template, and `lychee data set ipo --from-file ...` imports exchange or issuer evidence. The system records subscription dates, listing date, price range, lot size, account-eligibility notes, and source URLs; it does not confirm eligibility, forecast returns, or submit applications.
+
+The repository includes `examples/demo/ipo.json` for a local import dry run.
+
 v0.1 core:
 
 - Demo mode with mock portfolio, mock news, and sample reports.

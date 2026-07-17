@@ -212,6 +212,17 @@ def discovery_report_summary(
         lines.append("风险提示")
         for warning in report.warnings:
             lines.append(f"- {warning}")
+    ipo_events = _load_ipo_events(output_dir) if output_dir else []
+    if ipo_events:
+        lines.append("")
+        lines.append("IPO/打新资料")
+        lines.extend(
+            f"- {item.get('name', '未命名')} [{item.get('market', '-')}] "
+            f"申购 {item.get('subscription_start', '-')} 至 "
+            f"{item.get('subscription_end', '-')}；来源 {item.get('source_url', '-')}"
+            for item in ipo_events[:5]
+        )
+        lines.append("- 以上仅为已核验资料索引，不确认申购资格或收益。")
     return "\n".join(lines)
 
 
@@ -243,7 +254,20 @@ def _build_llm_context(markets: list[str], output_dir: Path | None) -> dict[str,
             "evidence_pack": [asdict(item) for item in evidence_pack],
             "filings": [asdict(filing) for filing in snapshot.filings[:20]],
         }
+        context["ipo_events"] = _load_ipo_events(output_dir)
     return context
+
+
+def _load_ipo_events(output_dir: Path) -> list[dict[str, object]]:
+    path = output_dir / "data" / "ipo-events.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)][:20]
 
 
 def _build_discovery_messages(context: dict[str, object]) -> list[dict[str, str]]:
@@ -288,6 +312,8 @@ def _build_discovery_messages(context: dict[str, object]) -> list[dict[str, str]
         "Every theme and candidate must cite evidence IDs from "
         "local_live_cache.evidence_pack, such as news_001. "
         "If there is no useful evidence ID, return fewer candidates."
+        " IPO events are calendar context only, not evidence IDs; keep eligibility "
+        "and return uncertainty explicit."
     )
     user_prompt = (
         "请为股市初学者生成今日市场发现。\n\n"

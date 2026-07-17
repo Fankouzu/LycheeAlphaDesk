@@ -46,6 +46,7 @@ from lychee_alphadesk.core.forecast import (
     run_forecast_backtest,
 )
 from lychee_alphadesk.core.fx import FXProviderError, pull_ecb_fx_rates
+from lychee_alphadesk.core.ipo import import_ipo_events, write_ipo_guide
 from lychee_alphadesk.core.live_data import (
     PullResult,
     build_cached_data_snapshot,
@@ -2151,6 +2152,31 @@ def data_set_financials(
     _print_pull_result(result_label="财务快照", count=result.count, result=result)
 
 
+@data_set_app.command("ipo")
+def data_set_ipo(
+    from_file: Annotated[
+        Path,
+        typer.Option("--from-file", help="从 data guide ipo 生成并填写后的 JSON 模板导入。"),
+    ],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """导入已核验的 IPO/打新事件资料。"""
+    try:
+        result = import_ipo_events(output_dir=output_dir, guide_path=from_file)
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    console.print(f"IPO/打新资料已写入: {result.count} 条")
+    console.print(f"缓存: {result.output_path}", soft_wrap=True)
+    console.print(f"审计: {result.audit_path}", soft_wrap=True)
+    for warning in result.warnings:
+        console.print(f"⚠️ {warning}")
+    console.print("边界: 仅记录已核验资料，不确认申购资格，不是收益或投资建议。")
+
+
 @data_set_app.command("metric")
 def data_set_metric(
     symbol: Annotated[
@@ -2436,6 +2462,47 @@ def data_guide_financials(
         soft_wrap=True,
     )
     console.print("边界: 只导入已核验报表，不猜测缺失数值，也不是投资建议。")
+
+
+@data_guide_app.command("ipo")
+def data_guide_ipo(
+    market: Annotated[
+        str,
+        typer.Option("--market", help="市场：HK 或 CN。"),
+    ],
+    name: Annotated[
+        str,
+        typer.Option("--name", help="IPO/新股名称。"),
+    ],
+    symbol: Annotated[
+        str,
+        typer.Option("--symbol", help="已知代码，可留空。"),
+    ] = "",
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="向导输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """生成 IPO/打新人工核验模板。"""
+    try:
+        guide = write_ipo_guide(
+            output_dir=output_dir,
+            market=market,
+            name=name,
+            symbol=symbol,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    console.print("IPO/打新资料补齐向导")
+    console.print(f"名称: {name.strip()} [{market.strip().upper()}]")
+    console.print(f"模板已写入: {guide.output_path}", soft_wrap=True)
+    console.print("建议核验来源")
+    for source in guide.suggested_sources:
+        console.print(f"- {source}")
+    console.print("填完模板后导入")
+    console.print(guide.apply_command, soft_wrap=True)
+    console.print("边界: 只记录已核验 IPO 资料，不确认申购资格，不是收益或投资建议。")
 
 
 def _print_pull_result(*, result_label: str, count: int, result: PullResult) -> None:

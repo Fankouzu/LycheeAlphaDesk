@@ -4538,11 +4538,24 @@ def _cache_health_check(
 ) -> DataQualityCheck:
     path = output_dir / "data" / filename
     if not path.exists():
+        command = {
+            "market-prices.json": (
+                "lychee data pull market --symbols AAPL --provider auto"
+            ),
+            "news-events.json": (
+                "lychee data pull news --symbols AAPL --provider auto"
+            ),
+            "financials.json": "lychee data pull financials --symbols AAPL",
+            "filings.json": "lychee data pull filings --symbols AAPL",
+        }.get(filename, "lychee data health")
         return DataQualityCheck(
             name=name,
             status="error",
             provider="local-cache",
-            message=f"缺少 {filename}；请先运行 `lychee data pull`。",
+            message=(
+                f"缺少 {filename}；可先运行 `{command}` 建立示例缓存，"
+                "再替换为实际观察代码。"
+            ),
         )
 
     payload = _read_cache(output_dir, filename)
@@ -4582,6 +4595,7 @@ def _market_coverage_checks(cache: _CachePayload) -> list[DataQualityCheck]:
 
 def _market_coverage_check(cache: _CachePayload, market: str) -> DataQualityCheck:
     market_name = {"US": "美股", "HK": "港股", "CN": "A 股"}[market]
+    sample_symbol = {"US": "AAPL", "HK": "0700.HK", "CN": "510300.SH"}[market]
     market_rows = [
         row for row in cache.rows if _symbol_market(_cache_row_symbol(row)) == market
     ]
@@ -4615,7 +4629,8 @@ def _market_coverage_check(cache: _CachePayload, market: str) -> DataQualityChec
         provider=cache.provider or "local-cache",
         message=(
             f"{market_name}暂无可用行情缓存。"
-            "请先通过 `lychee data pull market --provider auto` 拉取一个观察代码。"
+            f"可先运行 `lychee data pull market --symbols {sample_symbol} "
+            "--provider auto` 建立示例缓存。"
         ),
     )
 

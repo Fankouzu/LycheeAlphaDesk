@@ -23,6 +23,18 @@ def test_readiness_audit_is_blocked_without_local_research_prerequisites(
     assert result.status == "blocked"
     assert not result.is_ready
     assert any(check.key == "llm" and check.status == "error" for check in result.checks)
+    market_check = next(check for check in result.checks if check.key == "market")
+    news_check = next(check for check in result.checks if check.key == "news")
+    assert "lychee data pull market --symbols AAPL --provider auto" in market_check.detail
+    assert "lychee data pull news --symbols AAPL --provider auto" in news_check.detail
+    coverage = {
+        check.key: check
+        for check in result.checks
+        if check.key.startswith("market-") and check.key.endswith("-coverage")
+    }
+    assert "--symbols AAPL" in coverage["market-us-coverage"].detail
+    assert "--symbols 0700.HK" in coverage["market-hk-coverage"].detail
+    assert "--symbols 510300.SH" in coverage["market-cn-coverage"].detail
     assert result.artifact_path.exists()
     payload = json.loads(result.artifact_path.read_text(encoding="utf-8"))
     assert payload["status"] == "blocked"

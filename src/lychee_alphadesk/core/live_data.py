@@ -1628,6 +1628,218 @@ def pull_sec_financials(
     return PullResult("financials", "sec_edgar", len(rows), output_path, warnings)
 
 
+def pull_tushare_financials(
+    *,
+    symbols: list[str],
+    config_path: Path | None = None,
+    output_dir: Path,
+    post_json: JsonPoster | None = None,
+    force: bool = False,
+    now: datetime | None = None,
+) -> PullResult:
+    """Pull A-share income/cash-flow snapshots through Tushare Pro."""
+    normalized_symbols = _normalized_symbols(symbols)
+    if not normalized_symbols:
+        raise ValueError("请至少输入一个 A 股证券代码。")
+    if any(_infer_symbol_market(symbol) != "CN" for symbol in normalized_symbols):
+        raise ValueError("Tushare 财务快照当前只支持 .SH/.SZ A 股代码。")
+
+    freshness = evaluate_financials_cache(
+        output_dir=output_dir,
+        symbols=normalized_symbols,
+        now=now,
+        force=force,
+    )
+    if not freshness.should_refresh and freshness.entry is not None:
+        cache = _read_cache(output_dir, "financials.json")
+        if _financial_cache_covers_symbols(cache.rows, normalized_symbols):
+            return PullResult(
+                "financials",
+                freshness.entry.provider,
+                len(cache.rows),
+                freshness.entry.artifact_path,
+                [freshness.reason],
+                refreshed=False,
+            )
+
+    config = load_config(config_path)
+    token = _configured_value(config.providers["tushare"].value, "Tushare Pro")
+    poster = post_json or _post_json
+    rows: list[FinancialSnapshot] = []
+    warnings: list[str] = []
+    for symbol in normalized_symbols:
+        income = _pull_tushare_statement(
+            api_name="income",
+            ts_code=_tushare_symbol(symbol) or symbol,
+            token=token,
+            post_json=poster,
+            warnings=warnings,
+            symbol=symbol,
+        )
+        cashflow = _pull_tushare_statement(
+            api_name="cashflow",
+            ts_code=_tushare_symbol(symbol) or symbol,
+            token=token,
+            post_json=poster,
+            warnings=warnings,
+            symbol=symbol,
+        )
+        snapshot = _parse_tushare_financial_snapshot(
+            symbol=symbol,
+            income=income,
+            cashflow=cashflow,
+        )
+        if snapshot is None:
+            warnings.append(f"{symbol} Tushare 未返回可解析的营收、净利润或经营现金流。")
+            continue
+        rows.append(snapshot)
+
+    cache_rows = _merge_symbol_cache_rows(
+        output_dir=output_dir,
+        filename="financials.json",
+        new_rows=[asdict(row) for row in rows],
+    )
+    output_path = _write_cache(
+        output_dir=output_dir,
+        filename="financials.json",
+        provider="tushare",
+        rows=cache_rows,
+        warnings=warnings,
+        now=now,
+    )
+    record_financials_cache(
+        output_dir=output_dir,
+        symbols=normalized_symbols,
+        artifact_path=output_path,
+        row_count=len(rows),
+        now=now,
+        forced=force,
+    )
+    return PullResult("financials", "tushare", len(rows), output_path, warnings)
+
+
+def _pull_tushare_statement(
+    *,
+    api_name: str,
+    ts_code: str,
+    token: str,
+    post_json: JsonPoster,
+    warnings: list[str],
+    symbol: str,
+) -> list[dict[str, object]]:
+    try:
+        payload = _post_provider_json(
+            post_json,
+            "https://api.tushare.pro",
+            {"Content-Type": "application/json"},
+            {
+                "api_name": api_name,
+                "token": token,
+                "params": {"ts_code": ts_code},
+                "fields": (
+                    "ts_code,ann_date,end_date,report_type,name,total_revenue,"
+                    "revenue,n_income,n_cashflow_act"
+                ),
+            },
+        )
+    except RuntimeError as error:
+        warnings.append(f"{symbol} Tushare {api_name} 拉取失败: {error}")
+        return []
+    if not isinstance(payload, dict):
+        return []
+    code = payload.get("code")
+    if code not in {None, 0, "0"}:
+        message = str(payload.get("msg") or "未知错误")
+        if str(code) == "40203":
+            warnings.append(
+                f"{symbol} Tushare {api_name} 接口权限不足（40203）；"
+                "请在 Tushare 权限中心开通财务接口，不是重新填写 API Key。"
+            )
+        else:
+            warnings.append(f"{symbol} Tushare {api_name} 返回 {code}: {message}")
+        return []
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return []
+    fields = data.get("fields")
+    items = data.get("items")
+    if not isinstance(fields, list) or not isinstance(items, list):
+        return []
+    return [
+        {
+            str(field): value
+            for field, value in zip(fields, item, strict=False)
+            if isinstance(field, str)
+        }
+        for item in items
+        if isinstance(item, list)
+    ]
+
+
+def _parse_tushare_financial_snapshot(
+    *,
+    symbol: str,
+    income: list[dict[str, object]],
+    cashflow: list[dict[str, object]],
+) -> FinancialSnapshot | None:
+    ordered_income = sorted(
+        income,
+        key=lambda row: str(row.get("end_date") or ""),
+        reverse=True,
+    )
+    if not ordered_income:
+        return None
+    latest = ordered_income[0]
+    period_end = _tushare_trade_date(str(latest.get("end_date") or ""))
+    revenue = _number_value(latest.get("total_revenue"))
+    if revenue is None:
+        revenue = _number_value(latest.get("revenue"))
+    net_income = _number_value(latest.get("n_income"))
+    latest_end_date = str(latest.get("end_date") or "")
+    cashflow_row = next(
+        (row for row in cashflow if str(row.get("end_date") or "") == latest_end_date),
+        {},
+    )
+    operating_cash_flow = _number_value(cashflow_row.get("n_cashflow_act"))
+    if revenue is None and net_income is None and operating_cash_flow is None:
+        return None
+    source_url = "https://tushare.pro/document/1?doc_id=108"
+    return FinancialSnapshot(
+        symbol=symbol,
+        company=str(latest.get("name") or symbol),
+        cik=0,
+        form="Tushare income/cashflow",
+        fiscal_year=(
+            int(period_end[:4])
+            if len(period_end) >= 4 and period_end[:4].isdigit()
+            else None
+        ),
+        fiscal_period=str(latest.get("report_type") or ""),
+        period_end=period_end,
+        filing_date=_tushare_trade_date(str(latest.get("ann_date") or "")),
+        currency="CNY",
+        revenue=revenue,
+        revenue_period_start="",
+        revenue_period_end=period_end,
+        revenue_prior=None,
+        revenue_prior_period_start="",
+        revenue_prior_period_end="",
+        net_income=net_income,
+        net_income_period_start="",
+        net_income_period_end=period_end,
+        net_income_prior=None,
+        net_income_prior_period_start="",
+        net_income_prior_period_end="",
+        operating_cash_flow=operating_cash_flow,
+        operating_cash_flow_period_start="",
+        operating_cash_flow_period_end=period_end,
+        operating_cash_flow_prior=None,
+        operating_cash_flow_prior_period_start="",
+        operating_cash_flow_prior_period_end="",
+        source_url=source_url,
+    )
+
+
 def build_cached_data_snapshot(output_dir: Path) -> DataSnapshot:
     market_cache = _read_cache(output_dir, "market-prices.json")
     news_cache = _read_cache(output_dir, "news-events.json")

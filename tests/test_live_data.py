@@ -20,6 +20,7 @@ from lychee_alphadesk.core.live_data import (
     pull_news_events,
     pull_sec_filings,
     pull_sec_financials,
+    pull_tushare_financials,
     pull_volatility_metrics,
     read_fund_metadata_cache,
     read_research_metric_cache,
@@ -627,6 +628,90 @@ def test_pull_benchmark_comparison_metrics_calculates_qqq_vs_spy(
     ]
     assert [metric.value for metric in metrics] == ["+6.00%", "+2.50%", "+3.50 个百分点"]
     assert metrics[2].domain == "benchmark_comparison"
+
+
+def test_pull_tushare_financials_parses_cn_income_and_cashflow(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["tushare"].value = "demo-tushare-token"
+    config_path = save_config(config, tmp_path / "config.yaml")
+
+    def post_json(
+        url: str,
+        headers: dict[str, str] | None,
+        payload: dict[str, object],
+    ) -> object:
+        assert url == "https://api.tushare.pro"
+        assert payload["token"] == "demo-tushare-token"
+        api_name = payload["api_name"]
+        if api_name == "income":
+            return {
+                "code": 0,
+                "data": {
+                    "fields": [
+                        "ts_code",
+                        "ann_date",
+                        "end_date",
+                        "report_type",
+                        "name",
+                        "total_revenue",
+                        "n_income",
+                    ],
+                    "items": [["000001.SZ", "20260701", "20260630", "Q2", "平安银行", 1000, 120]],
+                },
+            }
+        return {
+            "code": 0,
+            "data": {
+                "fields": ["ts_code", "ann_date", "end_date", "n_cashflow_act"],
+                "items": [["000001.SZ", "20260701", "20260630", 80]],
+            },
+        }
+
+    result = pull_tushare_financials(
+        symbols=["000001.SZ"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        post_json=post_json,
+        force=True,
+    )
+
+    assert result.provider == "tushare"
+    assert result.count == 1
+    snapshot = json.loads(result.output_path.read_text(encoding="utf-8"))["rows"][0]
+    assert snapshot["symbol"] == "000001.SZ"
+    assert snapshot["revenue"] == 1000
+    assert snapshot["net_income"] == 120
+    assert snapshot["operating_cash_flow"] == 80
+    assert snapshot["currency"] == "CNY"
+
+
+def test_pull_tushare_financials_reports_permission_gap(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["tushare"].value = "demo-tushare-token"
+    config_path = save_config(config, tmp_path / "config.yaml")
+
+    def post_json(
+        url: str,
+        headers: dict[str, str] | None,
+        payload: dict[str, object],
+    ) -> object:
+        return {"code": 40203, "msg": "没有接口访问权限"}
+
+    result = pull_tushare_financials(
+        symbols=["000001.SZ"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        post_json=post_json,
+        force=True,
+    )
+
+    assert result.count == 0
+    assert any("接口权限不足（40203）" in warning for warning in result.warnings)
+    assert any("不是重新填写 API Key" in warning for warning in result.warnings)
 
 
 def test_pull_market_prices_auto_uses_eastmoney_for_hk_symbols(

@@ -16,6 +16,7 @@ from lychee_alphadesk.core.live_data import (
     pull_news_events,
     pull_sec_filings,
     pull_sec_financials,
+    pull_tushare_financials,
     pull_volatility_metrics,
     read_fund_metadata_cache,
     read_research_metric_cache,
@@ -34,6 +35,7 @@ PullMarket = Callable[..., PullResult]
 PullNews = Callable[..., PullResult]
 PullFilings = Callable[..., PullResult]
 PullFinancials = Callable[..., PullResult]
+PullCNFinancials = Callable[..., PullResult]
 PullVolatility = Callable[..., PullResult]
 PullBreadth = Callable[..., PullResult]
 PullFundMetadata = Callable[..., PullResult]
@@ -213,6 +215,7 @@ def fulfill_research_data_request(
     pull_news: PullNews = pull_news_events,
     pull_filings: PullFilings = pull_sec_filings,
     pull_financials: PullFinancials = pull_sec_financials,
+    pull_cn_financials: PullCNFinancials = pull_tushare_financials,
     pull_volatility: PullVolatility = pull_volatility_metrics,
     pull_breadth: PullBreadth = pull_market_breadth_metrics,
     pull_fund_metadata: PullFundMetadata = pull_fund_metadata,
@@ -257,6 +260,7 @@ def fulfill_research_data_request(
             pull_news=pull_news,
             pull_filings=pull_filings,
             pull_financials=pull_financials,
+            pull_cn_financials=pull_cn_financials,
             pull_volatility=pull_volatility,
             pull_breadth=pull_breadth,
             pull_fund_metadata=pull_fund_metadata,
@@ -273,6 +277,7 @@ def fulfill_research_data_request(
                 "news",
                 "filings",
                 "financials",
+                "financials_cn",
                 "volatility",
                 "breadth",
                 "news_official",
@@ -1228,6 +1233,17 @@ def _suggest_data_request_actions(
                 f"lychee data pull financials --symbols {record.symbol} --force",
             )
         )
+    elif (
+        _looks_like_financial_snapshot_request(lowered)
+        and record.symbol
+        and record.market.upper() == "CN"
+    ):
+        actions.append(
+            ResearchDataRequestAction(
+                "financials_cn",
+                f"lychee data pull financials --symbols {record.symbol} --force",
+            )
+        )
     actions.append(ResearchDataRequestAction("verify", f"lychee research verify {selector}"))
     return _dedupe_actions(actions)
 
@@ -1242,6 +1258,7 @@ def _execute_data_request_action(
     pull_news: PullNews,
     pull_filings: PullFilings,
     pull_financials: PullFinancials,
+    pull_cn_financials: PullCNFinancials,
     pull_volatility: PullVolatility,
     pull_breadth: PullBreadth,
     pull_fund_metadata: PullFundMetadata,
@@ -1348,6 +1365,15 @@ def _execute_data_request_action(
                 force=force,
             )
             return _pull_execution(action, result, "SEC 财务快照已刷新。")
+        if action.action_type == "financials_cn":
+            if not request.symbol:
+                raise ValueError("A 股财务快照刷新需要证券代码。")
+            result = pull_cn_financials(
+                symbols=[request.symbol],
+                output_dir=output_dir,
+                force=force,
+            )
+            return _pull_execution(action, result, "Tushare A 股财务快照已刷新。")
         if action.action_type == "volatility":
             if not request.symbol:
                 raise ValueError("波动率指标刷新需要证券代码。")

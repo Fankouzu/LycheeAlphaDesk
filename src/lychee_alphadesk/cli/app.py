@@ -51,6 +51,7 @@ from lychee_alphadesk.core.live_data import (
     pull_news_events,
     pull_sec_filings,
     pull_sec_financials,
+    pull_tushare_financials,
     pull_volatility_metrics,
     run_cached_data_health,
     write_fund_metadata_cache,
@@ -1570,7 +1571,7 @@ def data_pull_news(
 def data_pull_financials(
     symbols: Annotated[
         str,
-        typer.Option("--symbols", help="用英文逗号分隔美股代码，例如 AAPL,MSFT。"),
+        typer.Option("--symbols", help="用英文逗号分隔证券代码，例如 AAPL,000001.SZ。"),
     ],
     output_dir: Annotated[
         Path,
@@ -1581,13 +1582,30 @@ def data_pull_financials(
         typer.Option("--force", help="忽略 24 小时保质期，强制刷新财务快照。"),
     ] = False,
 ) -> None:
-    """拉取美股 SEC XBRL 财务快照到本地缓存。"""
+    """按市场拉取 SEC 或 Tushare 财务快照到本地缓存。"""
     try:
-        result = pull_sec_financials(
-            symbols=parse_symbols(symbols),
-            output_dir=output_dir,
-            force=force,
-        )
+        parsed_symbols = parse_symbols(symbols)
+        if parsed_symbols and all(
+            symbol.upper().endswith((".SH", ".SZ")) for symbol in parsed_symbols
+        ):
+            result = pull_tushare_financials(
+                symbols=parsed_symbols,
+                output_dir=output_dir,
+                force=force,
+            )
+        elif parsed_symbols and any(
+            symbol.upper().endswith(".HK") for symbol in parsed_symbols
+        ):
+            raise ValueError(
+                "港股财务快照当前仍未接入自动 provider；请使用 HKEX 年报/业绩公告人工核验，"
+                "不要把 HKEX 公告标题当成财务数值。"
+            )
+        else:
+            result = pull_sec_financials(
+                symbols=parsed_symbols,
+                output_dir=output_dir,
+                force=force,
+            )
     except (RuntimeError, ValueError) as error:
         console.print(str(error), soft_wrap=True)
         raise typer.Exit(code=1) from error

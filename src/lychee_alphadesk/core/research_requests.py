@@ -821,6 +821,7 @@ def _verification_hypothesis_data_requests(
         if latest_per_task and task_key in seen_tasks:
             continue
         seen_tasks.add(task_key)
+        seen_request_paths: set[tuple[str, ...]] = set()
         news_refresh_exhausted = _verification_topic_news_exhausted(payload) or (
             _verification_follows_completed_news_refresh(
                 output_dir,
@@ -840,6 +841,12 @@ def _verification_hypothesis_data_requests(
                 suggested_actions = _manual_topic_news_actions(record)
             else:
                 suggested_actions = _suggest_data_request_actions(record, request_text)
+            request_path_key = tuple(
+                action.command for action in suggested_actions
+            ) or (request_text.casefold(),)
+            if request_path_key in seen_request_paths:
+                continue
+            seen_request_paths.add(request_path_key)
             requests.append(
                 ResearchDataRequest(
                     request_id=request_id,

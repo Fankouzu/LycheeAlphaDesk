@@ -272,6 +272,28 @@ def test_research_data_requests_include_verification_hypothesis_requests(
     assert requests[1].suggested_commands == ["lychee research verify --symbol QQQ"]
 
 
+def test_verification_hypothesis_requests_dedupe_identical_action_paths(
+    tmp_path: Path,
+) -> None:
+    _write_verification_with_hypothesis_requests(
+        tmp_path,
+        [
+            "补齐最高优先级缺口: 缺少新闻证据。",
+            "继续补齐缺口: 缺少新闻或 discovery 证据。",
+            "复核最强反证来源: AI capex slows.",
+        ],
+    )
+
+    requests = list_research_data_requests(tmp_path, symbol="QQQ")
+
+    assert len(requests) == 2
+    assert requests[0].suggested_commands == [
+        "lychee data pull news --query 'Nasdaq-100 technology stocks QQQ' --force",
+        "lychee research verify --symbol QQQ",
+    ]
+    assert requests[1].suggested_commands == ["lychee research verify --symbol QQQ"]
+
+
 def test_verification_request_stops_repeating_news_after_completed_refresh(
     tmp_path: Path,
 ) -> None:

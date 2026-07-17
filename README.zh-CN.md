@@ -4,7 +4,7 @@
 
 ![GitHub Repo stars](https://img.shields.io/github/stars/Fankouzu/LycheeAlphaDesk?style=social)
 ![CI](https://github.com/Fankouzu/LycheeAlphaDesk/actions/workflows/ci.yml/badge.svg)
-![Status](https://img.shields.io/badge/status-runnable%20demo-059669)
+![Status](https://img.shields.io/badge/status-runnable%20workbench-059669)
 ![Broker Agnostic](https://img.shields.io/badge/broker--agnostic-yes-2563eb)
 ![Policy First](https://img.shields.io/badge/policy--first-yes-059669)
 ![Discover First](https://img.shields.io/badge/discover--first-yes-7c3aed)
@@ -89,7 +89,7 @@ lychee report --demo
 lychee
 ```
 
-计划中的 TUI 页面：
+当前 TUI 工作台入口：
 
 - Today Discovery：全市场主题、关注候选、风险提示和建议钻取的数据。
 - Today：每日结论、风险状态和不操作理由。
@@ -124,7 +124,7 @@ uv run --no-editable lad data snapshot --demo
 
 主流程应该是发现优先，而不是股票代码优先。一个股市新手不应该先知道几千支股票的代码，工作台才开始有用。
 
-计划中的 `Today Discovery` 流程：
+当前 `Today Discovery` 流程：
 
 ```text
 美股/港股/A 股市场概览 -> 广域新闻与事件 -> 证据包 -> LLM 综合分析 -> 关注候选 -> 钻取详细数据
@@ -150,7 +150,7 @@ lychee discover radar
 
 手动输入股票代码仍然保留，但它是用户选择主题或候选之后的钻取工具，而不是新手入口。
 
-## 🏗️ 计划中的引擎结构
+## 🏗️ 当前引擎结构
 
 ```mermaid
 flowchart LR
@@ -639,19 +639,17 @@ MVP 不做：
 
 ## 🛠️ 项目状态
 
-Lychee AlphaDesk 当前处于可运行 demo 启动阶段。
+Lychee AlphaDesk 当前是可运行的终端研究工作台原型：发现、研究队列、证据核验、LLM 备忘录、组合只读审计和 IPO/打新资料入口已经接入同一条本地闭环；数据源和券商连接仍保持可插拔，并明确保留人工核验边界。
 
-第一个里程碑是一个 demo-first 的本地研究流程，不需要券商账户即可运行。当前代码库已经包含初始 `lad` CLI、内置 demo 数据、数据快照、provider 健康检查、投资政策校验、Markdown 报告生成、审计记录、测试和 CI。
+项目仍支持不需要券商账户、LLM key 或付费行情数据的 demo-first 本地流程。真实 provider、LLM、TimesFM 和券商 CSV 都是按需启用的增强路径；系统不会因为缺少它们而伪造研究结论。
 
 ## 🗺️ 路线图
 
 | 版本 | 目标 |
 | --- | --- |
-| v0.1 | Demo 数据、投资政策文件、本地存储、Markdown 每日报告、最小 TUI 外壳。 |
-| v0.2 | 市场、宏观、新闻、财报 provider 和 provider 健康状态页面。 |
-| v0.3 | TimesFM 预测和 LLM 投委会。 |
-| v0.4 | 组合导入、对账和只读 broker plugin。 |
-| v1.0 | 稳定插件 API、文档、示例、测试和安全默认值。 |
+| 当前原型 | Demo 数据、投资政策、本地 SQLite/JSON 审计、中文 TUI、市场发现、研究队列、证据核验、LLM 备忘录、TimesFM 可选预测、组合只读导入和 IPO/打新资料入口。 |
+| 下一阶段 | 稳定 provider/plugin API、更多授权数据源、港股/A 股财务快照和真实券商 CSV 验收覆盖。 |
+| 明确不做 | 自动实盘交易、高频/超短线执行、保证金/期权/期货执行、收益承诺和自动化投资建议。 |
 
 ## 📚 开发规格
 

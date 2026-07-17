@@ -4,7 +4,7 @@
 
 ![GitHub Repo stars](https://img.shields.io/github/stars/Fankouzu/LycheeAlphaDesk?style=social)
 ![CI](https://github.com/Fankouzu/LycheeAlphaDesk/actions/workflows/ci.yml/badge.svg)
-![Status](https://img.shields.io/badge/status-runnable%20demo-059669)
+![Status](https://img.shields.io/badge/status-runnable%20workbench-059669)
 ![Broker Agnostic](https://img.shields.io/badge/broker--agnostic-yes-2563eb)
 ![Policy First](https://img.shields.io/badge/policy--first-yes-059669)
 ![Discover First](https://img.shields.io/badge/discover--first-yes-7c3aed)
@@ -89,7 +89,7 @@ lychee report --demo
 lychee
 ```
 
-Planned TUI sections:
+Current TUI workbench entries:
 
 - Today Discovery: market-wide themes, watch candidates, risk flags, and suggested drilldowns.
 - Next Actions: one beginner-facing queue that aggregates evidence review, data gaps, executable data requests, and research-task follow-up commands.
@@ -152,7 +152,7 @@ The output is a research watchlist, not investment advice. The system should say
 
 Manual symbol entry remains available, but it is a drilldown tool after the user has selected a theme or candidate.
 
-## 🏗️ Planned Engine
+## 🏗️ Current Engine
 
 ```mermaid
 flowchart LR
@@ -677,19 +677,17 @@ Out of scope for MVP:
 
 ## 🛠️ Project Status
 
-Lychee AlphaDesk is in the runnable demo bootstrap stage.
+Lychee AlphaDesk is a runnable terminal-native research workbench prototype. Discovery, research queues, evidence verification, LLM memos, read-only portfolio audit, and IPO/new-share research are connected through one local workflow; data and broker connections remain pluggable with explicit manual-review boundaries.
 
-The first milestone is a demo-first research workflow that can run locally without brokerage credentials. The current codebase includes the initial `lad` CLI, bundled demo data, data snapshots, provider health checks, policy validation, Markdown report generation, audit records, tests, and CI.
+The project still supports a demo-first local workflow without a brokerage account, LLM key, or paid market data. Real providers, LLM, TimesFM, and broker CSV imports are opt-in paths; the system does not fabricate research conclusions when they are absent.
 
 ## 🗺️ Roadmap
 
 | Version | Goal |
 | --- | --- |
-| v0.1 | Demo data, policy file, local storage, Markdown daily report, minimal TUI shell. |
-| v0.2 | Market, macro, news, filing providers and provider health screens. |
-| v0.3 | TimesFM forecasts and LLM investment committee. |
-| v0.4 | Portfolio import, reconciliation, and read-only broker plugins. |
-| v1.0 | Stable plugin API, documentation, examples, tests, and safety defaults. |
+| Current prototype | Demo data, policy rules, local SQLite/JSON audit, Chinese-first TUI, market discovery, research queues, evidence verification, LLM memos, optional TimesFM forecasts, read-only portfolio import, and IPO/new-share research. |
+| Next stage | Stable provider/plugin API, more authorized data sources, Hong Kong/Mainland China financial snapshots, and broader real broker CSV acceptance coverage. |
+| Explicitly out of scope | Automatic live trading, high-frequency/ultra-short execution, margin/options/futures execution, return guarantees, and automated investment advice. |
 
 ## 📚 Development Spec
 

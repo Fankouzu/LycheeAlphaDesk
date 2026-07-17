@@ -390,6 +390,8 @@ def test_dashboard_research_workbench_action_runs_check(
             assert any("正在运行工作台自检" in item for item in observed_status)
             assert "AlphaDesk 研究工作台" in text
             assert "选择一个研究任务，按 Enter 开始研究" in text
+            assert "现在先做" in text
+            assert "纳斯达克100ETF观察: 检查成交量是否配合反弹" in text
             assert "给新手的读法" not in text
             task_menu = app.query_one("#research-task-menu", OptionList)
             task_label = str(task_menu.get_option_at_index(0).prompt)

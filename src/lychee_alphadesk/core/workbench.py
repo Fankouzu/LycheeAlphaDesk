@@ -4333,6 +4333,18 @@ def _beginner_brief(status: str, candidates: list[CandidateCheck]) -> str:
     ]
 
     lines.append("")
+    lines.append("现在先做")
+    if candidates:
+        first = candidates[0]
+        lines.append(f"- {first.display_name}: {first.next_step}")
+        lines.append(f"  为什么先做: {first.ranking_reason}")
+        lines.append(f"  你要回答: {first.beginner_question}")
+        if first.next_command:
+            lines.append(f"  只需要执行: {first.next_command}")
+    else:
+        lines.append("- 先运行今日市场发现，建立第一批研究任务。")
+
+    lines.append("")
     lines.append("今日研究任务")
     if ready:
         for candidate in ready:

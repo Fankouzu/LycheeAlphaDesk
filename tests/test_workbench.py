@@ -150,6 +150,10 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert result.artifact_path.exists()
     assert "AlphaDesk 研究工作台" in result.beginner_brief
     assert "边界: 研究任务台，不给买卖建议。" in result.beginner_brief
+    assert "现在先做" in result.beginner_brief
+    assert "为什么先做:" in result.beginner_brief
+    assert "你要回答:" in result.beginner_brief
+    assert "只需要执行:" in result.beginner_brief
     assert "今日研究任务" in result.beginner_brief
     assert "研究问题:" in result.beginner_brief
     assert "优先级:" in result.beginner_brief

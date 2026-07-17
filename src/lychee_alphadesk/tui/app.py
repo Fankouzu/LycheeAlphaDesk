@@ -1789,17 +1789,27 @@ def _manual_filing_source_details(command: str) -> tuple[str, str, str] | None:
 
 
 def _research_workbench_intro(result: WorkbenchCheckResult) -> str:
-    return "\n".join(
-        [
-            "AlphaDesk 研究工作台",
-            "选择一个研究任务，按 Enter 开始研究。Esc 返回主菜单。",
-            (
-                f"状态: {_display_workbench_status(result.status)} | "
-                f"可执行 {result.ready_count} | 阻塞 {result.blocked_count} | "
-                f"总任务 {len(result.candidates)}"
-            ),
-        ]
-    )
+    lines = [
+        "AlphaDesk 研究工作台",
+        "选择一个研究任务，按 Enter 开始研究。Esc 返回主菜单。",
+        (
+            f"状态: {_display_workbench_status(result.status)} | "
+            f"可执行 {result.ready_count} | 阻塞 {result.blocked_count} | "
+            f"总任务 {len(result.candidates)}"
+        ),
+    ]
+    if result.candidates:
+        first = result.candidates[0]
+        lines.extend(
+            [
+                "",
+                "现在先做",
+                f"- {first.display_name}: {first.next_step}",
+            ]
+        )
+        if first.next_command:
+            lines.append(f"  只需要执行: {first.next_command}")
+    return "\n".join(lines)
 
 
 def _research_task_label(candidate: CandidateCheck) -> str:

@@ -85,6 +85,7 @@ from lychee_alphadesk.core.portfolio import (
     import_portfolio_transactions,
     write_portfolio_check_artifact,
 )
+from lychee_alphadesk.core.readiness import ReadinessReport, run_readiness_audit
 from lychee_alphadesk.core.reports import generate_demo_report
 from lychee_alphadesk.core.research import deepen_research_queue, fill_research_data_gaps
 from lychee_alphadesk.core.research_db import (
@@ -490,6 +491,24 @@ def audit_list(
             record.report_path,
         )
     console.print(table)
+
+
+@audit_app.command("readiness")
+def audit_readiness(
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="本地缓存、研究库和审计输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    strict: Annotated[
+        bool,
+        typer.Option("--strict", help="未达到 AI 研究前置条件时以非零退出码结束。"),
+    ] = False,
+) -> None:
+    """只读检查工作台是否具备运行 AI 研究闭环的前置条件。"""
+    result = run_readiness_audit(output_dir)
+    _print_readiness_report(result)
+    if strict and not result.is_ready:
+        raise typer.Exit(code=1)
 
 
 @data_app.command("snapshot")
@@ -2599,6 +2618,39 @@ def _print_workbench_check(result: WorkbenchCheckResult) -> None:
     console.print(table)
     _print_workbench_auto_fill_diagnostics(result)
     console.print(result.beginner_brief, soft_wrap=True)
+
+
+def _print_readiness_report(result: ReadinessReport) -> None:
+    console.print(f"工作台就绪审计已写入: {result.artifact_path}", soft_wrap=True)
+    console.print(f"状态: {_display_readiness_status(result.status)}")
+    table = Table(title="Lychee AlphaDesk 工作台就绪审计")
+    table.add_column("检查项")
+    table.add_column("要求")
+    table.add_column("状态")
+    table.add_column("说明", overflow="fold")
+    for check in result.checks:
+        table.add_row(
+            check.label,
+            "必需" if check.required else "可选",
+            _display_readiness_status(check.status),
+            check.detail,
+        )
+    console.print(table)
+    console.print(
+        "边界: 就绪审计只读取本地状态，不拉取数据、不调用 LLM、不产生投资建议。",
+        soft_wrap=True,
+    )
+
+
+def _display_readiness_status(status: str) -> str:
+    return {
+        "ready": "✅ 已就绪",
+        "pass": "✅ 通过",
+        "partial": "⚠️ 部分就绪",
+        "warning": "⚠️ 待补齐",
+        "blocked": "❌ 被阻塞",
+        "error": "❌ 未通过",
+    }.get(status, status)
 
 
 def _print_workbench_auto_fill_diagnostics(result: WorkbenchCheckResult) -> None:

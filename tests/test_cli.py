@@ -324,6 +324,24 @@ def test_audit_list_shows_generated_report(tmp_path: Path) -> None:
     assert "demo" in audit_result.stdout
 
 
+def test_audit_readiness_is_local_only_and_supports_strict_mode(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+
+    result = runner.invoke(
+        app,
+        ["audit", "readiness", "--output-dir", str(tmp_path), "--strict"],
+    )
+
+    assert result.exit_code == 1
+    assert "工作台就绪审计" in result.stdout
+    assert "LLM 分析服务" in result.stdout
+    assert "不拉取数据" in result.stdout
+    assert list((tmp_path / "research").glob("readiness-*.json"))
+
+
 def test_data_snapshot_command_writes_unified_demo_snapshot(tmp_path: Path) -> None:
     result = runner.invoke(app, ["data", "snapshot", "--demo", "--output-dir", str(tmp_path)])
 

@@ -130,6 +130,7 @@ lad report --demo
 lad policy check examples/demo/policy.yaml
 lad research queue
 lad audit list
+lad audit readiness
 lad
 ```
 
@@ -207,6 +208,7 @@ lad
 - 当人工新闻或文件记录唯一匹配一条待处理人工交接时，系统必须写入本地 `manual_required` fulfillment 记录，并从待办数据请求和下一步行动队列中移除该请求。这个确认只记录“人工已提供可审计来源”，不得断言该来源支持研究假设，仍必须重新下钻核验。
 - 新闻补齐必须按研究任务逐个代码查询，并同时带上实体和研究主题术语；一条返回新闻不得再被批量绑定到所有代码。`auto` 模式下，已配置 provider 返回 0 行或只覆盖部分代码时，必须继续为未覆盖代码尝试下一个 provider，并以无需 key 的 GDELT 作为全球新闻回退。按代码查询的 NewsAPI 结果必须先做实体命中和金融语境过滤，避免同名娱乐、生活内容直接进入个股证据。GDELT ArticleList 行必须保留原文 URL，只作为标题和来源元数据，不得伪装成公告正文。回退后仍得到部分数据时，工作台必须显示“降级但可用”的数据源状态，不能误报为整体配置失败。
 - `lad audit list` 列出已生成的报告和决策记录。
+- `lad audit readiness` 是只读的工作台前置条件检查：只读取本地配置、行情/新闻缓存和研究库，不拉取网络数据、不调用 LLM、不修改配置。它必须把 LLM、行情缓存、新闻缓存和研究任务列为 AI 研究闭环的必需检查，把组合审计和 IPO/打新资料列为可选检查，并写入机器可读的 `research/readiness-*.json`。`--strict` 在状态不是 `ready` 时以非零退出码结束，供 agent/CI 自己判断是否可以继续。
 
 ## 数据新鲜度策略
 

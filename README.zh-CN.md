@@ -33,9 +33,18 @@ lychee data snapshot --demo
 lychee policy check examples/demo/policy.yaml
 lychee report --demo
 lychee audit list
+lychee audit readiness
 ```
 
 生成的数据快照会写入 `.alphadesk/data-snapshot-demo.json`。生成的 demo 报告会写入 `.alphadesk/daily-report-demo.md`。
+
+`lychee audit readiness` 是只读的工作台前置条件检查。它不会拉取网络数据、调用 LLM 或修改配置，只读取本地配置、行情/新闻缓存和研究库，并把结果写入 `.alphadesk/research/readiness-*.json`。状态为“被阻塞”时，使用 `--strict` 可让 agent/CI 以非零状态结束：
+
+```bash
+lychee audit readiness --strict
+```
+
+它会把“LLM 未配置”“没有行情/新闻缓存”“没有研究任务”分别列为必需阻塞项；组合审计和 IPO/打新资料是可选增强项，不会阻塞市场研究。这个命令是自检入口，不是数据刷新命令。
 
 如果已经安装过工具，`git pull` 更新仓库后请刷新本地 CLI 包：
 

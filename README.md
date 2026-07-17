@@ -33,9 +33,18 @@ lychee data snapshot --demo
 lychee policy check examples/demo/policy.yaml
 lychee report --demo
 lychee audit list
+lychee audit readiness
 ```
 
 The generated data snapshot is written to `.alphadesk/data-snapshot-demo.json`. The generated demo report is written to `.alphadesk/daily-report-demo.md`.
+
+`lychee audit readiness` is a read-only workbench prerequisite check. It does not fetch network data, call the LLM, or modify configuration; it only reads local configuration, market/news caches, and the research database, then writes `.alphadesk/research/readiness-*.json`. With `--strict`, a blocked or partial state exits non-zero for agents and CI:
+
+```bash
+lychee audit readiness --strict
+```
+
+It reports missing LLM configuration, market/news caches, and research tasks as required blockers. Portfolio audit and IPO/new-share data are optional enhancements and do not block market research. This command is a self-check, not a data-refresh command.
 
 After pulling updates from the repository, refresh the installed CLI package with:
 

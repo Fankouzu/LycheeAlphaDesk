@@ -129,6 +129,7 @@ lad report --demo
 lad policy check examples/demo/policy.yaml
 lad research queue
 lad audit list
+lad audit readiness
 lad
 ```
 
@@ -200,6 +201,7 @@ Command behavior:
 - After a manual news or filing record uniquely matches an open manual handoff, the system must write a local `manual_required` fulfillment record and remove that request from the pending data-request and next-action queues. This acknowledgement only records that a human supplied an auditable source; it must not assert that the source supports the hypothesis, and rerun verification remains required.
 - News refreshes must query each research symbol independently with its entity and research-theme terms; a returned row must never be attached to every symbol in a batch. In `auto` mode, a configured provider that returns no rows must allow the next provider to run, with GDELT as the no-key global fallback. GDELT article-list rows must retain their original URLs and be treated as title/source metadata, not filing content. When fallback succeeds with partial data, the workbench must report degraded provider availability without presenting it as a total configuration failure.
 - `lad audit list` lists generated reports and decision records.
+- `lad audit readiness` is a read-only workbench prerequisite check. It reads only local configuration, market/news caches, and the research database; it must not fetch network data, call the LLM, or modify configuration. LLM configuration, market cache, news cache, and research tasks are required for the AI research loop; portfolio audit and IPO/new-share data are optional. The command writes a machine-readable `research/readiness-*.json` artifact, and `--strict` exits non-zero when the status is not `ready` so agents and CI can decide whether to continue.
 
 ## Data Freshness Policy
 

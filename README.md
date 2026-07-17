@@ -646,9 +646,13 @@ For dated FX context from the ECB Data Portal:
 
 ```bash
 lychee data pull fx --base USD --currencies HKD,CNY
+lychee data pull macro --provider hkma --series hibor.fixing
+lychee data pull macro --provider fred --series DFF,FEDFUNDS
 ```
 
 Rates are stored in `fx-rates.json` with a 24-hour freshness record. They are research context, not broker execution rates or trading instructions.
+
+Macro series use the same `research-metrics.json` cache as other auditable research metrics and are included in the Today Discovery and research-task context. HKMA currently supports `hibor.fixing`, `hibor`, and `honia` without an API key. FRED accepts any accessible series ID after a `fred` API key is configured. Both paths preserve the latest observation date, provider, official source URL, and original series name, reuse data for 24 hours by default, and refresh only with `--force`. Macro readings provide rate/liquidity context, not trading signals.
 
 ## 🎯 MVP Scope
 

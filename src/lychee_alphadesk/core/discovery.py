@@ -9,7 +9,11 @@ from lychee_alphadesk.core.evidence import (
     build_news_evidence_pack,
     evidence_lookup,
 )
-from lychee_alphadesk.core.live_data import build_cached_data_snapshot, pull_news_events
+from lychee_alphadesk.core.live_data import (
+    build_cached_data_snapshot,
+    pull_news_events,
+    read_research_metric_cache,
+)
 from lychee_alphadesk.core.llm import JsonPoster, request_chat_json
 
 DISCOVERY_CACHE_FILENAME = "discovery-today.json"
@@ -253,6 +257,9 @@ def _build_llm_context(markets: list[str], output_dir: Path | None) -> dict[str,
             "prices": [asdict(price) for price in snapshot.prices[:20]],
             "evidence_pack": [asdict(item) for item in evidence_pack],
             "filings": [asdict(filing) for filing in snapshot.filings[:20]],
+            "research_metrics": [
+                asdict(metric) for metric in read_research_metric_cache(output_dir)[:30]
+            ],
         }
         context["ipo_events"] = _load_ipo_events(output_dir)
     return context

@@ -608,9 +608,13 @@ FX 练习数据使用 ECB Data Portal 的带日期日频参考汇率：
 
 ```bash
 lychee data pull fx --base USD --currencies HKD,CNY
+lychee data pull macro --provider hkma --series hibor.fixing
+lychee data pull macro --provider fred --series DFF,FEDFUNDS
 ```
 
 汇率写入 `fx-rates.json` 并登记 24 小时缓存新鲜度；它只为后续研究换算提供有来源的 FX 上下文，不等于券商成交汇率，也不会自动产生交易动作。
+
+宏观序列通过同一个 `research-metrics.json` 研究指标缓存接入 Today Discovery 和研究任务上下文：HKMA 当前支持 `hibor.fixing`、`hibor`、`honia`，无需 API key；FRED 支持任意可访问的序列 ID，但需要先配置 `fred` API key。两类数据都保留最新观测日期、provider、官方来源 URL 和原始序列名称，默认 24 小时内复用，`--force` 才会刷新。宏观读数只是利率/流动性背景，不是买卖信号。
 
 ## 🎯 MVP 范围
 

@@ -72,6 +72,7 @@ from lychee_alphadesk.core.live_data import (
     write_research_metric_cache,
 )
 from lychee_alphadesk.core.llm import LLMProviderError
+from lychee_alphadesk.core.macro import MacroProviderError, pull_macro_series
 from lychee_alphadesk.core.opportunity_radar import (
     OpportunityRadarReport,
     build_opportunity_radar,
@@ -1826,6 +1827,42 @@ def data_pull_fx(
     for warning in result.warnings:
         console.print(f"警告: {warning}")
     console.print("边界: FX 仅用于带日期的研究换算，不代表交易报价或投资建议。")
+
+
+@data_pull_app.command("macro")
+def data_pull_macro(
+    provider: Annotated[
+        str,
+        typer.Option("--provider", help="宏观数据源: fred 或 hkma。"),
+    ],
+    series: Annotated[
+        str,
+        typer.Option(
+            "--series",
+            help="序列名称，逗号分隔；FRED 例如 DFF,FEDFUNDS，HKMA 例如 hibor.fixing。",
+        ),
+    ],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略宏观指标 24 小时保质期，强制刷新。"),
+    ] = False,
+) -> None:
+    """拉取 FRED 或 HKMA 宏观序列，写入研究指标缓存。"""
+    try:
+        result = pull_macro_series(
+            provider_id=provider,
+            series=[item.strip() for item in series.split(",")],
+            output_dir=output_dir,
+            force=force,
+        )
+    except (MacroProviderError, RuntimeError, ValueError) as error:
+        console.print(str(error), soft_wrap=True, markup=False)
+        raise typer.Exit(code=1) from error
+    _print_pull_result(result_label="宏观指标", count=result.count, result=result)
 
 
 @data_pull_app.command("volatility")

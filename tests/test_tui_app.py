@@ -7,8 +7,10 @@ from textual.widgets import Input
 import lychee_alphadesk.tui.app as tui_app
 from lychee_alphadesk.core.action_queue import ActionQueueItem
 from lychee_alphadesk.core.discovery import DiscoveryReport
+from lychee_alphadesk.core.forecast import ForecastRun
 from lychee_alphadesk.core.research_db import write_research_memo_record
 from lychee_alphadesk.core.research_requests import list_research_data_requests
+from lychee_alphadesk.providers.demo import ForecastInterval
 from lychee_alphadesk.tui.app import AlphaDeskApp
 
 
@@ -42,6 +44,34 @@ def test_tui_today_discovery_exposes_research_followups(
                 "refresh",
             ]
             assert app.pending_action == "today_discovery"
+
+    asyncio.run(scenario())
+
+
+def test_tui_forecast_action_shows_audited_interval(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        monkeypatch.setattr(
+            tui_app,
+            "generate_timesfm_forecasts",
+            lambda **_: ForecastRun(
+                provider="timesfm",
+                count=1,
+                output_path=tmp_path / "data" / "forecasts.json",
+                forecasts=[ForecastInterval("QQQ", 20, 490.0, 505.0, 520.0, "timesfm")],
+            ),
+        )
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            app.pending_action = "forecast"
+            await app._run_symbol_action(["QQQ"])
+            await pilot.pause()
+            status = str(app.query_one("#action-status").render())
+            assert "TimesFM 预测已完成" in status
+            assert "QQQ: 区间 490.00 - 520.00" in status
+            assert app.query_one("#forecast-followup-menu")
 
     asyncio.run(scenario())
 

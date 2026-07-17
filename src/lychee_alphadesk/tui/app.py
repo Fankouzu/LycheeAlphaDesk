@@ -24,6 +24,10 @@ from lychee_alphadesk.core.discovery import (
     discovery_report_summary,
     write_discovery_report,
 )
+from lychee_alphadesk.core.forecast import (
+    ForecastProviderError,
+    generate_timesfm_forecasts,
+)
 from lychee_alphadesk.core.live_data import (
     FundMetadataGuide,
     build_cached_data_snapshot,
@@ -106,6 +110,7 @@ ActionId = Literal[
     "pull_market",
     "pull_news",
     "pull_filings",
+    "forecast",
     "data_health",
     "write_snapshot",
     "refresh",
@@ -160,6 +165,7 @@ class AlphaDeskApp(App[None]):
             Option("手动查看行情", id="pull_market"),
             Option("手动查看新闻", id="pull_news"),
             Option("手动查看公司公告", id="pull_filings"),
+            Option("运行 TimesFM 预测", id="forecast"),
             Option("检查数据健康", id="data_health"),
             Option("写入实时快照", id="write_snapshot"),
             Option("刷新面板", id="refresh"),
@@ -290,6 +296,11 @@ class AlphaDeskApp(App[None]):
             await self._show_symbol_prompt(
                 "pull_filings",
                 "输入美股、港股或 A 股公司代码，例如 AAPL,0700.HK,000001.SZ",
+            )
+        elif action_id == "forecast":
+            await self._show_symbol_prompt(
+                "forecast",
+                "输入已有历史行情的证券代码，例如 QQQ,TSLA",
             )
         elif action_id == "data_health":
             await self._show_data_health()
@@ -1644,10 +1655,40 @@ class AlphaDeskApp(App[None]):
             elif action == "pull_filings":
                 result = pull_sec_filings(symbols=symbols, output_dir=self.output_dir)
                 label = "公告"
+            elif action == "forecast":
+                forecast_result = await asyncio.to_thread(
+                    generate_timesfm_forecasts,
+                    output_dir=self.output_dir,
+                    symbols=symbols,
+                    horizon_days=20,
+                )
+                lines = [
+                    "TimesFM 预测已完成",
+                    f"缓存: {forecast_result.output_path}",
+                    *[
+                        (
+                            f"{item.symbol}: 区间 {item.lower:.2f} - {item.upper:.2f}; "
+                            f"中位读数 {item.midpoint:.2f}; horizon {item.horizon_days} 日"
+                        )
+                        for item in forecast_result.forecasts
+                    ],
+                    "边界: 预测区间只用于研究比较，不是买卖建议。",
+                ]
+                self.pending_action = None
+                await self._replace_action_panel(
+                    Static("\n".join(lines), id="action-status"),
+                    OptionList(
+                        Option("返回主菜单", id="refresh"),
+                        id="forecast-followup-menu",
+                        markup=False,
+                    ),
+                )
+                self.set_focus(self.query_one("#forecast-followup-menu", OptionList))
+                return
             else:
                 self._set_status("这个操作不接收证券代码。")
                 return
-        except (RuntimeError, ValueError) as error:
+        except (ForecastProviderError, RuntimeError, ValueError) as error:
             await self._replace_action_panel(
                 Static(f"操作失败: {error}", id="action-status")
             )

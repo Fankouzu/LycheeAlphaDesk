@@ -4,10 +4,46 @@ from pathlib import Path
 
 from textual.widgets import Input
 
+import lychee_alphadesk.tui.app as tui_app
 from lychee_alphadesk.core.action_queue import ActionQueueItem
+from lychee_alphadesk.core.discovery import DiscoveryReport
 from lychee_alphadesk.core.research_db import write_research_memo_record
 from lychee_alphadesk.core.research_requests import list_research_data_requests
 from lychee_alphadesk.tui.app import AlphaDeskApp
+
+
+def test_tui_today_discovery_exposes_research_followups(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        report = DiscoveryReport(
+            mode="llm-synthesized",
+            created_at="2026-07-18T10:00:00+00:00",
+            markets=["US", "HK", "CN"],
+            sources=[],
+            themes=[],
+            candidates=[],
+            warnings=[],
+            next_actions=["进入研究工作台"],
+            disclaimer="非投资建议。",
+        )
+        monkeypatch.setattr(tui_app, "build_today_discovery_report", lambda **_: report)
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await app._show_today_discovery()
+            await pilot.pause()
+            menu = app.query_one("#discovery-followup-menu")
+            assert menu is not None
+            assert [option.id for option in menu.options] == [
+                "discovery_followup_workbench",
+                "discovery_followup_next_actions",
+                "discovery_followup_data_requests",
+                "refresh",
+            ]
+            assert app.pending_action == "today_discovery"
+
+    asyncio.run(scenario())
 
 
 def test_tui_manual_news_entry_writes_audited_source(tmp_path: Path) -> None:

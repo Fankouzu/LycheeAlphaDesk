@@ -135,6 +135,7 @@ lad
 Command behavior:
 
 - `lad` opens the TUI with `今日市场发现` as the first action, `研究工作台` as the second action, and `机会雷达` as the third action, followed by `下一步行动队列`, `待判定证据队列`, research review history, row-level evidence review history, research memo history, research data requests, provider backlog, manual symbol drilldown, data health, provider setup guidance, snapshots, and quit.
+- After a successful TUI discovery run, the result view must keep the workflow open with keyboard-selectable follow-ups for the research workbench, unified next-action queue, and research data-request queue.
 - `lad demo` verifies that demo files and local output directories exist.
 - `lad setup` opens the unified interactive configuration center for data providers, LLM providers, and installed news plugins.
 - `lad setup set` stores one provider key or token in the local config file for automation and agent use.

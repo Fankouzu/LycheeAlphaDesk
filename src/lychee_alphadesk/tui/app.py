@@ -227,6 +227,15 @@ class AlphaDeskApp(App[None]):
         if isinstance(action_id, str) and action_id.startswith("next_action_item:"):
             await self._run_next_action_item(action_id)
             return
+        if action_id == "discovery_followup_workbench":
+            await self._show_research_workbench()
+            return
+        if action_id == "discovery_followup_next_actions":
+            await self._show_next_actions()
+            return
+        if action_id == "discovery_followup_data_requests":
+            await self._show_research_data_requests()
+            return
         if action_id == "manual_news_save":
             await self._save_manual_news_entry()
             return
@@ -1591,6 +1600,8 @@ class AlphaDeskApp(App[None]):
             return
         output_path = write_discovery_report(report, self.output_dir)
         db_path = write_discovery_research_run(report, self.output_dir, output_path)
+        self._refresh_dashboard()
+        self.pending_action = "today_discovery"
         await self._replace_action_panel(
             Static(
                 "\n".join(
@@ -1605,9 +1616,17 @@ class AlphaDeskApp(App[None]):
                     ]
                 ),
                 id="action-status",
-            )
+            ),
+            OptionList(
+                Option("进入研究工作台", id="discovery_followup_workbench"),
+                Option("查看下一步行动", id="discovery_followup_next_actions"),
+                Option("查看研究数据请求", id="discovery_followup_data_requests"),
+                Option("返回主菜单", id="refresh"),
+                id="discovery-followup-menu",
+                markup=False,
+            ),
         )
-        self.set_focus(self.query_one("#action-menu", OptionList))
+        self.set_focus(self.query_one("#discovery-followup-menu", OptionList))
 
     async def _run_symbol_action(self, symbols: list[str]) -> None:
         action = self.pending_action

@@ -642,6 +642,8 @@ The first milestone is a demo-first research workflow that can run locally witho
 
 See [docs/DEVELOPMENT_SPEC.md](docs/DEVELOPMENT_SPEC.md) for the first-phase architecture and implementation scope. A Chinese version is available at [docs/DEVELOPMENT_SPEC.zh-CN.md](docs/DEVELOPMENT_SPEC.zh-CN.md).
 
+After a successful TUI `今日市场发现`, the result view keeps the workflow open with keyboard-selectable follow-ups for the research workbench, unified next-action queue, and research data-request queue.
+
 ## 🛡️ Safety And Disclaimer
 
 Lychee AlphaDesk is for research, education, and personal workflow automation.

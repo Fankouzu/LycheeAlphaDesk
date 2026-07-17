@@ -602,6 +602,8 @@ Lychee AlphaDesk 当前处于可运行 demo 启动阶段。
 
 第一期架构和实现范围见 [docs/DEVELOPMENT_SPEC.zh-CN.md](docs/DEVELOPMENT_SPEC.zh-CN.md)，英文版见 [docs/DEVELOPMENT_SPEC.md](docs/DEVELOPMENT_SPEC.md)。
 
+TUI `今日市场发现`成功后，结果页会继续提供可用 ↑/↓ 和 Enter 选择的 `进入研究工作台`、`查看下一步行动`、`查看研究数据请求` 后续入口，不会只停留在静态报告。
+
 ## 🛡️ 安全与免责声明
 
 Lychee AlphaDesk 仅用于研究、教育和个人工作流自动化。

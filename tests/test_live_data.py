@@ -1440,6 +1440,54 @@ def test_auto_news_pull_prefers_configured_entity_news_plugin(tmp_path: Path) ->
     assert cache["rows"][0]["source_url"] == "https://issuer.example.com/tencent-cloud"
 
 
+def test_tencent_official_news_provider_preserves_source_and_entity_link(
+    tmp_path: Path,
+) -> None:
+    html = """
+    <html><body>
+      <article>
+        <h2>Tencent Cloud expands AI services</h2>
+        <a rel="bookmark" href="https://www.tencent.com/tencent-cloud-ai/">
+          Tencent Cloud expands AI services
+        </a>
+        <div class="tc-blogpost-date">July 16, 2026</div>
+      </article>
+      <article>
+        <h2>Old Tencent story</h2>
+        <a rel="bookmark" href="https://www.tencent.com/old-story/">Old Tencent story</a>
+        <div class="tc-blogpost-date">June 1, 2026</div>
+      </article>
+    </body></html>
+    """
+
+    def fetch_text(url: str, headers: dict[str, str] | None = None) -> str:
+        assert url == "https://www.tencent.com/newsroom/"
+        return html
+
+    result = pull_news_events(
+        symbols=["0700.HK"],
+        output_dir=tmp_path,
+        provider_id="tencent_official",
+        start_date="2026-07-10",
+        end_date="2026-07-16",
+        fetch_text=fetch_text,
+    )
+
+    assert result.provider == "tencent_official"
+    assert result.count == 1
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert cache["rows"] == [
+        {
+            "timestamp": "2026-07-16T00:00:00+08:00",
+            "headline": "Tencent Cloud expands AI services",
+            "summary": "Tencent 官方 Newsroom 公司新闻。",
+            "symbols": ["0700.HK"],
+            "source_url": "https://www.tencent.com/tencent-cloud-ai/",
+            "is_symbol_scoped": True,
+        }
+    ]
+
+
 def test_auto_news_pull_falls_back_after_unexpected_entity_plugin_error(
     tmp_path: Path,
 ) -> None:

@@ -949,6 +949,7 @@ def pull_news_events(
     start_date: str | None = None,
     end_date: str | None = None,
     fetch_json: JsonFetcher | None = None,
+    fetch_text: TextFetcher | None = None,
     news_provider_registry: NewsProviderRegistry | None = None,
     force: bool = False,
     now: datetime | None = None,
@@ -998,6 +999,7 @@ def pull_news_events(
         cache_gap_warning = ""
 
     fetcher = fetch_json or _fetch_json
+    text_fetcher = fetch_text or _fetch_text
     warnings: list[str] = [cache_gap_warning] if cache_gap_warning else []
     registry = news_provider_registry or discover_news_provider_plugins()
     warnings.extend(_sanitize_error_message(item) for item in registry.diagnostics)
@@ -1025,6 +1027,7 @@ def pull_news_events(
                 end=end,
                 config=active_config,
                 fetch_json=fetcher,
+                fetch_text=text_fetcher,
                 news_provider_registry=registry,
             )
         except RuntimeError as error:
@@ -1612,6 +1615,7 @@ def _provider_display_name(provider_id: str) -> str:
         "marketaux": "Marketaux",
         "finnhub": "Finnhub",
         "newsapi": "NewsAPI",
+        "tencent_official": "Tencent 官方 Newsroom",
         "tushare": "Tushare Pro",
         "auto": "Auto",
     }.get(provider_id, provider_id)
@@ -2042,7 +2046,13 @@ def _news_provider_candidates(
     news_provider_registry: NewsProviderRegistry,
 ) -> list[str]:
     if provider_id != "auto":
-        if provider_id in {"gdelt", "marketaux", "finnhub", "newsapi"}:
+        if provider_id in {
+            "gdelt",
+            "marketaux",
+            "finnhub",
+            "newsapi",
+            "tencent_official",
+        }:
             if not symbols and provider_id == "finnhub":
                 raise ValueError(
                     "Finnhub 当前仅支持个股新闻；市场级新闻请使用 Marketaux 或 NewsAPI。"
@@ -2079,7 +2089,10 @@ def _news_provider_candidates(
         provider = config.providers[candidate]
         if provider.value and provider.value.strip():
             candidates.append(candidate)
-    candidates.append("gdelt")
+    if any(symbol.strip().upper() == "0700.HK" for symbol in symbols):
+        candidates.extend(("gdelt", "tencent_official"))
+    else:
+        candidates.append("gdelt")
     return candidates
 
 
@@ -2165,6 +2178,7 @@ def _pull_news_for_provider(
     end: str,
     config: AlphaDeskConfig,
     fetch_json: JsonFetcher,
+    fetch_text: TextFetcher,
     news_provider_registry: NewsProviderRegistry,
 ) -> list[NewsEvent]:
     plugin = news_provider_registry.providers.get(provider_id)
@@ -2188,6 +2202,8 @@ def _pull_news_for_provider(
 
     if provider_id == "gdelt":
         return _pull_gdelt_news(symbols, query, fetch_json)
+    if provider_id == "tencent_official":
+        return _pull_tencent_official_news(symbols, start, end, fetch_text)
     if provider_id == "finnhub":
         if query and query.strip():
             raise ValueError("Finnhub 当前不支持主题关键词新闻查询。")
@@ -2290,6 +2306,113 @@ def _pull_gdelt_news(
                 )
             )
     return rows
+
+
+TENCENT_NEWSROOM_URL = "https://www.tencent.com/newsroom/"
+
+
+def _pull_tencent_official_news(
+    symbols: list[str],
+    start: str,
+    end: str,
+    fetch_text: TextFetcher,
+) -> list[NewsEvent]:
+    normalized_symbols = [symbol.strip().upper() for symbol in symbols if symbol.strip()]
+    if "0700.HK" not in normalized_symbols:
+        return []
+    html = _fetch_provider_text(
+        fetch_text,
+        TENCENT_NEWSROOM_URL,
+        {"User-Agent": SEC_USER_AGENT, "Accept": "text/html"},
+    )
+    parser = _TencentNewsroomParser()
+    parser.feed(html)
+    parser.close()
+    rows: list[NewsEvent] = []
+    for item in parser.rows:
+        if not start <= item.published_date <= end:
+            continue
+        rows.append(
+            NewsEvent(
+                timestamp=f"{item.published_date}T00:00:00+08:00",
+                headline=item.headline,
+                summary="Tencent 官方 Newsroom 公司新闻。",
+                symbols=["0700.HK"],
+                source_url=item.source_url,
+                is_symbol_scoped=True,
+            )
+        )
+    return rows
+
+
+@dataclass(frozen=True)
+class _TencentNewsroomItem:
+    published_date: str
+    headline: str
+    source_url: str
+
+
+class _TencentNewsroomParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[_TencentNewsroomItem] = []
+        self._article: dict[str, str] | None = None
+        self._capture: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        if tag == "article":
+            self._article = {"date": "", "headline": "", "url": ""}
+            self._capture = None
+            return
+        if self._article is None:
+            return
+        class_names = set((attributes.get("class") or "").split())
+        if tag in {"h2", "h3", "h4"}:
+            self._capture = "headline"
+        elif tag == "div" and (
+            "tc-blogpost-date" in class_names
+            or any("date" in class_name.casefold() for class_name in class_names)
+        ):
+            self._capture = "date"
+        elif tag == "a" and attributes.get("rel") == "bookmark":
+            self._article["url"] = attributes["href"] or ""
+            self._capture = "headline" if not self._article["headline"].strip() else None
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._article is None:
+            return
+        if tag in {"h2", "h3", "h4", "div", "a"}:
+            self._capture = None
+        if tag != "article":
+            return
+        date_value = _parse_tencent_news_date(self._article["date"])
+        headline = " ".join(self._article["headline"].split())
+        source_url = self._article["url"].strip()
+        if date_value and headline and source_url:
+            self.rows.append(
+                _TencentNewsroomItem(
+                    published_date=date_value,
+                    headline=headline,
+                    source_url=urllib.parse.urljoin(TENCENT_NEWSROOM_URL, source_url),
+                )
+            )
+        self._article = None
+        self._capture = None
+
+    def handle_data(self, data: str) -> None:
+        if self._article is not None and self._capture:
+            self._article[self._capture] += data
+
+
+def _parse_tencent_news_date(value: str) -> str:
+    cleaned = " ".join(value.split())
+    for pattern in ("%B %d, %Y", "%b %d, %Y"):
+        try:
+            return datetime.strptime(cleaned, pattern).date().isoformat()
+        except ValueError:
+            continue
+    return ""
 
 
 def _gdelt_targets(

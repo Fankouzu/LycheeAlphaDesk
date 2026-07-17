@@ -283,6 +283,43 @@ def test_verification_request_uses_topic_exhaustion_state_without_retrying_news(
     assert not any(action.action_type == "news" for action in requests[0].suggested_actions)
 
 
+def test_tencent_topic_exhaustion_offers_official_news_before_manual_handoff(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "research" / "research-verification-tencent.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "created_at": "2026-07-05T10:00:00+00:00",
+                "candidate": {
+                    "display_name": "Tencent",
+                    "symbol": "0700.HK",
+                    "market": "HK",
+                    "topic_news_exhausted": True,
+                },
+                "hypothesis_panel": {
+                    "next_data_requests": ["补齐可审计新闻证据。"]
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    requests = list_research_data_requests(tmp_path, symbol="0700.HK")
+
+    assert [action.action_type for action in requests[0].suggested_actions] == [
+        "news_official",
+        "manual_source",
+        "verify",
+    ]
+    assert requests[0].suggested_commands[0] == (
+        "lychee data pull news --symbols 0700.HK "
+        "--provider tencent_official --force"
+    )
+
+
 def test_research_data_requests_prefer_latest_memo_over_verification_hypothesis(
     tmp_path: Path,
 ) -> None:

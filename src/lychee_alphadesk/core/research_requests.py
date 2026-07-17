@@ -245,6 +245,7 @@ def fulfill_research_data_request(
                 "financials",
                 "volatility",
                 "breadth",
+                "news_official",
             }
         ):
             data_changed = True
@@ -602,6 +603,7 @@ def list_provider_backlog_items(
     limit: int = 20,
 ) -> list[ProviderBacklogItem]:
     backlog: list[ProviderBacklogItem] = []
+    backlog_keys: set[tuple[str, str, str]] = set()
     research_metrics = read_research_metric_cache(output_dir)
     requests = list_research_data_requests(
         output_dir,
@@ -629,10 +631,18 @@ def list_provider_backlog_items(
         if _is_manual_evidence_request(request):
             continue
         gap = _classify_provider_gap(request.request_text)
+        backlog_key = (
+            (request.symbol or request.display_name).strip().upper(),
+            gap.plugin_type,
+            request.request_text.strip().casefold(),
+        )
+        if backlog_key in backlog_keys:
+            continue
         if not research_data_request_needs_manual_source(request) and not gap.always_backlog:
             continue
         if _provider_gap_is_covered(gap, request, research_metrics):
             continue
+        backlog_keys.add(backlog_key)
         backlog.append(
             ProviderBacklogItem(
                 request_id=request.request_id,
@@ -939,7 +949,17 @@ def _manual_topic_news_request_text() -> str:
 
 def _manual_topic_news_actions(record: ResearchMemoRecord) -> list[ResearchDataRequestAction]:
     symbol = record.symbol.strip().upper() if record.symbol else "<证券代码>"
-    return [
+    actions: list[ResearchDataRequestAction] = []
+    if symbol == "0700.HK":
+        actions.append(
+            ResearchDataRequestAction(
+                "news_official",
+                "lychee data pull news --symbols 0700.HK "
+                "--provider tencent_official --force",
+            )
+        )
+    actions.extend(
+        [
         ResearchDataRequestAction(
             "manual_source",
             (
@@ -954,7 +974,9 @@ def _manual_topic_news_actions(record: ResearchMemoRecord) -> list[ResearchDataR
             f"lychee research verify {_research_selector(record)}",
             auto_executable=False,
         ),
-    ]
+        ]
+    )
+    return actions
 
 
 def _manual_filing_actions(
@@ -1229,12 +1251,16 @@ def _execute_data_request_action(
                 force=force,
             )
             return _pull_execution(action, result, "行情已刷新。")
-        if action.action_type == "news":
+        if action.action_type in {"news", "news_official"}:
             result = pull_news(
                 symbols=[request.symbol] if request.symbol else [],
                 query=request.display_name,
                 output_dir=output_dir,
-                provider_id="auto",
+                provider_id=(
+                    "tencent_official"
+                    if action.action_type == "news_official"
+                    else "auto"
+                ),
                 force=force,
             )
             return _pull_execution(action, result, "新闻已刷新。")

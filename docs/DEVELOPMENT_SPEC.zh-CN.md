@@ -116,6 +116,7 @@ lad data pull market --symbols AAPL,TSLA
 lad data pull news
 lad data pull news --symbols AAPL --provider auto
 lad data pull news --symbols AAPL --provider auto --force
+lad data pull news --symbols 0700.HK --provider tencent_official --force
 lad data pull volatility --symbols QQQ
 lad data pull breadth --symbols QQQ
 lad data pull filings --symbols AAPL,TSLA --limit 3
@@ -151,6 +152,7 @@ lad
 - `lad data pull volatility --symbols QQQ` 会下载 Cboe 公开的 VXN 历史 CSV，并写入三条 `volatility_metrics`：最新收盘、20 个交易日变化和最近 252 个观测值分位。VXN 必须说明为 Cboe 发布的纳斯达克 100 30 天隐含波动率指数，只用于风险背景；不得把它当作市场广度代理或交易指令。`research_metrics` 缓存保质期为 24 小时，空结果冷却 1 小时，`--force` 是显式覆盖入口。完整的 Cboe VXN 指标可清除匹配的波动率 provider backlog，但不得清除市场广度或实体新闻缺口。
 - `lad data pull breadth --symbols QQQ` 会读取 Nasdaq 公开的 NDX 与 NDXE 历史接口，并写入三条 `market_breadth` 代理指标：市值加权 20 个交易日变化、等权 20 个交易日变化及两者差异。NDXE 是可审计的市场扩散代理，不是上涨家数/下跌家数统计，也不是授权实时行情 feed；必须保留来源 URL、日期和“不等同于实际广度”的说明。完整的 `nasdaq_public` 指标可清除匹配的市场广度 provider backlog，但不得清除实体新闻缺口；同样使用 24 小时保质期、1 小时空结果冷却和 `--force` 覆盖入口。
 - `lad data pull news` 将内置 Marketaux、Finnhub、NewsAPI、GDELT 或已安装新闻插件的事件写入本地 live cache。不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`--query` 可传入主题关键词，用于按研究主题补强新闻证据；主题查询必须选择支持主题新闻的 provider。默认使用新闻 cache 保质期；`--force` 可强制刷新。新闻缓存必须保留已有行并追加去重后的新行，避免刷新后改变 `news_001` 等 evidence ID 的含义。已安装插件只能通过 Python 的 `lychee_alphadesk.news_providers` 入口点发现；`auto` 只能选择已启用、声明能力匹配且必填设置完整的插件。插件返回行必须保留为包含时间、标题和来源 URL 的 `NewsEvent`。插件异常必须视作不可信边界，脱敏后仅允许在 `auto` 模式回退。显式指定插件时，必须报告该插件失败，不能静默换源。
+- `lad data pull news --symbols 0700.HK --provider tencent_official` 会读取腾讯官方 Newsroom HTML，只写入包含发布日期、腾讯原文 URL、标题和 `0700.HK` 实体关联的新闻行。该 provider 是公司自有实体新闻，不是 HKEX 公告，也不是独立财务确认；行摘要和 provider 名称必须保留这个边界。腾讯主题新闻耗尽后，可以先给出该 provider，再提供人工来源录入。
 - `lad data pull filings` 将美股代码的 SEC EDGAR 近期 filings、`.HK` 代码的 HKEXnews 官方公告，以及 `.SH` / `.SZ` A 股股票代码的巨潮资讯公告写入同一份本地 live cache。HKEX 路径必须先解析官方活跃证券清单，再读取发行人公告标题页，保留原始文件 URL、日期、标题和代码；不得把 HKEX 公告伪装成 SEC 文件。巨潮路径必须先解析官方股票清单，再用股票代码加机构 ID 查询公开公告接口，保留原始 PDF URL、中国本地发布日期、标题和代码；不得暗示调用了另行授权的数据服务 API。
 - `lad data pull financials` 将 SEC EDGAR XBRL `companyfacts` 写入 `financials.json`。第一版只覆盖美股发行人，并且每行必须保留表单类型、营收、净利润、经营现金流和官方来源 URL；每项金额必须保留各自的起止日期，禁止把单季度收入和年内累计现金流伪装成同一报告区间。只有指标定义、表单、财报期和期间长度一致，并且上一期间结束日落在上年同期比较窗口内时，才可保留上年同期数据；否则同比相关字段必须为空。不可用字段保持空值，禁止猜测。研究深挖、任务详情、核验项和证据板必须把已有快照作为可审计事实展示；港股/A 股财报 provider 未接入时必须明确标为不适用或待接入。
 - `lad data set fund` 将人工核验且带来源 URL 的基金/ETF 资料写入 `fund-metadata.json`，用于代理 ETF/指数核验里的跟踪指数、费用率、成分摘要、来源和资料日期。该命令必须要求来源 URL，不得把会漂移的基金费用或成分硬编码成生产事实。

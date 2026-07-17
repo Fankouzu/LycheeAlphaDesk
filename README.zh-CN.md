@@ -399,6 +399,7 @@ lychee data pull market --symbols AAPL,TSLA --force
 lychee data pull news
 lychee data pull news --symbols AAPL --provider auto
 lychee data pull news --symbols AAPL --provider auto --force
+lychee data pull news --symbols 0700.HK --provider tencent_official --force
 lychee data pull volatility --symbols QQQ
 lychee data pull breadth --symbols QQQ
 lychee data pull filings --symbols AAPL,TSLA,0700.HK,000001.SZ --limit 3
@@ -418,6 +419,7 @@ lychee
 - 财务快照：SEC EDGAR XBRL `companyfacts`，当前覆盖美股发行人。快照保留每项指标各自的报告区间、营收、净利润、经营现金流和官方来源 URL；只有同一指标定义、表单、财报期且期间长度可比的上年同期存在时，工作台才显示可审计的同比变化，无法同口径比较时保持为空，不会硬凑百分比。港股/A 股财务 provider 仍会明确显示为待接入，不会伪装成已覆盖。
 - 波动率指标：`data pull volatility --symbols QQQ` 会读取 Cboe 公开的 VXN 历史数据，写入最新收盘、20 个交易日变化和最近 252 个观测值分位，作为 QQQ 的可审计研究指标。VXN 是 Cboe 发布的纳斯达克 100 30 天隐含波动率指数；它只提供风险背景，不构成市场判断、市场广度替代或交易指令。本地指标缓存保质期为 24 小时，`--force` 是显式刷新入口。
 - 市场扩散代理：`data pull breadth --symbols QQQ` 会读取 Nasdaq 公开的 NDX 与 NDXE 历史接口，写入 Nasdaq-100 市值加权、等权指数的 20 个交易日变化及两者差异。NDXE 是用于观察走势是否扩散的可审计等权代理，不是上涨家数/下跌家数统计，也不是授权的实时行情 feed；缓存中的来源日期和说明必须保留，并使用 24 小时研究指标保质期。
+- 腾讯实体新闻：`data pull news --symbols 0700.HK --provider tencent_official` 会读取腾讯官方 Newsroom 页面，保留发布日期、原文 URL、标题和 `0700.HK` 实体关联，并使用 24 小时新闻缓存保质期。它是公司自有新闻，不是 HKEX 公告，也不是财务事实的独立确认；官方公告仍由 `data pull filings` 负责。
 - 基金/ETF 资料：`data set fund` 会把已人工核验且带来源 URL 的跟踪指数、费用率和成分摘要写入 `fund-metadata.json`。工作台会把这些资料放入代理标的支持证据，并只对仍缺失的字段报缺口；系统不会自动编造基金费用或成分。
 
 行情 cache 已接入交易时段感知保质期：美股、港股和 A 股会按常规交易时段判断是否需要刷新。交易中默认 15 分钟保质期；港股/A 股午休、收盘确认后、周末会优先使用缓存；`--force` 会忽略保质期和交易时段策略强制刷新。第一版只内置常规交易时段和周末判断，完整节假日日历后续接入交易日历 provider。

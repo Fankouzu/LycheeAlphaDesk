@@ -1005,6 +1005,14 @@ def _data_request_action_label(item: ResearchDataRequest) -> str:
         for action in item.suggested_actions
         if action.action_type not in {"verify", "fund_metadata_import"}
     }
+    if "manual_source" in action_types and "news_official" in action_types:
+        return "先补官方新闻，再核验来源"
+    if "manual_source" in action_types and "news" in action_types:
+        return "先补新闻，再核验来源"
+    if "manual_filing" in action_types and action_types & {"filings", "financials"}:
+        return "先补公告财报，再核验来源"
+    if "manual_source" in action_types or "manual_filing" in action_types:
+        return "先补自动数据，再处理人工来源"
     if "fund_metadata_guide" in action_types:
         return "补基金资料"
     if "filings" in action_types:

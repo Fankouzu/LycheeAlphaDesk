@@ -395,6 +395,37 @@ def test_action_queue_uses_verification_source_for_hypothesis_data_requests(
     assert queue[0].source == data_request.verification_path
 
 
+def test_mixed_news_and_manual_source_request_has_explicit_queue_label() -> None:
+    item = ResearchDataRequest(
+        request_id="verification:tencent:1",
+        created_at="2026-07-17T10:00:00+00:00",
+        display_name="Tencent",
+        symbol="0700.HK",
+        market="HK",
+        confidence="需要补证据",
+        request_text="主题新闻需要官方来源核验。",
+        suggested_commands=[
+            "lychee data pull news --symbols 0700.HK --provider tencent_official --force",
+            "lychee data set news --symbol 0700.HK --headline \"已核验标题\"",
+            "lychee research verify --symbol 0700.HK",
+        ],
+        memo_path="",
+        verification_path="verification.json",
+        suggested_actions=[
+            ResearchDataRequestAction("news_official", "lychee data pull news ..."),
+            ResearchDataRequestAction(
+                "manual_source",
+                "lychee data set news ...",
+                auto_executable=False,
+            ),
+            ResearchDataRequestAction("verify", "lychee research verify ..."),
+        ],
+        source_type="verification",
+    )
+
+    assert action_queue._data_request_action_label(item) == "先补官方新闻，再核验来源"
+
+
 def test_action_queue_surfaces_manual_audited_news_source(tmp_path: Path) -> None:
     data_request = ResearchDataRequest(
         request_id="research-verification-test:hypothesis-data-request:1",

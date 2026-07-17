@@ -416,6 +416,7 @@ lychee
 
 - 行情：Alpha Vantage 日线行情；配置 token 后，Tushare 会把 A 股股票、中国 ETF 风格代码和港股路由到对应日线接口，再由 Eastmoney 与 Yahoo chart 回退。Tushare 的接口权限错误会明确显示为权限缺口，不会误报为 API key 错误。
 - 新闻：内置 Marketaux、Finnhub、NewsAPI、GDELT 与已安装新闻插件均可用 `--provider` 指定；不传 `--symbols` 时拉取市场级新闻，传入 `--symbols` 时拉取个股新闻。`auto` 会先考虑能力匹配且配置完整的已启用插件，再按内置 provider 顺序尝试。插件在 `auto` 中失败会脱敏并回退；显式指定插件时则会报告失败，不会静默换源。
+- QQQ 新闻边界：QQQ 的证据请求使用 `Nasdaq-100 technology stocks QQQ` 市场主题查询，不会把 ETF 伪装成公司新闻实体；公司股票仍使用代码级新闻查询，从而区分主题发现与实体新闻。
 - 公告：美股使用 SEC EDGAR 近期 filings；港股使用无需 API Key 的 HKEXnews 官方公告；A 股股票使用巨潮资讯公告。巨潮路径会先解析官方股票清单，再以代码加机构 ID 查询公告，并把原始 PDF URL、中国本地发布日期、标题、代码和来源标签写入同一审计缓存；它使用公开网站查询，不调用另行授权的数据服务 API。
 - 财务快照：SEC EDGAR XBRL `companyfacts`，当前覆盖美股发行人。快照保留每项指标各自的报告区间、营收、净利润、经营现金流和官方来源 URL；只有同一指标定义、表单、财报期且期间长度可比的上年同期存在时，工作台才显示可审计的同比变化，无法同口径比较时保持为空，不会硬凑百分比。港股/A 股财务 provider 仍会明确显示为待接入，不会伪装成已覆盖。
 - 波动率指标：`data pull volatility --symbols QQQ` 会读取 Cboe 公开的 VXN 历史数据，写入最新收盘、20 个交易日变化和最近 252 个观测值分位，作为 QQQ 的可审计研究指标。VXN 是 Cboe 发布的纳斯达克 100 30 天隐含波动率指数；它只提供风险背景，不构成市场判断、市场广度替代或交易指令。本地指标缓存保质期为 24 小时，`--force` 是显式刷新入口。

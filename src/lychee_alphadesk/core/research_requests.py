@@ -1189,8 +1189,8 @@ def _suggest_data_request_actions(
         and not is_volatility_request
         and not is_breadth_request
     ):
-        query = _quote_cli_value(record.display_name)
-        if record.symbol:
+        query = _quote_cli_value(_news_query_for_request(record.symbol, record.display_name))
+        if record.symbol and record.symbol.upper() != "QQQ":
             actions.append(
                 ResearchDataRequestAction(
                     "news",
@@ -1317,9 +1317,14 @@ def _execute_data_request_action(
             )
             return _pull_execution(action, result, "行情已刷新。")
         if action.action_type in {"news", "news_official"}:
+            news_symbols = [request.symbol] if request.symbol else []
+            news_query = request.display_name
+            if action.action_type == "news" and request.symbol and request.symbol.upper() == "QQQ":
+                news_symbols = []
+                news_query = "Nasdaq-100 technology stocks QQQ"
             result = pull_news(
-                symbols=[request.symbol] if request.symbol else [],
-                query=request.display_name,
+                symbols=news_symbols,
+                query=news_query,
                 output_dir=output_dir,
                 provider_id=(
                     "tencent_official"
@@ -1526,6 +1531,12 @@ def _looks_like_benchmark_comparison_request(text: str) -> bool:
         text,
         ("更宽市场基准", "宽基", "benchmark", "s&p 500", "spy"),
     ) and _has_any(text, ("对比", "比较", "相对强弱", "vs", "versus"))
+
+
+def _news_query_for_request(symbol: str | None, display_name: str) -> str:
+    if symbol and symbol.upper() == "QQQ":
+        return "Nasdaq-100 technology stocks QQQ"
+    return display_name
 
 
 def _looks_like_volatility_request(text: str) -> bool:

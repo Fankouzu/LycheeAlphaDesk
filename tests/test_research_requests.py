@@ -61,7 +61,9 @@ def test_research_data_requests_map_memo_requests_to_precise_commands(
     assert not any("data pull news" in command for command in fund_commands)
 
     news_commands = requests[1].suggested_commands
-    assert any("lychee data pull news --symbols QQQ" in command for command in news_commands)
+    assert news_commands[0] == (
+        "lychee data pull news --query 'Nasdaq-100 technology stocks QQQ' --force"
+    )
 
     breadth_commands = requests[2].suggested_commands
     assert not any("data guide fund" in command for command in breadth_commands)
@@ -70,6 +72,39 @@ def test_research_data_requests_map_memo_requests_to_precise_commands(
         "lychee research verify --symbol QQQ",
     ]
     assert not research_data_request_needs_manual_source(requests[2])
+
+
+def test_qqq_news_request_uses_market_theme_query_not_etf_entity(
+    tmp_path: Path,
+) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["请提供 QQQ 相关主题新闻的原文链接和发布日期。"],
+    )
+    news_calls: list[dict[str, object]] = []
+
+    def fake_pull_news(**kwargs: object) -> PullResult:
+        news_calls.append(kwargs)
+        return PullResult("news", "gdelt", 1, tmp_path / "data" / "news.json", [])
+
+    result = fulfill_research_data_request(
+        tmp_path,
+        request_index=1,
+        symbol="QQQ",
+        pull_news=fake_pull_news,
+    )
+
+    assert news_calls == [
+        {
+            "symbols": [],
+            "query": "Nasdaq-100 technology stocks QQQ",
+            "output_dir": tmp_path,
+            "provider_id": "auto",
+            "force": True,
+        }
+    ]
+    assert result.executions[0].action_type == "news"
+    assert result.executions[0].status == "completed"
 
 
 def test_research_data_requests_hide_qqq_fund_gap_after_official_cache(

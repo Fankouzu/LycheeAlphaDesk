@@ -8,6 +8,7 @@ from lychee_alphadesk.core.portfolio import (
     check_portfolio,
     import_portfolio_positions,
     load_portfolio_targets,
+    write_portfolio_check_artifact,
 )
 
 
@@ -286,3 +287,24 @@ def test_check_portfolio_uses_imported_quantity_for_read_only_valuation(
     assert aapl.value_base == 300
     assert aapl.actual_weight == 300 / 350
     assert result.position_source == "ibkr_csv"
+
+
+def test_write_portfolio_check_artifact_persists_beginner_status(tmp_path: Path) -> None:
+    portfolio = tmp_path / "portfolio.csv"
+    portfolio.write_text(
+        "symbol,name,quantity,target_weight,asset_type\n"
+        "CASH,USD Cash,100,1.0,cash\n",
+        encoding="utf-8",
+    )
+    policy = tmp_path / "policy.yaml"
+    _write_policy(policy)
+
+    result = check_portfolio(
+        portfolio_path=portfolio,
+        policy_path=policy,
+        output_dir=tmp_path,
+    )
+    artifact = write_portfolio_check_artifact(result, tmp_path)
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+
+    assert payload["status_label"] == result.status_label

@@ -577,6 +577,8 @@ lychee portfolio check --file portfolio.csv --policy policy.yaml \
 
 导入文件需要 `symbol,name,quantity,avg_cost,currency,asset_type,as_of` 字段，可选提供 `fees_paid`、`taxes_paid` 和 `corporate_action_note`。缺少费用、税费或公司行动核对信息会记录为审计缺口，不会被系统猜测或补写；导入的额外代码只会提示，不会悄悄加入目标组合。整个流程只读，不连接券商下单。
 
+如果最近一次组合检查仍缺少行情、FX 或持仓核对信息，`lychee research next` 会把它加入“组合审计”行动队列，并给出下一条可执行的数据命令；完整的只读估值快照不会重复制造行动。
+
 FX 练习数据使用 ECB Data Portal 的带日期日频参考汇率：
 
 ```bash

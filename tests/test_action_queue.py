@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -6,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 import lychee_alphadesk.core.action_queue as action_queue
-from lychee_alphadesk.core.action_queue import build_action_queue
+from lychee_alphadesk.core.action_queue import ActionQueueItem, build_action_queue
 from lychee_alphadesk.core.live_data import PullResult
 from lychee_alphadesk.core.opportunity_radar import (
     OpportunityDrilldownTarget,
@@ -25,6 +26,89 @@ from lychee_alphadesk.core.research_requests import (
     ResearchDataRequestFulfillment,
 )
 from lychee_alphadesk.core.workbench import CandidateCheck, PendingEvidenceReviewItem
+
+
+def test_action_queue_surfaces_latest_incomplete_portfolio_audit(
+    tmp_path: Path,
+) -> None:
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    artifact = research_dir / "portfolio-check-test.json"
+    artifact.write_text(
+        json.dumps(
+            {
+                "status_label": "政策通过，等待行情",
+                "portfolio_path": str(tmp_path / "portfolio.csv"),
+                "policy_path": str(tmp_path / "policy.yaml"),
+                "positions_path": str(tmp_path / "data" / "portfolio-positions.json"),
+                "missing_price_symbols": ["QQQ"],
+                "missing_fx_currencies": ["HKD"],
+                "valuation_gaps": ["QQQ: 缺少行情，无法计算当前价值。"],
+                "warnings": ["本地行情缓存未覆盖: QQQ"],
+                "errors": [],
+                "position_audit_gaps": [],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    item = action_queue._latest_portfolio_audit_action(tmp_path)
+
+    assert item is not None
+    assert item.area == "组合审计"
+    assert item.title == "补齐组合当前数据"
+    assert "QQQ" in item.detail
+    assert "未知状态" not in item.detail
+    assert "--file" in item.command
+    assert "--positions" in item.command
+    assert item.source == str(artifact)
+
+
+def test_action_queue_executes_portfolio_audit_as_read_only_action(
+    tmp_path: Path,
+) -> None:
+    portfolio = tmp_path / "portfolio.csv"
+    portfolio.write_text(
+        "symbol,name,quantity,target_weight,asset_type\n"
+        "CASH,USD Cash,100,0.75,cash\n"
+        "QQQ,Invesco QQQ Trust,1,0.25,etf\n",
+        encoding="utf-8",
+    )
+    policy = tmp_path / "policy.yaml"
+    policy.write_text(
+        "base_currency: USD\n"
+        "live_trading: false\n"
+        "risk_limits:\n"
+        "  min_cash_weight: 0.30\n"
+        "  max_single_asset_weight: 0.25\n"
+        "  max_experimental_weight: 0.00\n"
+        "blocked_products: []\n"
+        "decision_requires: [data_quality_check, source_links, counterargument, human_approval]\n",
+        encoding="utf-8",
+    )
+    item = ActionQueueItem(
+        priority=18,
+        area="组合审计",
+        title="补齐组合当前数据",
+        detail="等待行情",
+        command=(
+            f"lychee portfolio check --file {portfolio} --policy {policy} "
+            f"--output-dir {tmp_path}"
+        ),
+        source="portfolio-check-test.json",
+    )
+
+    result = action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        queue_builder=lambda *args, **kwargs: [item],
+    )
+
+    assert result.status == "partial", result.message
+    assert result.output_path is not None
+    assert result.output_path.name.startswith("portfolio-check-")
+    assert "QQQ" in result.next_command
 
 
 def test_workbench_action_uses_compact_task_title_and_action_summary(

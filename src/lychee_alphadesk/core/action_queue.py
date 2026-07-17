@@ -14,6 +14,7 @@ from lychee_alphadesk.core.opportunity_radar import (
     OpportunitySignal,
     build_opportunity_radar,
 )
+from lychee_alphadesk.core.portfolio import check_portfolio, write_portfolio_check_artifact
 from lychee_alphadesk.core.research_db import (
     ResearchDataRequestFulfillmentRecord,
     list_research_data_request_fulfillments,
@@ -58,6 +59,7 @@ ACTION_NO_DATA_COOLDOWN_SECONDS = 60 * 60
 RADAR_RESEARCH_FOLLOWUP_SECONDS = 24 * 60 * 60
 RADAR_FOLLOWUP_WORKBENCH_PRIORITY = 25
 DEFAULT_WORKBENCH_PRIORITY = 40
+PORTFOLIO_AUDIT_PRIORITY = 18
 RADAR_RESEARCH_ADVANCED_STATUSES = {"completed", "partial", "cached"}
 
 
@@ -120,6 +122,10 @@ def build_action_queue(
 ) -> list[ActionQueueItem]:
     items: list[ActionQueueItem] = []
     workbench = workbench_runner(output_dir=output_dir, limit=limit)
+
+    portfolio_action = _latest_portfolio_audit_action(output_dir)
+    if portfolio_action is not None:
+        items.append(portfolio_action)
 
     for pending in pending_reader(output_dir=output_dir, limit=limit):
         items.append(_pending_evidence_action(pending))
@@ -315,6 +321,14 @@ def execute_action_queue_item(
             payload=diagnostic_payload,
             limit=limit,
             diagnose_data_request=diagnose_data_request,
+        )
+
+    portfolio_payload = _parse_portfolio_check_command(item.command)
+    if portfolio_payload is not None:
+        return _execute_portfolio_check_action(
+            output_dir=output_dir,
+            item=item,
+            payload=portfolio_payload,
         )
 
     raise ValueError(
@@ -584,6 +598,64 @@ def _execute_data_request_diagnostic_action(
     )
 
 
+def _execute_portfolio_check_action(
+    *,
+    output_dir: Path,
+    item: ActionQueueItem,
+    payload: dict[str, str | None],
+) -> ActionQueueExecution:
+    positions_path = payload.get("positions")
+    try:
+        result = check_portfolio(
+            portfolio_path=Path(str(payload["file"])),
+            policy_path=Path(str(payload["policy"])),
+            output_dir=output_dir,
+            positions_path=Path(positions_path) if positions_path else None,
+        )
+        artifact_path = write_portfolio_check_artifact(result, output_dir)
+    except (OSError, ValueError) as error:
+        return ActionQueueExecution(
+            item=item,
+            status="failed",
+            message=str(error),
+            count=0,
+            output_path=None,
+            next_command="",
+            warnings=[],
+        )
+    if not result.ok:
+        status = "failed"
+    elif result.valuation_gaps or result.missing_price_symbols or result.missing_fx_currencies:
+        status = "partial"
+    elif result.position_audit_gaps or result.warnings:
+        status = "partial"
+    else:
+        status = "completed"
+    next_command = _portfolio_followup_command(result, output_dir)
+    return ActionQueueExecution(
+        item=item,
+        status=status,
+        message=f"组合只读审计已完成: {result.status_label}。",
+        count=len(result.valuations),
+        output_path=artifact_path,
+        next_command=next_command,
+        warnings=[*result.errors, *result.warnings, *result.valuation_gaps],
+    )
+
+
+def _portfolio_followup_command(result: Any, output_dir: Path) -> str:
+    if getattr(result, "missing_price_symbols", []):
+        symbols = ",".join(result.missing_price_symbols)
+        return f"lychee data pull market --symbols {symbols} --provider auto --force"
+    if getattr(result, "missing_fx_currencies", []):
+        currencies = ",".join(result.missing_fx_currencies)
+        return (
+            f"lychee data pull fx --base {result.base_currency} "
+            f"--currencies {currencies}"
+        )
+    return ""
+
+
 def _pending_evidence_action(item: PendingEvidenceReviewItem) -> ActionQueueItem:
     return ActionQueueItem(
         priority=10,
@@ -655,6 +727,79 @@ def _provider_backlog_action(item: ProviderBacklogItem) -> ActionQueueItem | Non
         detail=f"{item.coverage_gap} 下一步: {item.next_step}",
         command=command,
         source=_research_request_source(item.memo_path, item.verification_path),
+    )
+
+
+def _latest_portfolio_audit_action(output_dir: Path) -> ActionQueueItem | None:
+    research_dir = output_dir / "research"
+    artifacts = list(research_dir.glob("portfolio-check-*.json"))
+    if not artifacts:
+        return None
+    latest = max(artifacts, key=lambda path: path.stat().st_mtime)
+    try:
+        payload = json.loads(latest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ActionQueueItem(
+            priority=PORTFOLIO_AUDIT_PRIORITY,
+            area="组合审计",
+            title="检查组合审计记录",
+            detail="最近的组合审计记录无法解析，需要重新运行只读组合检查。",
+            command=f"lychee portfolio check --demo --output-dir {shlex.quote(str(output_dir))}",
+            source=str(latest),
+        )
+    status = str(payload.get("status_label") or "").strip()
+    valuation_gaps = _string_list(payload.get("valuation_gaps"))
+    warnings = _string_list(payload.get("warnings"))
+    errors = _string_list(payload.get("errors"))
+    audit_gaps = _string_list(payload.get("position_audit_gaps"))
+    if not status:
+        missing_prices = _string_list(payload.get("missing_price_symbols"))
+        missing_fx = _string_list(payload.get("missing_fx_currencies"))
+        if errors:
+            status = "需要修正"
+        elif missing_prices:
+            status = "政策通过，等待行情"
+        elif missing_fx:
+            status = "政策通过，等待 FX"
+        elif valuation_gaps:
+            status = "政策通过，等待估值数据"
+        else:
+            status = "可继续模拟练习"
+    if (
+        status == "政策通过，已生成估值快照"
+        and not valuation_gaps
+        and not errors
+        and not audit_gaps
+    ):
+        return None
+    portfolio_path = str(payload.get("portfolio_path") or "")
+    policy_path = str(payload.get("policy_path") or "")
+    if not portfolio_path or not policy_path:
+        command = f"lychee portfolio check --demo --output-dir {shlex.quote(str(output_dir))}"
+    else:
+        command_parts = [
+            "lychee portfolio check",
+            "--file",
+            shlex.quote(portfolio_path),
+            "--policy",
+            shlex.quote(policy_path),
+        ]
+        positions_path = str(payload.get("positions_path") or "")
+        if positions_path:
+            command_parts.extend(["--positions", shlex.quote(positions_path)])
+        command_parts.extend(["--output-dir", shlex.quote(str(output_dir))])
+        command = " ".join(command_parts)
+    gaps = [*errors, *valuation_gaps, *audit_gaps, *warnings]
+    detail = f"当前状态: {status}。"
+    if gaps:
+        detail += " 优先处理: " + "；".join(gaps[:2])
+    return ActionQueueItem(
+        priority=PORTFOLIO_AUDIT_PRIORITY,
+        area="组合审计",
+        title="补齐组合当前数据",
+        detail=detail,
+        command=command,
+        source=str(latest),
     )
 
 
@@ -839,6 +984,21 @@ def _parse_data_request_diagnose_command(
     }
 
 
+def _parse_portfolio_check_command(command: str) -> dict[str, str | None] | None:
+    parts = shlex.split(command)
+    if parts[:3] != ["lychee", "portfolio", "check"]:
+        return None
+    portfolio_path = _option_value(parts, "--file")
+    policy_path = _option_value(parts, "--policy")
+    if not portfolio_path or not policy_path:
+        return None
+    return {
+        "file": portfolio_path,
+        "policy": policy_path,
+        "positions": _option_value(parts, "--positions") or None,
+    }
+
+
 def _option_value(parts: list[str], option: str) -> str:
     try:
         index = parts.index(option)
@@ -848,6 +1008,12 @@ def _option_value(parts: list[str], option: str) -> str:
     if value_index >= len(parts):
         return ""
     return parts[value_index]
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def _next_research_command(symbols: object) -> str:

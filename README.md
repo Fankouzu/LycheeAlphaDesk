@@ -615,6 +615,8 @@ The repository includes `examples/demo/broker-positions.csv` for a local dry run
 
 The import requires `symbol,name,quantity,avg_cost,currency,asset_type,as_of` and optionally accepts `fees_paid`, `taxes_paid`, and `corporate_action_note`. Missing fee, tax, or corporate-action reconciliation fields are recorded as audit gaps rather than inferred. Extra imported symbols are surfaced but are not silently added to the target portfolio. The flow is read-only and does not connect to broker order execution.
 
+When the latest portfolio check still lacks prices, FX, or reconciliation data, `lychee research next` surfaces a `组合审计` action with the next data command. A complete read-only valuation snapshot does not create another action.
+
 For dated FX context from the ECB Data Portal:
 
 ```bash

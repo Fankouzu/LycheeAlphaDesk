@@ -596,6 +596,7 @@ def write_portfolio_check_artifact(result: PortfolioCheckResult, output_dir: Pat
     payload = asdict(result)
     payload["portfolio_path"] = str(result.portfolio_path)
     payload["policy_path"] = str(result.policy_path)
+    payload["status_label"] = result.status_label
     payload["positions_path"] = (
         str(result.positions_path) if result.positions_path is not None else None
     )

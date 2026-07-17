@@ -1854,6 +1854,7 @@ def _manual_filing_source_details(command: str) -> tuple[str, str, str] | None:
 
 
 def _research_workbench_intro(result: WorkbenchCheckResult) -> str:
+    portfolio = result.portfolio_context
     lines = [
         "AlphaDesk 研究工作台",
         "选择一个研究任务，按 Enter 开始研究。Esc 返回主菜单。",
@@ -1862,7 +1863,16 @@ def _research_workbench_intro(result: WorkbenchCheckResult) -> str:
             f"可执行 {result.ready_count} | 阻塞 {result.blocked_count} | "
             f"总任务 {len(result.candidates)}"
         ),
+        "",
+        "组合风险上下文",
+        (
+            f"- 审计状态: {portfolio.status} | 估值 {portfolio.valuation_count} 项"
+            + (f" | 基础货币: {portfolio.base_currency}" if portfolio.base_currency else "")
+        ),
+        f"- 研究前动作: {portfolio.next_action}",
     ]
+    if portfolio.drift_readings:
+        lines.append("- 目标偏离读数: " + "；".join(portfolio.drift_readings[:3]))
     if result.candidates:
         first = result.candidates[0]
         lines.extend(

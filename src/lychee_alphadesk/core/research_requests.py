@@ -238,7 +238,7 @@ def fulfill_research_data_request(
     for action in request.suggested_actions:
         if action.action_type == "verify":
             continue
-        if action.action_type == "fund_metadata_import":
+        if action.action_type in {"fund_metadata_import", "financials_hk_guide"}:
             needs_manual_step = True
             executions.append(
                 ResearchDataRequestExecution(
@@ -247,7 +247,11 @@ def fulfill_research_data_request(
                     command=action.command,
                     count=0,
                     output_path=None,
-                    message="需要先人工填写基金资料模板，再导入缓存。",
+                    message=(
+                        "需要先运行财务快照向导，填写并核验 HKEX/发行人财务报表后导入缓存。"
+                        if action.action_type == "financials_hk_guide"
+                        else "需要先人工填写基金资料模板，再导入缓存。"
+                    ),
                 )
             )
             continue
@@ -1242,6 +1246,21 @@ def _suggest_data_request_actions(
             ResearchDataRequestAction(
                 "financials_cn",
                 f"lychee data pull financials --symbols {record.symbol} --force",
+            )
+        )
+    elif (
+        _looks_like_financial_snapshot_request(lowered)
+        and record.symbol
+        and record.market.upper() == "HK"
+    ):
+        actions.append(
+            ResearchDataRequestAction(
+                "financials_hk_guide",
+                (
+                    f"lychee data guide financials --symbol {record.symbol} "
+                    f"--name {_quote_cli_value(record.display_name)} --market HK"
+                ),
+                auto_executable=False,
             )
         )
     actions.append(ResearchDataRequestAction("verify", f"lychee research verify {selector}"))

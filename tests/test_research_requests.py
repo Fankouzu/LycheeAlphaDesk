@@ -107,6 +107,30 @@ def test_qqq_news_request_uses_market_theme_query_not_etf_entity(
     assert result.executions[0].status == "completed"
 
 
+def test_hk_financial_request_routes_to_manual_snapshot_guide(
+    tmp_path: Path,
+) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["请补齐腾讯控股的营收、净利润和经营现金流财务快照。"],
+        display_name="腾讯控股",
+        symbol="0700.HK",
+        market="HK",
+    )
+
+    requests = list_research_data_requests(tmp_path, symbol="0700.HK")
+
+    financial_action = next(
+        action
+        for action in requests[0].suggested_actions
+        if action.action_type == "financials_hk_guide"
+    )
+    assert financial_action.command == (
+        "lychee data guide financials --symbol 0700.HK --name '腾讯控股' --market HK"
+    )
+    assert financial_action.auto_executable is False
+
+
 def test_research_data_requests_hide_qqq_fund_gap_after_official_cache(
     tmp_path: Path,
 ) -> None:

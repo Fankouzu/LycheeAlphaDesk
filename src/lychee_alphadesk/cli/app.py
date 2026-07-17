@@ -54,6 +54,8 @@ from lychee_alphadesk.core.live_data import (
     pull_tushare_financials,
     pull_volatility_metrics,
     run_cached_data_health,
+    write_financial_snapshot_cache_from_file,
+    write_financial_snapshot_guide,
     write_fund_metadata_cache,
     write_fund_metadata_cache_from_file,
     write_fund_metadata_guide,
@@ -1723,6 +1725,30 @@ def data_set_fund(
     _print_pull_result(result_label="基金资料", count=result.count, result=result)
 
 
+@data_set_app.command("financials")
+def data_set_financials(
+    from_file: Annotated[
+        Path,
+        typer.Option("--from-file", help="从 data guide financials 生成并填写后的 JSON 模板导入。"),
+    ],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """导入人工核验的港股/A股财务快照。"""
+    try:
+        result = write_financial_snapshot_cache_from_file(
+            output_dir=output_dir,
+            guide_path=from_file,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    console.print("人工财务快照已写入", soft_wrap=True)
+    _print_pull_result(result_label="财务快照", count=result.count, result=result)
+
+
 @data_set_app.command("metric")
 def data_set_metric(
     symbol: Annotated[
@@ -1963,6 +1989,51 @@ def data_guide_fund(
     console.print("查完后写入")
     console.print(guide.write_command, soft_wrap=True)
     console.print("边界: 向导只生成模板，不会猜测基金资料，也不是投资建议。")
+
+
+@data_guide_app.command("financials")
+def data_guide_financials(
+    symbol: Annotated[
+        str,
+        typer.Option("--symbol", help="股票代码，例如 0700.HK、000001.SZ。"),
+    ],
+    display_name: Annotated[
+        str,
+        typer.Option("--name", help="公司显示名称。"),
+    ],
+    market: Annotated[
+        str,
+        typer.Option("--market", help="市场，例如 HK、CN。"),
+    ] = "",
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="向导输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """生成港股/A股财务快照人工核验模板。"""
+    try:
+        guide = write_financial_snapshot_guide(
+            output_dir=output_dir,
+            symbol=symbol,
+            display_name=display_name,
+            market=market,
+        )
+    except ValueError as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    console.print("人工财务快照补齐向导")
+    console.print(f"标的: {guide.display_name} ({guide.symbol}) [{guide.market}]")
+    console.print(f"模板已写入: {guide.output_path}", soft_wrap=True)
+    console.print("填写报告类型、报告期、币种、营收/净利润/经营现金流至少一项和来源 URL")
+    console.print("建议来源")
+    for source in guide.suggested_sources:
+        console.print(f"- {source}")
+    console.print("填完模板后导入")
+    console.print(
+        f"lychee data set financials --from-file {guide.output_path}",
+        soft_wrap=True,
+    )
+    console.print("边界: 只导入已核验报表，不猜测缺失数值，也不是投资建议。")
 
 
 def _print_pull_result(*, result_label: str, count: int, result: PullResult) -> None:

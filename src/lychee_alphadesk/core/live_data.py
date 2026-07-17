@@ -185,6 +185,162 @@ class FundMetadataGuide:
     output_path: Path
 
 
+@dataclass(frozen=True)
+class FinancialSnapshotGuide:
+    symbol: str
+    display_name: str
+    market: str
+    required_fields: list[str]
+    suggested_sources: list[str]
+    output_path: Path
+
+
+def write_financial_snapshot_guide(
+    *,
+    output_dir: Path,
+    symbol: str,
+    display_name: str,
+    market: str = "",
+) -> FinancialSnapshotGuide:
+    normalized_symbol = symbol.strip().upper()
+    if not normalized_symbol:
+        raise ValueError("请提供股票代码。")
+    normalized_market = market.strip().upper() or _infer_symbol_market(normalized_symbol)
+    clean_name = display_name.strip() or normalized_symbol
+    required_fields = [
+        "report_type",
+        "period_end",
+        "filing_date",
+        "currency",
+        "revenue",
+        "net_income",
+        "operating_cash_flow",
+        "source_url",
+    ]
+    suggested_sources = _financial_snapshot_suggested_sources(normalized_market)
+    output_path = _financial_snapshot_guide_path(output_dir, normalized_symbol)
+    guide = FinancialSnapshotGuide(
+        symbol=normalized_symbol,
+        display_name=clean_name,
+        market=normalized_market,
+        required_fields=required_fields,
+        suggested_sources=suggested_sources,
+        output_path=output_path,
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(
+            {
+                "symbol": guide.symbol,
+                "display_name": guide.display_name,
+                "market": guide.market,
+                "required_fields": guide.required_fields,
+                "suggested_sources": guide.suggested_sources,
+                "template": {
+                    "report_type": "",
+                    "period_end": "",
+                    "filing_date": "",
+                    "currency": "",
+                    "revenue": "",
+                    "net_income": "",
+                    "operating_cash_flow": "",
+                    "source_url": "",
+                    "notes": "",
+                },
+                "notes": [
+                    "只填写已经从 HKEX、巨潮资讯或发行人 IR 核对过的财务报表数值。",
+                    "金额单位必须与原始报表一致，并在 notes 中写明单位。",
+                    "不要让 LLM 猜测缺失的营收、净利润或经营现金流。",
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return guide
+
+
+def write_financial_snapshot_cache_from_file(
+    *,
+    output_dir: Path,
+    guide_path: Path,
+) -> PullResult:
+    try:
+        payload = json.loads(guide_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as error:
+        raise ValueError(f"财务快照模板不存在: {guide_path}") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f"财务快照模板不是有效 JSON: {guide_path}") from error
+    if not isinstance(payload, dict):
+        raise ValueError("财务快照模板必须是 JSON 对象。")
+    template = payload.get("template")
+    if not isinstance(template, dict):
+        raise ValueError("财务快照模板缺少 template 对象。")
+    symbol = _json_text(payload, "symbol").upper()
+    source_url = _json_text(template, "source_url")
+    if not source_url.startswith(("http://", "https://")):
+        raise ValueError("财务快照必须提供 http(s) 来源 URL。")
+    period_end = _json_text(template, "period_end")
+    if not period_end:
+        raise ValueError("财务快照必须提供报告期结束日 period_end。")
+    revenue = _manual_financial_number(template.get("revenue"))
+    net_income = _manual_financial_number(template.get("net_income"))
+    operating_cash_flow = _manual_financial_number(template.get("operating_cash_flow"))
+    if revenue is None and net_income is None and operating_cash_flow is None:
+        raise ValueError("至少填写营收、净利润或经营现金流中的一项。")
+    row = FinancialSnapshot(
+        symbol=symbol,
+        company=_json_text(payload, "display_name") or symbol,
+        cik=0,
+        form=_json_text(template, "report_type") or "人工核验财务报表",
+        fiscal_year=int(period_end[:4]) if period_end[:4].isdigit() else None,
+        fiscal_period=_json_text(template, "report_type"),
+        period_end=period_end,
+        filing_date=_json_text(template, "filing_date"),
+        currency=_json_text(template, "currency"),
+        revenue=revenue,
+        revenue_period_start="",
+        revenue_period_end=period_end,
+        revenue_prior=None,
+        revenue_prior_period_start="",
+        revenue_prior_period_end="",
+        net_income=net_income,
+        net_income_period_start="",
+        net_income_period_end=period_end,
+        net_income_prior=None,
+        net_income_prior_period_start="",
+        net_income_prior_period_end="",
+        operating_cash_flow=operating_cash_flow,
+        operating_cash_flow_period_start="",
+        operating_cash_flow_period_end=period_end,
+        operating_cash_flow_prior=None,
+        operating_cash_flow_prior_period_start="",
+        operating_cash_flow_prior_period_end="",
+        source_url=source_url,
+    )
+    rows = _merge_symbol_cache_rows(
+        output_dir=output_dir,
+        filename="financials.json",
+        new_rows=[asdict(row)],
+    )
+    output_path = _write_cache(
+        output_dir=output_dir,
+        filename="financials.json",
+        provider="manual",
+        rows=rows,
+        warnings=[],
+    )
+    record_financials_cache(
+        output_dir=output_dir,
+        symbols=[symbol],
+        artifact_path=output_path,
+        row_count=1,
+        forced=True,
+    )
+    return PullResult("financials", "manual", 1, output_path, [])
+
+
 def write_fund_metadata_guide(
     *,
     output_dir: Path,
@@ -1024,6 +1180,11 @@ def _fund_metadata_guide_path(output_dir: Path, symbol: str) -> Path:
     return output_dir / "data" / f"fund-metadata-guide-{safe_symbol}.json"
 
 
+def _financial_snapshot_guide_path(output_dir: Path, symbol: str) -> Path:
+    safe_symbol = re.sub(r"[^A-Z0-9._-]+", "-", symbol.upper()).strip("-")
+    return output_dir / "data" / f"financials-guide-{safe_symbol}.json"
+
+
 def _json_text(payload: dict[object, object], key: str) -> str:
     value = payload.get(key)
     return value if isinstance(value, str) else ""
@@ -1037,6 +1198,27 @@ def _fund_metadata_suggested_sources(market: str) -> list[str]:
     if market == "US":
         return ["基金公司产品页", "交易所 ETF 页面", "券商/数据商基金资料页"]
     return ["基金公司产品页", "交易所基金资料页面", "券商/数据商基金资料页"]
+
+
+def _financial_snapshot_suggested_sources(market: str) -> list[str]:
+    if market == "HK":
+        return ["HKEXnews 上市公司公告/年报", "发行人投资者关系网站", "HKEX 官方上市公司资料"]
+    if market == "CN":
+        return ["巨潮资讯公告/年报", "发行人投资者关系网站", "证券交易所公告页面"]
+    return ["发行人官方 IR 页面", "监管披露页面", "可信数据商原始报表"]
+
+
+def _manual_financial_number(value: object) -> int | float | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, int | float):
+        return value
+    if isinstance(value, str):
+        try:
+            return float(value.replace(",", "").strip())
+        except ValueError as error:
+            raise ValueError(f"财务数值无法解析: {value}") from error
+    raise ValueError(f"财务数值类型无法解析: {value}")
 
 
 def _fund_metadata_write_command(

@@ -25,6 +25,8 @@ from lychee_alphadesk.core.live_data import (
     read_fund_metadata_cache,
     read_research_metric_cache,
     run_cached_data_health,
+    write_financial_snapshot_cache_from_file,
+    write_financial_snapshot_guide,
     write_fund_metadata_cache,
     write_manual_filing_summary,
     write_manual_news_event,
@@ -712,6 +714,47 @@ def test_pull_tushare_financials_reports_permission_gap(
     assert result.count == 0
     assert any("接口权限不足（40203）" in warning for warning in result.warnings)
     assert any("不是重新填写 API Key" in warning for warning in result.warnings)
+
+
+def test_manual_financial_snapshot_guide_imports_source_backed_hk_row(
+    tmp_path: Path,
+) -> None:
+    guide = write_financial_snapshot_guide(
+        output_dir=tmp_path,
+        symbol="0700.HK",
+        display_name="腾讯控股",
+        market="HK",
+    )
+    payload = json.loads(guide.output_path.read_text(encoding="utf-8"))
+    payload["template"].update(
+        {
+            "report_type": "2025 年年度业绩",
+            "period_end": "2025-12-31",
+            "filing_date": "2026-03-18",
+            "currency": "HKD million",
+            "revenue": "660,257",
+            "net_income": "189,356",
+            "operating_cash_flow": "250000",
+            "source_url": "https://www1.hkexnews.hk/example-results.pdf",
+        }
+    )
+    guide.output_path.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    result = write_financial_snapshot_cache_from_file(
+        output_dir=tmp_path,
+        guide_path=guide.output_path,
+    )
+
+    assert result.provider == "manual"
+    row = json.loads(result.output_path.read_text(encoding="utf-8"))["rows"][0]
+    assert row["symbol"] == "0700.HK"
+    assert row["revenue"] == 660257.0
+    assert row["net_income"] == 189356.0
+    assert row["currency"] == "HKD million"
+    assert row["source_url"].startswith("https://www1.hkexnews.hk/")
 
 
 def test_pull_market_prices_auto_uses_eastmoney_for_hk_symbols(

@@ -117,6 +117,9 @@ lad data pull news
 lad data pull news --symbols AAPL --provider auto
 lad data pull news --symbols AAPL --provider auto --force
 lad data pull news --symbols 0700.HK --provider tencent_official --force
+lad data pull macro --provider hkma --series hibor.fixing
+lad data pull macro --provider fred --series DFF,FEDFUNDS
+lad data pull sector --markets US,HK,CN --days 60
 lad data pull volatility --symbols QQQ
 lad data pull breadth --symbols QQQ
 lad data pull fund-metadata --symbols QQQ
@@ -176,6 +179,7 @@ lad
 - `lad portfolio check --demo` 或 `lad portfolio check --file portfolio.csv --policy policy.yaml` 只读检查模拟组合目标：目标权重合计必须接近 100%，现金比例必须达到政策下限，非现金单项比例不得超过上限，实验性资产和禁止产品不得越过政策限制，并报告本地行情是否覆盖非现金代码。CSV 可以增加可选 `currency` 列；检查必须识别与政策基础货币不同的币种，并在没有 FX provider 时显示“政策通过，等待 FX”，不得估算跨币种总值。行情与新鲜 FX 都齐全时，才可生成带行情日期、FX 日期、当前基础货币价值、实际比例和目标偏离的只读快照；如果导入持仓有 `avg_cost`，还必须显示成本基础和未实现差额，费用/税费保留原币并明确不等于券商对账或收益结论。检查必须写入 `portfolio-check-*.json`，没有行情时只能显示“政策通过，等待行情”，不得生成订单或输出买卖建议。`lad portfolio import --file broker-positions.csv --source ibkr_csv` 将券商导出文件标准化为 `portfolio-positions.json`，必填字段为 `symbol,name,quantity,avg_cost,currency,asset_type,as_of`，可选字段为 `account_id`、费用、税费和公司行动核对说明；缺失账户、费用、税费或公司行动字段必须形成审计缺口，不能推断或伪造。同一代码来自多个账户时可以按数量合并为只读估值，但必须保留跨账户人工核对缺口。`portfolio check --positions` 使用导入数量生成当前只读估值，缺少目标代码或出现额外代码必须显式告警，不能静默纳入或回退到计划数量。
 - `lad data pull fx --base USD --currencies HKD,CNY` 使用 ECB Data Portal 的带日期日频参考汇率，写入 `fx-rates.json` 并在 `cache_entries` 登记 24 小时 TTL。它必须保留来源 URL、汇率日期和获取时间；组合检查只能读取未过期的 FX cache，不能使用硬编码汇率或把 ECB 参考值伪装成券商成交价。
 - `lad data pull macro --provider hkma|fred --series ...` 将 HKMA 或 FRED 的最新宏观观测写入 `research-metrics.json`，保留序列名、观测日期、provider 和官方来源 URL，并登记 24 小时研究指标缓存。HKMA 只支持文档中明确的 `hibor.fixing`、`hibor`、`honia` 序列；FRED 必须使用配置中的 API key。该缓存必须进入 Today Discovery 的 LLM 上下文，但宏观读数只能作为利率/流动性背景，不得转换成买卖建议。
+- `lad data pull sector --markets US,HK,CN --days 60` 使用公开历史行情计算 20 个交易日行业代理变化。美股使用板块 ETF，港股/A 股使用明确列出的 ETF 代理；每条记录必须标明代理边界、保留来源 URL，并登记 24 小时研究指标缓存。代理表现可以进入 Today Discovery 和研究任务上下文，但不得伪装成完整行业指数、成分广度或投资建议。
 - `lad research next` 必须读取最新 `portfolio-check-*.json`：如果组合审计仍有行情、FX、导入持仓或政策缺口，行动队列必须加入“组合审计”项，并给出可执行的补行情或补 FX 命令；如果已有完整只读估值快照，则不得重复生成组合行动。执行后必须保持只读边界，并把新的审计 artifact 和下一步缺口保留下来。
 - `lad research check` 必须在研究任务前显示组合风险上下文：最新组合审计状态、估值覆盖数量、基础货币、已记录的目标偏离读数、交易流水审计状态和研究前动作。该上下文只能作为数据完整性和研究排序背景，不得改写候选的证据状态，也不得输出调仓或买卖建议；上下文必须写入 `workbench-check-*.json`。
 - `lad portfolio import-transactions --file transactions.csv --source ibkr_csv` 将交易、股息和公司行动流水写入独立的 `portfolio-transactions.json` 只读审计账本。必填字段为 `transaction_id,symbol,trade_date,side,quantity,price,currency`，可选字段为 `account_id,fees,taxes,corporate_action`；重复编号、缺少费用/税费/账户标识或未核对的股息/公司行动必须形成审计缺口。当前版本不得根据流水推断税务、已实现盈亏、收益或交易动作。

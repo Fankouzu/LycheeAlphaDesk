@@ -112,6 +112,7 @@ from lychee_alphadesk.core.research_requests import (
     list_research_data_requests,
     research_data_request_needs_manual_source,
 )
+from lychee_alphadesk.core.sector import pull_sector_performance
 from lychee_alphadesk.core.workbench import (
     RESEARCH_EVIDENCE_REVIEW_VERDICTS,
     RESEARCH_REVIEW_VERDICTS,
@@ -1863,6 +1864,39 @@ def data_pull_macro(
         console.print(str(error), soft_wrap=True, markup=False)
         raise typer.Exit(code=1) from error
     _print_pull_result(result_label="宏观指标", count=result.count, result=result)
+
+
+@data_pull_app.command("sector")
+def data_pull_sector(
+    markets: Annotated[
+        str,
+        typer.Option("--markets", help="市场范围，逗号分隔，例如 US,HK,CN。"),
+    ] = "US,HK,CN",
+    days: Annotated[
+        int,
+        typer.Option("--days", help="历史窗口天数，至少 30 天。"),
+    ] = 60,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略行业指标 24 小时保质期，强制刷新。"),
+    ] = False,
+) -> None:
+    """计算美股、港股和 A 股行业代理的历史表现。"""
+    try:
+        result = pull_sector_performance(
+            markets=[item.strip() for item in markets.split(",")],
+            days=days,
+            output_dir=output_dir,
+            force=force,
+        )
+    except (RuntimeError, ValueError) as error:
+        console.print(str(error), soft_wrap=True, markup=False)
+        raise typer.Exit(code=1) from error
+    _print_pull_result(result_label="行业代理表现", count=result.count, result=result)
 
 
 @data_pull_app.command("volatility")

@@ -4,7 +4,12 @@ import urllib.parse
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from lychee_alphadesk.core.cache_freshness import list_cache_entries, record_cache_entry
+from lychee_alphadesk.core.cache_freshness import (
+    evaluate_market_history_cache,
+    list_cache_entries,
+    record_cache_entry,
+    record_market_history_cache,
+)
 from lychee_alphadesk.core.config import (
     NewsProviderPluginConfig,
     default_config,
@@ -12,10 +17,12 @@ from lychee_alphadesk.core.config import (
 )
 from lychee_alphadesk.core.live_data import (
     _parse_sec_financial_snapshot,
+    _parse_yahoo_chart_history,
     build_cached_data_snapshot,
     pull_benchmark_comparison_metrics,
     pull_fund_metadata,
     pull_market_breadth_metrics,
+    pull_market_history,
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
@@ -76,6 +83,107 @@ def test_pull_market_prices_writes_alpha_vantage_cache(tmp_path: Path) -> None:
         "volume": 51230000,
         "currency": "USD",
     }
+
+
+def test_pull_market_history_writes_multiple_daily_rows(tmp_path: Path) -> None:
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        assert "query1.finance.yahoo.com/v8/finance/chart/AAPL" in url
+        assert "interval=1d" in url
+        return {
+            "chart": {
+                "result": [
+                    {
+                        "meta": {"currency": "USD"},
+                        "timestamp": [1780000000, 1780086400],
+                        "indicators": {
+                            "quote": [
+                                {
+                                    "close": [210.0, 214.33],
+                                    "volume": [40000000, 51230000],
+                                }
+                            ]
+                        },
+                    }
+                ],
+                "error": None,
+            }
+        }
+
+    result = pull_market_history(
+        symbols=["AAPL"],
+        output_dir=tmp_path,
+        days=365,
+        fetch_json=fetch_json,
+    )
+
+    assert result.count == 2
+    assert result.output_path == tmp_path / "data" / "market-history.json"
+    cache = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert [row["close"] for row in cache["rows"]] == [210.0, 214.33]
+    assert [row["volume"] for row in cache["rows"]] == [40000000, 51230000]
+
+
+def test_parse_yahoo_chart_history_skips_missing_closes() -> None:
+    rows = _parse_yahoo_chart_history(
+        "AAPL",
+        {
+            "chart": {
+                "result": [
+                    {
+                        "timestamp": [1780000000, 1780086400],
+                        "meta": {"currency": "USD"},
+                        "indicators": {
+                            "quote": [
+                                {"close": [210.0, None], "volume": [100, None]}
+                            ]
+                        },
+                    }
+                ]
+            }
+        },
+    )
+
+    assert len(rows) == 1
+    assert rows[0].symbol == "AAPL"
+    assert rows[0].close == 210.0
+
+
+def test_market_history_cache_reuses_fresh_data_and_force_refreshes(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 18, 8, tzinfo=UTC)
+    artifact = tmp_path / "data" / "market-history.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("{}", encoding="utf-8")
+    record_market_history_cache(
+        output_dir=tmp_path,
+        provider="yahoo_chart",
+        symbols=["AAPL"],
+        days=365,
+        artifact_path=artifact,
+        row_count=250,
+        now=now,
+    )
+
+    decision = evaluate_market_history_cache(
+        output_dir=tmp_path,
+        provider="yahoo_chart",
+        symbols=["AAPL"],
+        days=365,
+        now=now + timedelta(hours=1),
+    )
+    assert decision.should_refresh is False
+    assert "保质期内" in decision.reason
+
+    forced = evaluate_market_history_cache(
+        output_dir=tmp_path,
+        provider="yahoo_chart",
+        symbols=["AAPL"],
+        days=365,
+        now=now + timedelta(hours=1),
+        force=True,
+    )
+    assert forced.should_refresh is True
 
 
 def test_write_manual_news_event_adds_auditable_source_to_news_cache(tmp_path: Path) -> None:

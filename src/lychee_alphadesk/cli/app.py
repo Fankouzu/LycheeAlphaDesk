@@ -40,6 +40,10 @@ from lychee_alphadesk.core.discovery import (
     parse_markets,
     write_discovery_report,
 )
+from lychee_alphadesk.core.forecast import (
+    ForecastProviderError,
+    generate_timesfm_forecasts,
+)
 from lychee_alphadesk.core.live_data import (
     PullResult,
     build_cached_data_snapshot,
@@ -47,6 +51,7 @@ from lychee_alphadesk.core.live_data import (
     pull_benchmark_comparison_metrics,
     pull_fund_metadata,
     pull_market_breadth_metrics,
+    pull_market_history,
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
@@ -1404,6 +1409,74 @@ def data_pull_market(
         console.print(str(error))
         raise typer.Exit(code=1) from error
     _print_pull_result(result_label="行情", count=result.count, result=result)
+
+
+@data_pull_app.command("history")
+def data_pull_market_history(
+    symbols: Annotated[
+        str,
+        typer.Option("--symbols", help="用英文逗号分隔证券代码，例如 AAPL,TSLA,0700.HK。"),
+    ],
+    days: Annotated[
+        int,
+        typer.Option("--days", help="拉取多少天的日线历史，范围 30 到 3650。"),
+    ] = 365,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略历史行情保质期，强制刷新。"),
+    ] = False,
+) -> None:
+    """拉取预测引擎需要的低频历史行情。"""
+    try:
+        result = pull_market_history(
+            symbols=parse_symbols(symbols),
+            output_dir=output_dir,
+            days=days,
+            force=force,
+        )
+    except (RuntimeError, ValueError) as error:
+        console.print(str(error))
+        raise typer.Exit(code=1) from error
+    _print_pull_result(result_label="历史行情", count=result.count, result=result)
+
+
+@data_pull_app.command("forecast")
+def data_pull_forecast(
+    symbols: Annotated[
+        str,
+        typer.Option("--symbols", help="用英文逗号分隔证券代码，例如 QQQ,TSLA。"),
+    ],
+    horizon: Annotated[
+        int,
+        typer.Option("--horizon", help="预测未来多少个交易日，范围 1 到 256。"),
+    ] = 20,
+    model: Annotated[
+        str,
+        typer.Option("--model", help="TimesFM 模型名称。"),
+    ] = "google/timesfm-2.5-200m-pytorch",
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """使用本地 TimesFM 生成研究用预测区间。"""
+    try:
+        result = generate_timesfm_forecasts(
+            output_dir=output_dir,
+            symbols=parse_symbols(symbols),
+            horizon_days=horizon,
+            model_name=model,
+        )
+    except (ForecastProviderError, ValueError) as error:
+        console.print(str(error), soft_wrap=True, markup=False)
+        raise typer.Exit(code=1) from error
+    console.print(f"TimesFM 预测已写入: {result.output_path}", soft_wrap=True)
+    console.print(f"预测代码数: {result.count}")
+    console.print("边界: 预测区间只用于研究比较，不是买卖建议。")
 
 
 @data_pull_app.command("volatility")

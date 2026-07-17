@@ -454,6 +454,7 @@ v0.1 默认：
 - Broker provider 可选。
 - LLM provider 对 demo/report 流程可选，但对 Today Discovery 必选。
 - TimesFM provider 可选。
+- 第一版真实预测必须使用独立的多日 `market-history.json` 历史缓存和明确的可选 TimesFM 2.5 provider。缺少可选运行时或最低历史上下文时必须报错，不得静默回退到其它预测模型。预测区间必须保留 provider/model、预测 horizon、输入历史缓存来源和非投资建议边界。
 - Provider key 存在用户配置目录，而不是项目级 `.env` 文件。
 - 所有真实 provider 失败都必须降级为明确警告。
 - 不允许从真实数据静默 fallback 到 demo 数据。

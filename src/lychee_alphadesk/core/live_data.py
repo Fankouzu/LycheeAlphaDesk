@@ -15,10 +15,12 @@ from pathlib import Path
 from lychee_alphadesk.core.cache_freshness import (
     evaluate_financials_cache,
     evaluate_market_cache,
+    evaluate_market_history_cache,
     evaluate_news_cache,
     evaluate_research_metrics_cache,
     record_financials_cache,
     record_market_cache,
+    record_market_history_cache,
     record_news_cache,
     record_research_metrics_cache,
 )
@@ -1394,6 +1396,72 @@ def pull_market_prices(
     return PullResult("market", provider_id, len(rows), output_path, warnings)
 
 
+def pull_market_history(
+    *,
+    symbols: list[str],
+    output_dir: Path,
+    days: int = 365,
+    fetch_json: JsonFetcher | None = None,
+    force: bool = False,
+    now: datetime | None = None,
+) -> PullResult:
+    """Pull low-frequency daily history required by forecasting providers."""
+    if not symbols:
+        raise ValueError("请至少输入一个证券代码。")
+    if days < 30 or days > 3650:
+        raise ValueError("历史行情天数必须在 30 到 3650 之间。")
+    normalized_symbols = sorted({symbol.strip().upper() for symbol in symbols if symbol.strip()})
+    freshness = evaluate_market_history_cache(
+        output_dir=output_dir,
+        provider="yahoo_chart",
+        symbols=normalized_symbols,
+        days=days,
+        now=now,
+        force=force,
+    )
+    cache = _read_cache(output_dir, "market-history.json")
+    if not freshness.should_refresh and freshness.entry is not None:
+        return PullResult(
+            "market_history",
+            freshness.entry.provider,
+            freshness.entry.row_count,
+            freshness.entry.artifact_path,
+            [freshness.reason],
+            refreshed=False,
+        )
+    fetcher = fetch_json or _fetch_json
+    rows: list[PriceRow] = []
+    warnings: list[str] = []
+    for symbol in normalized_symbols:
+        try:
+            rows.extend(_pull_yahoo_chart_history(symbol, days, fetcher, now=now))
+        except RuntimeError as error:
+            warnings.append(f"{symbol} Yahoo 历史行情拉取失败: {error}")
+    merged_rows = _merge_market_history_cache_rows(
+        existing=cache.rows,
+        new_rows=[asdict(row) for row in rows],
+    )
+    output_path = _write_cache(
+        output_dir=output_dir,
+        filename="market-history.json",
+        provider="yahoo_chart",
+        rows=merged_rows,
+        warnings=warnings,
+        now=now,
+    )
+    record_market_history_cache(
+        output_dir=output_dir,
+        provider="yahoo_chart",
+        symbols=normalized_symbols,
+        days=days,
+        artifact_path=output_path,
+        row_count=len(rows),
+        now=now,
+        forced=force,
+    )
+    return PullResult("market_history", "yahoo_chart", len(rows), output_path, warnings)
+
+
 def pull_news_events(
     *,
     symbols: list[str],
@@ -2390,6 +2458,38 @@ def _pull_yahoo_chart(symbol: str, fetcher: JsonFetcher) -> PriceRow | None:
     return _parse_yahoo_chart(symbol, payload)
 
 
+def _pull_yahoo_chart_history(
+    symbol: str,
+    days: int,
+    fetcher: JsonFetcher,
+    *,
+    now: datetime | None = None,
+) -> list[PriceRow]:
+    current = now or datetime.now(UTC)
+    period1 = int((current - timedelta(days=days)).timestamp())
+    period2 = int(current.timestamp())
+    yahoo_symbol = _yahoo_chart_symbol(symbol)
+    url = (
+        "https://query1.finance.yahoo.com/v8/finance/chart/"
+        + urllib.parse.quote(yahoo_symbol, safe="")
+        + "?"
+        + urllib.parse.urlencode(
+            {
+                "period1": period1,
+                "period2": period2,
+                "interval": "1d",
+                "events": "history",
+            }
+        )
+    )
+    payload = _fetch_provider_json(
+        fetcher,
+        url,
+        {"User-Agent": "Mozilla/5.0 LycheeAlphaDesk/0.1"},
+    )
+    return _parse_yahoo_chart_history(symbol, payload)
+
+
 def _parse_alpha_vantage_daily(symbol: str, payload: object) -> PriceRow | None:
     if not isinstance(payload, dict):
         return None
@@ -2439,6 +2539,54 @@ def _parse_eastmoney_daily(
         volume=int(float(parts[5])),
         currency=_infer_symbol_currency(symbol),
     )
+
+
+def _parse_yahoo_chart_history(symbol: str, payload: object) -> list[PriceRow]:
+    if not isinstance(payload, dict):
+        return []
+    chart = payload.get("chart")
+    if not isinstance(chart, dict):
+        return []
+    results = chart.get("result")
+    if not isinstance(results, list) or not results or not isinstance(results[0], dict):
+        return []
+    result = results[0]
+    timestamps = result.get("timestamp")
+    indicators = result.get("indicators")
+    if not isinstance(timestamps, list) or not isinstance(indicators, dict):
+        return []
+    quotes = indicators.get("quote")
+    if not isinstance(quotes, list) or not quotes or not isinstance(quotes[0], dict):
+        return []
+    closes = quotes[0].get("close")
+    volumes = quotes[0].get("volume")
+    if not isinstance(closes, list):
+        return []
+    meta = result.get("meta")
+    currency = (
+        str(meta.get("currency"))
+        if isinstance(meta, dict) and meta.get("currency")
+        else _infer_symbol_currency(symbol)
+    )
+    rows: list[PriceRow] = []
+    for timestamp, close, volume in zip(
+        timestamps,
+        closes,
+        volumes if isinstance(volumes, list) else [0] * len(closes),
+        strict=False,
+    ):
+        if not isinstance(timestamp, int | float) or not isinstance(close, int | float):
+            continue
+        rows.append(
+            PriceRow(
+                symbol=symbol.upper(),
+                date=datetime.fromtimestamp(timestamp, UTC).date().isoformat(),
+                close=float(close),
+                volume=int(volume) if isinstance(volume, int | float) else 0,
+                currency=currency,
+            )
+        )
+    return rows
 
 
 def _parse_tushare_daily(
@@ -3851,6 +3999,20 @@ def _merge_market_cache_rows(
         if (symbol := _cache_row_symbol(row)) and symbol not in new_symbols
     ]
     return preserved + new_rows
+
+
+def _merge_market_history_cache_rows(
+    *,
+    existing: list[dict[str, object]],
+    new_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    merged: dict[tuple[str, str], dict[str, object]] = {}
+    for row in [*existing, *new_rows]:
+        symbol = _cache_row_symbol(row)
+        date = row.get("date")
+        if symbol and isinstance(date, str) and date:
+            merged[(symbol, date)] = row
+    return [merged[key] for key in sorted(merged)]
 
 
 def _merge_symbol_cache_rows(

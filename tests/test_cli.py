@@ -3722,6 +3722,42 @@ def test_data_pull_market_command_passes_force(monkeypatch, tmp_path: Path) -> N
     assert result.exit_code == 0
 
 
+def test_data_pull_history_command_passes_days_and_force(monkeypatch, tmp_path: Path) -> None:
+    def fake_pull_market_history(**kwargs: object) -> PullResult:
+        assert kwargs["symbols"] == ["AAPL", "0700.HK"]
+        assert kwargs["days"] == 730
+        assert kwargs["force"] is True
+        return PullResult(
+            domain="market_history",
+            provider="yahoo_chart",
+            count=400,
+            output_path=tmp_path / "data" / "market-history.json",
+            warnings=[],
+        )
+
+    monkeypatch.setattr(cli_app, "pull_market_history", fake_pull_market_history)
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "pull",
+            "history",
+            "--symbols",
+            "AAPL,0700.HK",
+            "--days",
+            "730",
+            "--force",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "已拉取历史行情: 400" in result.stdout
+    assert "yahoo_chart" in result.stdout
+
+
 def test_data_pull_financials_command_writes_sec_snapshot(monkeypatch, tmp_path: Path) -> None:
     def fake_pull_sec_financials(**kwargs: object) -> PullResult:
         assert kwargs["symbols"] == ["AAPL", "MSFT"]

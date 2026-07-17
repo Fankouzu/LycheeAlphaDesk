@@ -1,4 +1,5 @@
 import asyncio
+import json
 import shlex
 from pathlib import Path
 from typing import Literal
@@ -99,6 +100,7 @@ from lychee_alphadesk.core.workbench import (
 
 ActionId = Literal[
     "today_discovery",
+    "ipo_events",
     "opportunity_radar",
     "research_workbench",
     "next_actions",
@@ -163,6 +165,7 @@ class AlphaDeskApp(App[None]):
             Option("研究备忘录历史", id="research_memos"),
             Option("研究数据请求", id="research_data_requests"),
             Option("数据源缺口队列", id="provider_backlog"),
+            Option("IPO/打新资料", id="ipo_events"),
             Option("检查模拟组合", id="portfolio_check"),
             Option("手动查看行情", id="pull_market"),
             Option("手动查看新闻", id="pull_news"),
@@ -269,6 +272,8 @@ class AlphaDeskApp(App[None]):
             return
         if action_id == "today_discovery":
             await self._show_today_discovery()
+        elif action_id == "ipo_events":
+            await self._show_ipo_events()
         elif action_id == "opportunity_radar":
             await self._show_opportunity_radar()
         elif action_id == "research_workbench":
@@ -1709,6 +1714,48 @@ class AlphaDeskApp(App[None]):
             lines.append(f"警告: {warning}")
         self.pending_action = None
         self._refresh_dashboard()
+        await self._replace_action_panel(Static("\n".join(lines), id="action-status"))
+        self.set_focus(self.query_one("#action-menu", OptionList))
+
+    async def _show_ipo_events(self) -> None:
+        path = self.output_dir / "data" / "ipo-events.json"
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        rows = payload.get("rows") if isinstance(payload, dict) else None
+        if not isinstance(rows, list) or not rows:
+            lines = [
+                "IPO/打新资料",
+                "暂无已导入的 IPO 事件。",
+                '生成模板: lychee data guide ipo --market HK --name "公司名称"',
+                "边界: 资料需要人工核验，不确认申购资格或收益。",
+            ]
+        else:
+            lines = ["IPO/打新资料"]
+            for row in rows[:10]:
+                if not isinstance(row, dict):
+                    continue
+                lines.extend(
+                    [
+                        (
+                            f"- {row.get('name', '未命名')} "
+                            f"[{row.get('market', '-')} / {row.get('symbol', '-')} ]"
+                        ),
+                        (
+                            f"  申购: {row.get('subscription_start', '-')} 至 "
+                            f"{row.get('subscription_end', '-')} | "
+                            f"上市: {row.get('listing_date', '-')}"
+                        ),
+                        (
+                            f"  价格区间: {row.get('price_min', '-')} - "
+                            f"{row.get('price_max', '-')} | 手数: {row.get('lot_size', '-')}"
+                        ),
+                        f"  资格说明: {row.get('account_eligibility_note') or '需人工核对'}",
+                        f"  来源: {row.get('source_url', '-')}"
+                    ]
+                )
+            lines.append("边界: 以上是已核验资料索引，不确认申购资格，不是收益或投资建议。")
         await self._replace_action_panel(Static("\n".join(lines), id="action-status"))
         self.set_focus(self.query_one("#action-menu", OptionList))
 

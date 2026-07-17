@@ -509,7 +509,7 @@ def test_fulfill_research_data_request_runs_market_pull_and_verify(
 
     assert market_calls == [
         {
-            "symbols": ["QQQ"],
+            "symbols": ["QQQ", "SPY"],
             "output_dir": tmp_path,
             "provider_id": "auto",
             "force": True,

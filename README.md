@@ -398,6 +398,8 @@ lychee research data-requests
 
 When an automatic topic-news refresh returned rows but none of them match the research question, AlphaDesk stops repeating that query. `research data-requests` and `research next` instead show an `人工证据` handoff with a concrete `data set news` template. Record only a source you have checked; the system keeps the original missing discovery reference for audit and only treats the new record as research evidence when it matches the task's topic, market, and asset context.
 
+For a QQQ request that explicitly asks for a broader-market benchmark comparison, the generated market action expands to `QQQ,SPY` so the workbench collects both sides of the comparison instead of refreshing only the theme instrument.
+
 ```bash
 lychee data set news --symbol 0700.HK --headline "Verified source title" --summary "Key fact relevant to this research question" --source-url "https://example.com/source"
 lychee research verify --symbol 0700.HK

@@ -1164,10 +1164,12 @@ def _suggest_data_request_actions(
             )
         )
     elif _looks_like_market_request(lowered) and record.symbol:
+        market_symbols = _market_request_symbols(record.symbol, lowered)
         actions.append(
             ResearchDataRequestAction(
                 "market",
-                f"lychee data pull market --symbols {record.symbol} --provider auto --force",
+                "lychee data pull market --symbols "
+                f"{','.join(market_symbols)} --provider auto --force",
             )
         )
     if (
@@ -1281,8 +1283,12 @@ def _execute_data_request_action(
         if action.action_type == "market":
             if not request.symbol:
                 raise ValueError("行情刷新需要证券代码。")
+            market_symbols = _market_request_symbols(
+                request.symbol,
+                request.request_text.casefold(),
+            )
             result = pull_market(
-                symbols=[request.symbol],
+                symbols=market_symbols,
                 output_dir=output_dir,
                 provider_id="auto",
                 force=force,
@@ -1472,6 +1478,25 @@ def _looks_like_market_request(text: str) -> bool:
         "relative strength",
     )
     return any(keyword in text for keyword in keywords)
+
+
+def _market_request_symbols(symbol: str, request_text: str) -> list[str]:
+    normalized = symbol.strip().upper()
+    benchmark_terms = (
+        "更宽市场基准",
+        "宽基",
+        "benchmark",
+        "s&p 500",
+        "spy",
+    )
+    comparison_terms = ("对比", "比较", "相对强弱", "vs", "versus")
+    if (
+        normalized == "QQQ"
+        and _has_any(request_text, benchmark_terms)
+        and _has_any(request_text, comparison_terms)
+    ):
+        return ["QQQ", "SPY"]
+    return [normalized]
 
 
 def _looks_like_volatility_request(text: str) -> bool:

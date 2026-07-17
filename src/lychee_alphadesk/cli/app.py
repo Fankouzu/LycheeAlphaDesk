@@ -45,6 +45,7 @@ from lychee_alphadesk.core.forecast import (
     generate_timesfm_forecasts,
     run_forecast_backtest,
 )
+from lychee_alphadesk.core.fx import FXProviderError, pull_ecb_fx_rates
 from lychee_alphadesk.core.live_data import (
     PullResult,
     build_cached_data_snapshot,
@@ -267,6 +268,8 @@ def portfolio_check(
     console.print(f"实验性资产目标比例: {result.experimental_target_weight:.2%}")
     console.print(f"基础货币: {result.base_currency}")
     console.print(f"识别币种: {', '.join(result.currencies)}")
+    if result.missing_fx_currencies:
+        console.print(f"FX 缺口: {', '.join(result.missing_fx_currencies)}")
     table = Table(title="组合目标")
     table.add_column("代码")
     table.add_column("名称")
@@ -1600,6 +1603,49 @@ def data_pull_forecast(
     console.print(f"TimesFM 预测已写入: {result.output_path}", soft_wrap=True)
     console.print(f"预测记录数: {result.count}")
     console.print("边界: 预测区间只用于研究比较，不是买卖建议。")
+
+
+@data_pull_app.command("fx")
+def data_pull_fx(
+    base: Annotated[
+        str,
+        typer.Option("--base", help="基础货币，例如 USD、HKD 或 CNY。"),
+    ] = "USD",
+    currencies: Annotated[
+        str,
+        typer.Option("--currencies", help="目标货币，逗号分隔，例如 HKD,CNY。"),
+    ] = "HKD,CNY",
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略 FX 缓存保质期并强制刷新。"),
+    ] = False,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """从 ECB 公共参考汇率获取带日期的 FX 数据。"""
+    try:
+        result = pull_ecb_fx_rates(
+            base_currency=base,
+            quote_currencies=[item.strip() for item in currencies.split(",")],
+            output_dir=output_dir,
+            force=force,
+        )
+    except (FXProviderError, ValueError) as error:
+        console.print(str(error), soft_wrap=True, markup=False)
+        raise typer.Exit(code=1) from error
+    console.print(f"已获取 FX 汇率: {result.count}")
+    console.print(f"数据源: {result.provider}")
+    for rate in result.rates:
+        console.print(
+            f"{rate.base_currency}/{rate.quote_currency}: {rate.rate:.8f} "
+            f"| 日期 {rate.as_of}"
+        )
+    console.print(f"缓存: {result.output_path}", soft_wrap=True)
+    for warning in result.warnings:
+        console.print(f"警告: {warning}")
+    console.print("边界: FX 仅用于带日期的研究换算，不代表交易报价或投资建议。")
 
 
 @data_pull_app.command("volatility")

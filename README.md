@@ -603,6 +603,14 @@ lychee portfolio check --file portfolio.csv --policy policy.yaml
 
 This checks target-weight total, cash minimum, single-asset limits, experimental assets, blocked products, and local price coverage. It writes an auditable `portfolio-check-*.json`; it does not value, trade, or produce investment advice.
 
+For dated FX context from the ECB Data Portal:
+
+```bash
+lychee data pull fx --base USD --currencies HKD,CNY
+```
+
+Rates are stored in `fx-rates.json` with a 24-hour freshness record. They are research context, not broker execution rates or trading instructions.
+
 ## 🎯 MVP Scope
 
 The first public version should focus on research, not execution. It should be useful without a broker account, an LLM key, TimesFM weights, or paid market data.

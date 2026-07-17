@@ -565,6 +565,14 @@ lychee portfolio check --file portfolio.csv --policy policy.yaml
 
 这个命令只检查目标权重合计、现金比例、单项上限、实验性资产、禁止产品和本地行情覆盖，并写入可审计的 `portfolio-check-*.json`。CSV 可以额外提供 `currency` 列；当基础货币为 USD 而行情识别出 HKD/CNY 时，系统会显示“政策通过，等待 FX”，不会使用硬编码汇率计算总值。它不估值、不下单，也不会把目标比例解释成投资建议；没有行情时会明确显示“政策通过，等待行情”。
 
+FX 练习数据使用 ECB Data Portal 的带日期日频参考汇率：
+
+```bash
+lychee data pull fx --base USD --currencies HKD,CNY
+```
+
+汇率写入 `fx-rates.json` 并登记 24 小时缓存新鲜度；它只为后续研究换算提供有来源的 FX 上下文，不等于券商成交汇率，也不会自动产生交易动作。
+
 ## 🎯 MVP 范围
 
 第一个公开版本聚焦研究，不聚焦执行。它应该在没有券商账户、LLM key、TimesFM 权重、付费行情数据的情况下也有价值。

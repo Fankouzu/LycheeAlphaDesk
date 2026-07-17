@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -140,6 +141,41 @@ def test_check_portfolio_surfaces_foreign_currency_without_fx_assumption(
     assert result.currencies == ["CNY", "HKD", "USD"]
     assert result.foreign_currency_symbols == ["2800.HK", "510300.SH"]
     assert any("缺少 FX provider" in warning for warning in result.warnings)
+
+    (data_dir / "fx-rates.json").write_text(
+        json.dumps(
+            {
+                "retrieved_at": "2026-07-17T10:00:00+00:00",
+                "rows": [
+                    {
+                        "base_currency": "USD",
+                        "quote_currency": "HKD",
+                        "rate": 7.8,
+                        "as_of": "2026-07-16",
+                        "provider": "ecb",
+                        "source_url": "https://example.com/fx",
+                    },
+                    {
+                        "base_currency": "USD",
+                        "quote_currency": "CNY",
+                        "rate": 7.1,
+                        "as_of": "2026-07-16",
+                        "provider": "ecb",
+                        "source_url": "https://example.com/fx",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    cached_result = check_portfolio(
+        portfolio_path=portfolio,
+        policy_path=policy,
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 17, 12, tzinfo=UTC),
+    )
+    assert cached_result.status_label == "政策通过，FX 已缓存"
+    assert cached_result.missing_fx_currencies == []
 
 
 def test_load_portfolio_targets_requires_stable_columns(tmp_path: Path) -> None:

@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from lychee_alphadesk.core.fx import read_cached_fx_rates
 from lychee_alphadesk.core.live_data import build_cached_data_snapshot
 from lychee_alphadesk.core.policy import (
     PolicyValidationResult,
@@ -32,6 +33,7 @@ class PortfolioCheckResult:
     base_currency: str
     currencies: list[str]
     foreign_currency_symbols: list[str]
+    missing_fx_currencies: list[str]
     total_target_weight: float
     cash_target_weight: float
     experimental_target_weight: float
@@ -49,8 +51,10 @@ class PortfolioCheckResult:
             return "需要修正"
         if self.missing_price_symbols:
             return "政策通过，等待行情"
-        if self.foreign_currency_symbols:
+        if self.missing_fx_currencies:
             return "政策通过，等待 FX"
+        if self.foreign_currency_symbols:
+            return "政策通过，FX 已缓存"
         return "可继续模拟练习"
 
 
@@ -116,6 +120,7 @@ def check_portfolio(
     missing_price_symbols: list[str] = []
     currencies: set[str] = {policy.base_currency}
     foreign_currency_symbols: list[str] = []
+    foreign_currencies: set[str] = set()
     if output_dir is not None:
         snapshot = build_cached_data_snapshot(output_dir)
         prices = {price.symbol.upper(): price for price in snapshot.prices}
@@ -141,6 +146,7 @@ def check_portfolio(
                 currencies.add(normalized_currency)
                 if normalized_currency != policy.base_currency:
                     foreign_currency_symbols.append(target.symbol)
+                    foreign_currencies.add(normalized_currency)
     else:
         for target in targets:
             if target.currency:
@@ -148,11 +154,27 @@ def check_portfolio(
                 currencies.add(normalized_currency)
                 if normalized_currency != policy.base_currency and target.symbol != "CASH":
                     foreign_currency_symbols.append(target.symbol)
-    if foreign_currency_symbols:
+                    foreign_currencies.add(normalized_currency)
+    missing_fx_currencies = sorted(foreign_currencies)
+    if output_dir is not None and missing_fx_currencies:
+        cached_fx = read_cached_fx_rates(
+            output_dir=output_dir,
+            base_currency=policy.base_currency,
+            quote_currencies=sorted(foreign_currencies),
+            now=now,
+        )
+        cached_quotes = {rate.quote_currency for rate in cached_fx}
+        missing_fx_currencies = sorted(foreign_currencies.difference(cached_quotes))
+    if foreign_currency_symbols and missing_fx_currencies:
         warnings.append(
             "识别到非基础货币代码: "
             + ", ".join(foreign_currency_symbols)
             + f"；基础货币为 {policy.base_currency}，缺少 FX provider，暂不计算跨币种总值。"
+        )
+    elif foreign_currency_symbols:
+        warnings.append(
+            "FX 缓存已覆盖非基础货币代码，但当前只做政策检查，"
+            "暂不计算跨币种总值。"
         )
 
     return PortfolioCheckResult(
@@ -164,6 +186,7 @@ def check_portfolio(
         base_currency=policy.base_currency,
         currencies=sorted(currencies),
         foreign_currency_symbols=foreign_currency_symbols,
+        missing_fx_currencies=missing_fx_currencies,
         total_target_weight=total_weight,
         cash_target_weight=cash_weight,
         experimental_target_weight=experimental_weight,

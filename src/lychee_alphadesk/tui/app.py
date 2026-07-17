@@ -1747,6 +1747,11 @@ class AlphaDeskApp(App[None]):
             f"实验性资产目标比例: {result.experimental_target_weight:.2%}",
             f"基础货币: {result.base_currency}",
             f"识别币种: {', '.join(result.currencies)}",
+            *(
+                [f"FX 缺口: {', '.join(result.missing_fx_currencies)}"]
+                if result.missing_fx_currencies
+                else []
+            ),
             "",
             "目标项",
             *[

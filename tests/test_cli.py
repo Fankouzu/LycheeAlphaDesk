@@ -149,6 +149,40 @@ def test_portfolio_check_demo_is_read_only_and_auditable(tmp_path: Path) -> None
     assert list((tmp_path / "research").glob("portfolio-check-*.json"))
 
 
+def test_data_pull_fx_prints_dated_rates(monkeypatch, tmp_path: Path) -> None:
+    def fake_pull_ecb_fx_rates(**kwargs: object) -> object:
+        from lychee_alphadesk.core.fx import FXPullResult, FXRate
+
+        return FXPullResult(
+            provider="ecb",
+            count=1,
+            output_path=tmp_path / "data" / "fx-rates.json",
+            rates=[FXRate("USD", "HKD", 7.8, "2026-07-16", "ecb", "https://example.com")],
+            refreshed=True,
+            warnings=[],
+        )
+
+    monkeypatch.setattr(cli_app, "pull_ecb_fx_rates", fake_pull_ecb_fx_rates)
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "pull",
+            "fx",
+            "--base",
+            "USD",
+            "--currencies",
+            "HKD",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "USD/HKD" in result.stdout
+    assert "日期 2026-07-16" in result.stdout
+
+
 def test_report_demo_generates_markdown_report(tmp_path: Path) -> None:
     result = runner.invoke(app, ["report", "--demo", "--output-dir", str(tmp_path)])
 

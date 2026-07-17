@@ -863,6 +863,12 @@ def test_manual_financial_snapshot_guide_imports_source_backed_hk_row(
     assert row["net_income"] == 189356.0
     assert row["currency"] == "HKD million"
     assert row["source_url"].startswith("https://www1.hkexnews.hk/")
+    audits = list((tmp_path / "research").glob("financials-import-*.json"))
+    assert len(audits) == 1
+    audit = json.loads(audits[0].read_text(encoding="utf-8"))
+    assert audit["symbol"] == "0700.HK"
+    assert audit["provider"] == "manual"
+    assert "重新下钻核验" in audit["boundary"]
 
 
 def test_pull_market_prices_auto_uses_eastmoney_for_hk_symbols(

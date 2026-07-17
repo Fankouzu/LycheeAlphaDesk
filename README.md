@@ -430,6 +430,16 @@ lychee research verify --symbol NVDA
 
 `data set filing` requires the linked research symbol, company, form, filing date, checked summary, and an `http(s)` source URL. It merges into `filings.json` without deleting SEC-cached or earlier manual rows. Subsequent SEC refreshes preserve the manual record, and filing evidence with a symbol is matched only to that symbol. The TUI opens the same explicit-save form from the `人工文件证据` action, then offers rerun verification.
 
+Hong Kong numeric financials currently use a manually checked template; announcement titles are never treated as numeric facts:
+
+```bash
+lychee data guide financials --symbol 0700.HK --name "Tencent" --market HK
+lychee data set financials --from-file .alphadesk/data/financials-guide-0700.HK.json
+lychee research verify --symbol 0700.HK
+```
+
+The template requires report type, period end, filing/announcement date, currency, at least one of revenue/net income/operating cash flow, and the original HKEX or issuer IR URL. Import writes both `financials.json` and a `financials-import-*.json` audit record. When it matches an open Hong Kong financial handoff, AlphaDesk marks that handoff as manually completed and removes it from the queue, but still requires drilldown verification.
+
 When the saved source uniquely matches an open manual handoff, AlphaDesk writes a local `manual_required` fulfillment record and removes that handoff from `research data-requests` and `research next`. This is an audit acknowledgement, not an automatic judgment about the filing; rerun verification still decides whether the evidence actually addresses the research question.
 
 For a failed request, run `lychee research data-request-diagnose --request 1 --symbol QQQ`. It reads only the local fulfillment record, shows the failed actions, a beginner-readable diagnosis, recovery steps, and the exact retry command. It never sends a provider request or exposes configured secrets. The unified next-action queue opens this diagnosis first, then stops for a human confirmation before any retry.

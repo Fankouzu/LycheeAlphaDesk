@@ -281,12 +281,30 @@ def write_financial_snapshot_cache_from_file(
     if not isinstance(template, dict):
         raise ValueError("财务快照模板缺少 template 对象。")
     symbol = _json_text(payload, "symbol").upper()
+    if not symbol:
+        raise ValueError("财务快照模板必须提供证券代码。")
+    report_type = _json_text(template, "report_type")
+    if not report_type:
+        raise ValueError("财务快照必须提供报表类型 report_type。")
     source_url = _json_text(template, "source_url")
-    if not source_url.startswith(("http://", "https://")):
+    source_parts = urllib.parse.urlparse(source_url)
+    if source_parts.scheme not in {"http", "https"} or not source_parts.netloc:
         raise ValueError("财务快照必须提供 http(s) 来源 URL。")
     period_end = _json_text(template, "period_end")
-    if not period_end:
-        raise ValueError("财务快照必须提供报告期结束日 period_end。")
+    date_fields = (
+        ("报告期结束日", period_end),
+        ("申报/公告日期", _json_text(template, "filing_date")),
+    )
+    for label, value in date_fields:
+        if not value:
+            raise ValueError(f"财务快照必须提供{label}。")
+        try:
+            datetime.fromisoformat(f"{value}T00:00:00")
+        except ValueError as error:
+            raise ValueError(f"财务快照{label}必须是 YYYY-MM-DD。") from error
+    currency = _json_text(template, "currency")
+    if not currency:
+        raise ValueError("财务快照必须提供报表币种 currency。")
     revenue = _manual_financial_number(template.get("revenue"))
     net_income = _manual_financial_number(template.get("net_income"))
     operating_cash_flow = _manual_financial_number(template.get("operating_cash_flow"))
@@ -296,12 +314,12 @@ def write_financial_snapshot_cache_from_file(
         symbol=symbol,
         company=_json_text(payload, "display_name") or symbol,
         cik=0,
-        form=_json_text(template, "report_type") or "人工核验财务报表",
+        form=report_type,
         fiscal_year=int(period_end[:4]) if period_end[:4].isdigit() else None,
-        fiscal_period=_json_text(template, "report_type"),
+        fiscal_period=report_type,
         period_end=period_end,
         filing_date=_json_text(template, "filing_date"),
-        currency=_json_text(template, "currency"),
+        currency=currency,
         revenue=revenue,
         revenue_period_start="",
         revenue_period_end=period_end,
@@ -341,7 +359,65 @@ def write_financial_snapshot_cache_from_file(
         row_count=1,
         forced=True,
     )
+    _write_manual_financial_audit(
+        output_dir=output_dir,
+        payload=payload,
+        guide_path=guide_path,
+        output_path=output_path,
+    )
     return PullResult("financials", "manual", 1, output_path, [])
+
+
+def financial_snapshot_guide_symbol(guide_path: Path) -> str:
+    try:
+        payload = json.loads(guide_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"无法读取财务快照模板代码: {guide_path}") from error
+    if not isinstance(payload, dict):
+        raise ValueError("财务快照模板必须是 JSON 对象。")
+    symbol = _json_text(payload, "symbol").strip().upper()
+    if not symbol:
+        raise ValueError("财务快照模板必须提供证券代码。")
+    return symbol
+
+
+def _write_manual_financial_audit(
+    *,
+    output_dir: Path,
+    payload: dict[str, object],
+    guide_path: Path,
+    output_path: Path,
+) -> Path:
+    research_dir = output_dir / "research"
+    research_dir.mkdir(parents=True, exist_ok=True)
+    created_at = datetime.now(UTC).isoformat(timespec="seconds")
+    stamp = created_at.replace("+00:00", "Z").replace(":", "").replace("-", "")
+    audit_path = research_dir / f"financials-import-{stamp}.json"
+    suffix = 1
+    while audit_path.exists():
+        audit_path = research_dir / f"financials-import-{stamp}~{suffix:02d}.json"
+        suffix += 1
+    template = payload.get("template")
+    template_dict = template if isinstance(template, dict) else {}
+    audit_payload = {
+        "created_at": created_at,
+        "symbol": _json_text(payload, "symbol").upper(),
+        "display_name": _json_text(payload, "display_name"),
+        "report_type": _json_text(template_dict, "report_type"),
+        "period_end": _json_text(template_dict, "period_end"),
+        "filing_date": _json_text(template_dict, "filing_date"),
+        "currency": _json_text(template_dict, "currency"),
+        "source_url": _json_text(template_dict, "source_url"),
+        "guide_path": str(guide_path),
+        "output_path": str(output_path),
+        "provider": "manual",
+        "boundary": "人工导入的来源和数值已记录，但仍需重新下钻核验；不等于券商对账或投资建议。",
+    }
+    audit_path.write_text(
+        json.dumps(audit_payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return audit_path
 
 
 def write_fund_metadata_guide(

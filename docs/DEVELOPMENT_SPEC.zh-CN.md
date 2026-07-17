@@ -166,6 +166,7 @@ lad
 - `lad data pull filings` 将美股代码的 SEC EDGAR 近期 filings、`.HK` 代码的 HKEXnews 官方公告，以及 `.SH` / `.SZ` A 股股票代码的巨潮资讯公告写入同一份本地 live cache。HKEX 路径必须先解析官方活跃证券清单，再读取发行人公告标题页，保留原始文件 URL、日期、标题和代码；不得把 HKEX 公告伪装成 SEC 文件。巨潮路径必须先解析官方股票清单，再用股票代码加机构 ID 查询公开公告接口，保留原始 PDF URL、中国本地发布日期、标题和代码；不得暗示调用了另行授权的数据服务 API。
 - `lad data pull financials` 将美股 SEC EDGAR XBRL `companyfacts` 写入 `financials.json`，并将全为 `.SH`/`.SZ` 的请求路由到 Tushare `income`/`cashflow`。两条路径都必须保留报告期、营收、净利润、经营现金流、provider 和来源 URL；没有可比期间时同比字段保持为空，不得猜测。研究深挖、任务详情、核验项和证据板必须把已有快照作为可审计事实展示。Tushare 40203 必须显示为接口权限/积分缺口，不得误导为 key 错误；`.HK` 请求仍必须明确转为 HKEX 财务文件人工核验。
 - 混合财务请求必须按代码市场拆分：美股和 A 股可以在同一命令中分别写入 SEC/Tushare 快照；港股同批请求必须明确报告未接入自动数值 provider 并以非零状态结束，但不得阻止已支持市场先写入真实快照。
+- `lad data guide financials --symbol ... --market HK` 与 `lad data set financials --from-file ...` 是港股数字财务的人工核验入口。模板必须验证报表类型、报告期、申报/公告日期、币种、至少一项财务数值和原始 URL；导入必须写入 `financials.json` 及 `financials-import-*.json` 审计记录，并在匹配港股人工财务请求时写入 `manual_required` fulfillment、移出待办队列，随后仍必须重新下钻核验。
 - `lad data set fund` 将人工核验且带来源 URL 的基金/ETF 资料写入 `fund-metadata.json`，用于代理 ETF/指数核验里的跟踪指数、费用率、成分摘要、来源和资料日期。该命令必须要求来源 URL，不得把会漂移的基金费用或成分硬编码成生产事实。
 - `lad data freshness` 只读取本地 `cache_entries`，展示缓存层级、状态、provider、cache key、市场、交易状态、过期时间和行数，不触发 provider 请求。
 - `lad data health` 检查 live cache 是否存在以及行数状态，并根据缓存行情代码和最近一次行情 warning 分开显示美股、港股和 A 股的覆盖状态。缓存即使有行，只要保留 provider warning，也必须显示为警告，不能把部分或回退数据伪装成健康覆盖。Tushare `40203` 权限 warning 只能作用于实际受影响的市场，不得推断其它市场不可用。

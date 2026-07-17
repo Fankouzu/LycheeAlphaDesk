@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from lychee_alphadesk.core.live_data import (
     FundMetadataGuide,
     PullResult,
+    write_financial_snapshot_cache_from_file,
+    write_financial_snapshot_guide,
     write_research_metric_cache,
 )
 from lychee_alphadesk.core.research_db import (
@@ -199,6 +201,52 @@ def test_research_data_request_routes_form4_content_to_manual_filing_evidence(
         "verify",
     ]
     assert list_provider_backlog_items(tmp_path, symbol="NVDA") == []
+
+
+def test_hk_financial_template_acknowledges_manual_handoff_after_import(
+    tmp_path: Path,
+) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["请补齐腾讯控股的营收、净利润和经营现金流财务快照。"],
+        display_name="腾讯控股",
+        symbol="0700.HK",
+        market="HK",
+    )
+    guide = write_financial_snapshot_guide(
+        output_dir=tmp_path,
+        symbol="0700.HK",
+        display_name="腾讯控股",
+        market="HK",
+    )
+    payload = json.loads(guide.output_path.read_text(encoding="utf-8"))
+    payload["template"].update(
+        {
+            "report_type": "2025 年年度报告",
+            "period_end": "2025-12-31",
+            "filing_date": "2026-03-18",
+            "currency": "HKD million",
+            "revenue": "100",
+            "net_income": "20",
+            "operating_cash_flow": "30",
+            "source_url": "https://www1.hkexnews.hk/example-results.pdf",
+        }
+    )
+    guide.output_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    write_financial_snapshot_cache_from_file(
+        output_dir=tmp_path,
+        guide_path=guide.output_path,
+    )
+    acknowledgement = acknowledge_manual_research_data_request(
+        tmp_path,
+        action_type="financials_hk_guide",
+        symbol="0700.HK",
+    )
+
+    assert acknowledgement is not None
+    assert acknowledgement.status == "manual_required"
+    assert list_research_data_requests(tmp_path, symbol="0700.HK") == []
 
 
 def test_manual_filing_acknowledgement_removes_completed_handoff_from_queue(

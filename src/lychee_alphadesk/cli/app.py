@@ -50,6 +50,7 @@ from lychee_alphadesk.core.ipo import import_ipo_events, write_ipo_guide
 from lychee_alphadesk.core.live_data import (
     PullResult,
     build_cached_data_snapshot,
+    financial_snapshot_guide_symbol,
     parse_symbols,
     pull_benchmark_comparison_metrics,
     pull_fund_metadata,
@@ -2261,6 +2262,15 @@ def data_set_financials(
         raise typer.Exit(code=1) from error
     console.print("人工财务快照已写入", soft_wrap=True)
     _print_pull_result(result_label="财务快照", count=result.count, result=result)
+    audit_paths = sorted((output_dir / "research").glob("financials-import-*.json"))
+    if audit_paths:
+        console.print(f"导入审计: {audit_paths[-1]}", soft_wrap=True)
+    symbol = financial_snapshot_guide_symbol(from_file)
+    _acknowledge_manual_research_handoff(
+        output_dir=output_dir,
+        action_type="financials_hk_guide",
+        symbol=symbol,
+    )
 
 
 @data_set_app.command("ipo")

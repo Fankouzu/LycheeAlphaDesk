@@ -291,7 +291,7 @@ def fulfill_research_data_request(
         ):
             data_changed = True
 
-    if data_changed and verify_action is not None:
+    if data_changed and verify_action is not None and not needs_manual_step:
         executions.append(
             _execute_verify_action(
                 output_dir=output_dir,
@@ -339,8 +339,8 @@ def acknowledge_manual_research_data_request(
     form: str = "",
 ) -> ResearchDataRequestFulfillment | None:
     """Close one uniquely matched manual handoff after evidence is written locally."""
-    if action_type not in {"manual_source", "manual_filing"}:
-        raise ValueError("只能确认人工新闻来源或人工文件证据请求。")
+    if action_type not in {"manual_source", "manual_filing", "financials_hk_guide"}:
+        raise ValueError("只能确认人工新闻来源、人工文件或港股财务证据请求。")
     normalized_symbol = symbol.strip().upper()
     if not normalized_symbol:
         raise ValueError("确认人工证据请求需要证券代码。")

@@ -2077,34 +2077,55 @@ def data_pull_financials(
         typer.Option("--force", help="忽略 24 小时保质期，强制刷新财务快照。"),
     ] = False,
 ) -> None:
-    """按市场拉取 SEC 或 Tushare 财务快照到本地缓存。"""
+    """按代码所属市场分别拉取 SEC 或 Tushare 财务快照。"""
     try:
         parsed_symbols = parse_symbols(symbols)
-        if parsed_symbols and all(
-            symbol.upper().endswith((".SH", ".SZ")) for symbol in parsed_symbols
-        ):
-            result = pull_tushare_financials(
-                symbols=parsed_symbols,
-                output_dir=output_dir,
-                force=force,
+        if not parsed_symbols:
+            raise ValueError("请至少输入一个证券代码。")
+        us_symbols = [
+            symbol
+            for symbol in parsed_symbols
+            if not symbol.upper().endswith((".HK", ".SH", ".SZ"))
+        ]
+        cn_symbols = [
+            symbol
+            for symbol in parsed_symbols
+            if symbol.upper().endswith((".SH", ".SZ"))
+        ]
+        hk_symbols = [
+            symbol for symbol in parsed_symbols if symbol.upper().endswith(".HK")
+        ]
+        results: list[PullResult] = []
+        if us_symbols:
+            results.append(
+                pull_sec_financials(
+                    symbols=us_symbols,
+                    output_dir=output_dir,
+                    force=force,
+                )
             )
-        elif parsed_symbols and any(
-            symbol.upper().endswith(".HK") for symbol in parsed_symbols
-        ):
-            raise ValueError(
-                "港股财务快照当前仍未接入自动 provider；请使用 HKEX 年报/业绩公告人工核验，"
-                "不要把 HKEX 公告标题当成财务数值。"
+        if cn_symbols:
+            results.append(
+                pull_tushare_financials(
+                    symbols=cn_symbols,
+                    output_dir=output_dir,
+                    force=force,
+                )
             )
-        else:
-            result = pull_sec_financials(
-                symbols=parsed_symbols,
-                output_dir=output_dir,
-                force=force,
+        if hk_symbols:
+            console.print(
+                "港股财务快照当前仍未接入自动 provider: "
+                f"{', '.join(hk_symbols)}。请使用 HKEX 年报/业绩公告人工核验，"
+                "不要把 HKEX 公告标题当成财务数值。",
+                soft_wrap=True,
             )
+        for result in results:
+            _print_pull_result(result_label="财务快照", count=result.count, result=result)
+        if hk_symbols:
+            raise typer.Exit(code=1)
     except (RuntimeError, ValueError) as error:
         console.print(str(error), soft_wrap=True)
         raise typer.Exit(code=1) from error
-    _print_pull_result(result_label="财务快照", count=result.count, result=result)
 
 
 @data_pull_app.command("filings")

@@ -3971,6 +3971,42 @@ def test_data_pull_financials_command_writes_sec_snapshot(monkeypatch, tmp_path:
     assert "sec_edgar" in result.stdout
 
 
+def test_data_pull_financials_partitions_us_cn_and_reports_hk_gap(
+    monkeypatch, tmp_path: Path
+) -> None:
+    calls: list[tuple[str, list[str]]] = []
+
+    def fake_pull_sec_financials(**kwargs: object) -> PullResult:
+        calls.append(("sec", kwargs["symbols"]))
+        return PullResult("financials", "sec_edgar", 1, tmp_path / "data" / "financials.json", [])
+
+    def fake_pull_tushare_financials(**kwargs: object) -> PullResult:
+        calls.append(("tushare", kwargs["symbols"]))
+        return PullResult("financials", "tushare", 1, tmp_path / "data" / "financials.json", [])
+
+    monkeypatch.setattr(cli_app, "pull_sec_financials", fake_pull_sec_financials)
+    monkeypatch.setattr(cli_app, "pull_tushare_financials", fake_pull_tushare_financials)
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "pull",
+            "financials",
+            "--symbols",
+            "AAPL,000001.SZ,0700.HK",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert calls == [("sec", ["AAPL"]), ("tushare", ["000001.SZ"])]
+    assert "港股财务快照当前仍未接入自动 provider" in result.stdout
+    assert "sec_edgar" in result.stdout
+    assert "tushare" in result.stdout
+
+
 def test_data_freshness_command_lists_cache_entries(tmp_path: Path) -> None:
     artifact_path = tmp_path / "data" / "market-prices.json"
     artifact_path.parent.mkdir()

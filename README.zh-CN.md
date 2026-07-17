@@ -430,6 +430,7 @@ lychee
 - QQQ 新闻边界：QQQ 的证据请求使用 `Nasdaq-100 technology stocks QQQ` 市场主题查询，不会把 ETF 伪装成公司新闻实体；公司股票仍使用代码级新闻查询，从而区分主题发现与实体新闻。
 - 公告：美股使用 SEC EDGAR 近期 filings；港股使用无需 API Key 的 HKEXnews 官方公告；A 股股票使用巨潮资讯公告。巨潮路径会先解析官方股票清单，再以代码加机构 ID 查询公告，并把原始 PDF URL、中国本地发布日期、标题、代码和来源标签写入同一审计缓存；它使用公开网站查询，不调用另行授权的数据服务 API。
 - 财务快照：美股使用 SEC EDGAR XBRL `companyfacts`，A 股 `.SH`/`.SZ` 使用可选的 Tushare `income`/`cashflow` 路径。快照保留报告期、营收、净利润、经营现金流和来源 URL；Tushare 数据保留 provider 标识，缺少可比期间时不会编造同比。Tushare 财务接口需要单独权限/积分，HTTP 40203 会显示为权限缺口；港股仍通过 HKEX 年报/业绩公告人工核验，不会从公告标题推断财务数值。
+- `data pull financials` 可以一次输入美股和 A 股混合代码，系统会按市场分别调用 SEC 与 Tushare；同一批中的港股会明确报告“自动财务 provider 尚未接入”并以非零状态结束，但不会阻止已支持市场先写入真实快照。
 - 波动率指标：`data pull volatility --symbols QQQ` 会读取 Cboe 公开的 VXN 历史数据，写入最新收盘、20 个交易日变化和最近 252 个观测值分位，作为 QQQ 的可审计研究指标。VXN 是 Cboe 发布的纳斯达克 100 30 天隐含波动率指数；它只提供风险背景，不构成市场判断、市场广度替代或交易指令。本地指标缓存保质期为 24 小时，`--force` 是显式刷新入口。
 - 市场扩散代理：`data pull breadth --symbols QQQ` 会读取 Nasdaq 公开的 NDX 与 NDXE 历史接口，写入 Nasdaq-100 市值加权、等权指数的 20 个交易日变化及两者差异。NDXE 是用于观察走势是否扩散的可审计等权代理，不是上涨家数/下跌家数统计，也不是授权的实时行情 feed；缓存中的来源日期和说明必须保留，并使用 24 小时研究指标保质期。
 - 基准比较：`data pull benchmark --symbols QQQ` 会读取 Yahoo Finance 公开 Spark 历史数据，写入 QQQ、SPY 各自最近 5 个交易日的变化和相对差异，并在 `research verify` 中作为单独的基准比较核验显示。结果只提供历史背景，保留来源 URL/日期，不是预测或交易指令。

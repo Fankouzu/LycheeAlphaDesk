@@ -78,7 +78,11 @@ from lychee_alphadesk.core.opportunity_radar import (
 )
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
 from lychee_alphadesk.core.policy import load_policy, validate_policy
-from lychee_alphadesk.core.portfolio import check_portfolio, write_portfolio_check_artifact
+from lychee_alphadesk.core.portfolio import (
+    check_portfolio,
+    import_portfolio_positions,
+    write_portfolio_check_artifact,
+)
 from lychee_alphadesk.core.reports import generate_demo_report
 from lychee_alphadesk.core.research import deepen_research_queue, fill_research_data_gaps
 from lychee_alphadesk.core.research_db import (
@@ -231,6 +235,13 @@ def portfolio_check(
             help="组合 CSV 文件，需包含 symbol/name/quantity/target_weight/asset_type。",
         ),
     ] = None,
+    positions_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--positions",
+            help="可选的 portfolio-positions.json，只读使用导入数量进行当前快照。",
+        ),
+    ] = None,
     policy_path: Annotated[
         Path | None,
         typer.Option("--policy", help="投资政策 YAML 文件。"),
@@ -256,6 +267,7 @@ def portfolio_check(
             portfolio_path=portfolio_path,
             policy_path=policy_path,
             output_dir=output_dir,
+            positions_path=positions_path,
         )
     except (OSError, ValueError) as error:
         console.print(str(error), markup=False)
@@ -268,6 +280,8 @@ def portfolio_check(
     console.print(f"实验性资产目标比例: {result.experimental_target_weight:.2%}")
     console.print(f"基础货币: {result.base_currency}")
     console.print(f"识别币种: {', '.join(result.currencies)}")
+    if result.position_source:
+        console.print(f"持仓来源: {result.position_source}")
     if result.missing_fx_currencies:
         console.print(f"FX 缺口: {', '.join(result.missing_fx_currencies)}")
     table = Table(title="组合目标")
@@ -313,6 +327,43 @@ def portfolio_check(
     console.print("边界: 这是组合练习和政策检查，不是估值、交易或投资建议。")
     if not result.ok:
         raise typer.Exit(code=1)
+
+
+@portfolio_app.command("import")
+def portfolio_import(
+    positions_path: Annotated[
+        Path,
+        typer.Option(
+            "--file",
+            help="持仓 CSV，字段: symbol,name,quantity,avg_cost,currency,asset_type,as_of。",
+        ),
+    ],
+    source: Annotated[
+        str,
+        typer.Option("--source", help="导入来源，例如 ibkr_csv、manual_csv。"),
+    ] = "manual_csv",
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="缓存和审计输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """导入只读持仓快照，不执行交易。"""
+    try:
+        result = import_portfolio_positions(
+            positions_path=positions_path,
+            output_dir=output_dir,
+            source=source,
+        )
+    except (OSError, ValueError) as error:
+        console.print(str(error), markup=False)
+        raise typer.Exit(code=1) from error
+    console.print(f"已导入只读持仓: {len(result.positions)}")
+    console.print(f"来源: {result.source}")
+    console.print(f"持仓缓存: {result.output_path}", soft_wrap=True)
+    console.print(f"导入审计: {result.audit_path}", soft_wrap=True)
+    for gap in result.audit_gaps:
+        console.print(f"⚠️ 审计缺口: {gap}")
+    console.print("边界: 持仓导入只读，不代表已完成券商对账，不会产生交易动作。")
 
 
 @audit_app.command("list")

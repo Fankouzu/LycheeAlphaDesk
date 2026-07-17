@@ -603,6 +603,18 @@ lychee portfolio check --file portfolio.csv --policy policy.yaml
 
 This checks target-weight total, cash minimum, single-asset limits, experimental assets, blocked products, and local price coverage. When prices and dated FX are available, it also writes a read-only base-currency snapshot with actual weight and target drift. It does not place trades or produce investment advice.
 
+Broker-exported positions can be normalized into a read-only local snapshot before checking current value:
+
+```bash
+lychee portfolio import --file broker-positions.csv --source ibkr_csv
+lychee portfolio check --file portfolio.csv --policy policy.yaml \
+  --positions .alphadesk/data/portfolio-positions.json
+```
+
+The repository includes `examples/demo/broker-positions.csv` for a local dry run.
+
+The import requires `symbol,name,quantity,avg_cost,currency,asset_type,as_of` and optionally accepts `fees_paid`, `taxes_paid`, and `corporate_action_note`. Missing fee, tax, or corporate-action reconciliation fields are recorded as audit gaps rather than inferred. Extra imported symbols are surfaced but are not silently added to the target portfolio. The flow is read-only and does not connect to broker order execution.
+
 For dated FX context from the ECB Data Portal:
 
 ```bash

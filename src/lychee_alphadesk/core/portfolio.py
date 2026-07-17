@@ -24,6 +24,30 @@ class PortfolioTarget:
 
 
 @dataclass(frozen=True)
+class PortfolioPosition:
+    symbol: str
+    name: str
+    quantity: float
+    avg_cost: float
+    currency: str
+    asset_type: str
+    as_of: str
+    fees_paid: float | None
+    taxes_paid: float | None
+    corporate_action_note: str
+
+
+@dataclass(frozen=True)
+class PortfolioImportResult:
+    source: str
+    imported_at: str
+    positions: list[PortfolioPosition]
+    output_path: Path
+    audit_path: Path
+    audit_gaps: list[str]
+
+
+@dataclass(frozen=True)
 class PortfolioValuation:
     symbol: str
     name: str
@@ -42,6 +66,9 @@ class PortfolioValuation:
 class PortfolioCheckResult:
     portfolio_path: Path
     policy_path: Path
+    positions_path: Path | None
+    position_source: str
+    position_audit_gaps: list[str]
     created_at: str
     targets: list[PortfolioTarget]
     policy_result: PolicyValidationResult
@@ -84,6 +111,7 @@ def check_portfolio(
     portfolio_path: Path,
     policy_path: Path,
     output_dir: Path | None = None,
+    positions_path: Path | None = None,
     now: datetime | None = None,
 ) -> PortfolioCheckResult:
     targets = load_portfolio_targets(portfolio_path)
@@ -91,8 +119,30 @@ def check_portfolio(
     policy_result = validate_policy(policy)
     errors: list[str] = []
     warnings: list[str] = []
-
     symbols = [target.symbol for target in targets]
+    imported_positions: dict[str, PortfolioPosition] = {}
+    position_source = ""
+    position_audit_gaps: list[str] = []
+    if positions_path is not None:
+        position_source, imported_positions, position_audit_gaps = load_imported_positions(
+            positions_path
+        )
+        if position_audit_gaps:
+            warnings.extend("持仓导入审计缺口: " + gap for gap in position_audit_gaps)
+        missing_positions = [
+            target.symbol for target in targets if target.symbol not in imported_positions
+        ]
+        if missing_positions:
+            warnings.append(
+                "导入持仓未覆盖目标代码: " + ", ".join(missing_positions)
+            )
+        extra_positions = sorted(set(imported_positions).difference(symbols))
+        if extra_positions:
+            warnings.append(
+                "导入持仓包含未配置目标代码，当前不会计入目标偏离: "
+                + ", ".join(extra_positions)
+            )
+
     duplicates = sorted({symbol for symbol in symbols if symbols.count(symbol) > 1})
     if duplicates:
         errors.append("组合文件包含重复代码: " + ", ".join(duplicates))
@@ -159,7 +209,8 @@ def check_portfolio(
         for target in targets:
             if target.symbol == "CASH":
                 continue
-            currency = target.currency or (
+            imported = imported_positions.get(target.symbol)
+            currency = (imported.currency if imported else "") or target.currency or (
                 prices[target.symbol].currency if target.symbol in prices else ""
             )
             if currency:
@@ -170,12 +221,17 @@ def check_portfolio(
                     foreign_currencies.add(normalized_currency)
     else:
         for target in targets:
+            imported = imported_positions.get(target.symbol)
             if target.currency:
                 normalized_currency = target.currency.upper()
-                currencies.add(normalized_currency)
-                if normalized_currency != policy.base_currency and target.symbol != "CASH":
-                    foreign_currency_symbols.append(target.symbol)
-                    foreign_currencies.add(normalized_currency)
+            elif imported is not None:
+                normalized_currency = imported.currency.upper()
+            else:
+                continue
+            currencies.add(normalized_currency)
+            if normalized_currency != policy.base_currency and target.symbol != "CASH":
+                foreign_currency_symbols.append(target.symbol)
+                foreign_currencies.add(normalized_currency)
     missing_fx_currencies = sorted(foreign_currencies)
     if output_dir is not None and missing_fx_currencies:
         cached_fx = read_cached_fx_rates(
@@ -214,17 +270,29 @@ def check_portfolio(
             tuple[PortfolioTarget, str, float | None, str, str, float]
         ] = []
         for target in targets:
+            imported = imported_positions.get(target.symbol)
+            if positions_path is not None and imported is None:
+                valuation_gaps.append(f"{target.symbol}: 导入持仓没有该代码。")
+                continue
             if target.symbol == "CASH":
-                currency = target.currency or policy.base_currency
+                currency = (
+                    (imported.currency if imported else "")
+                    or target.currency
+                    or policy.base_currency
+                )
                 price = None
                 price_date = ""
-                native_value = target.quantity
+                native_value = imported.quantity if imported else target.quantity
             else:
                 price_row = prices.get(target.symbol)
                 if price_row is None:
                     valuation_gaps.append(f"{target.symbol}: 缺少行情，无法计算当前价值。")
                     continue
-                currency = target.currency or price_row.currency.upper()
+                currency = (
+                    (imported.currency if imported else "")
+                    or target.currency
+                    or price_row.currency.upper()
+                )
                 if target.currency and target.currency != price_row.currency.upper():
                     valuation_gaps.append(
                         f"{target.symbol}: CSV 币种 {target.currency} 与行情币种 "
@@ -233,7 +301,7 @@ def check_portfolio(
                     continue
                 price = price_row.close
                 price_date = price_row.date
-                native_value = target.quantity * price
+                native_value = (imported.quantity if imported else target.quantity) * price
             if currency == policy.base_currency:
                 base_value = native_value
                 fx_as_of = ""
@@ -275,6 +343,9 @@ def check_portfolio(
     return PortfolioCheckResult(
         portfolio_path=portfolio_path,
         policy_path=policy_path,
+        positions_path=positions_path,
+        position_source=position_source,
+        position_audit_gaps=position_audit_gaps,
         created_at=(now or datetime.now(UTC)).isoformat(timespec="seconds"),
         targets=targets,
         policy_result=policy_result,
@@ -291,6 +362,192 @@ def check_portfolio(
         errors=errors,
         warnings=warnings,
     )
+
+
+def import_portfolio_positions(
+    *,
+    positions_path: Path,
+    output_dir: Path,
+    source: str,
+    now: datetime | None = None,
+) -> PortfolioImportResult:
+    normalized_source = source.strip()
+    if not normalized_source:
+        raise ValueError("持仓导入必须提供来源名称。")
+    positions = load_portfolio_positions(positions_path)
+    imported_at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
+    audit_gaps: list[str] = []
+    if any(position.fees_paid is None for position in positions):
+        audit_gaps.append("导出文件没有完整提供已支付费用。")
+    if any(position.taxes_paid is None for position in positions):
+        audit_gaps.append("导出文件没有完整提供已支付税费。")
+    if any(not position.corporate_action_note for position in positions):
+        audit_gaps.append("导出文件没有公司行动核对说明。")
+
+    data_dir = output_dir / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    output_path = data_dir / "portfolio-positions.json"
+    payload = {
+        "provider": normalized_source,
+        "source": normalized_source,
+        "imported_at": imported_at,
+        "rows": [asdict(position) for position in positions],
+        "audit_gaps": audit_gaps,
+        "disclaimer": "只读持仓导入；不执行交易，不代表券商账单已完成对账。",
+    }
+    output_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    audit_dir = output_dir / "research"
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = imported_at.replace("-", "").replace(":", "").replace("+00:00", "Z")
+    audit_path = audit_dir / f"portfolio-import-{timestamp}.json"
+    audit_path.write_text(
+        json.dumps(
+            {
+                "source": normalized_source,
+                "imported_at": imported_at,
+                "input_path": str(positions_path),
+                "output_path": str(output_path),
+                "position_count": len(positions),
+                "audit_gaps": audit_gaps,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return PortfolioImportResult(
+        normalized_source,
+        imported_at,
+        positions,
+        output_path,
+        audit_path,
+        audit_gaps,
+    )
+
+
+def load_portfolio_positions(path: Path) -> list[PortfolioPosition]:
+    if not path.exists():
+        raise ValueError(f"持仓文件不存在: {path}")
+    required = {
+        "symbol",
+        "name",
+        "quantity",
+        "avg_cost",
+        "currency",
+        "asset_type",
+        "as_of",
+    }
+    with path.open(encoding="utf-8", newline="") as file:
+        reader = csv.DictReader(file)
+        missing = sorted(required.difference(reader.fieldnames or []))
+        if missing:
+            raise ValueError("持仓文件缺少字段: " + ", ".join(missing))
+        positions: list[PortfolioPosition] = []
+        for line_number, row in enumerate(reader, start=2):
+            try:
+                symbol = str(row["symbol"] or "").strip().upper()
+                name = str(row["name"] or "").strip()
+                quantity = float(row["quantity"] or "")
+                avg_cost = float(row["avg_cost"] or "")
+                currency = str(row["currency"] or "").strip().upper()
+                asset_type = str(row["asset_type"] or "").strip().lower()
+                as_of = str(row["as_of"] or "").strip()
+                fees_paid = _optional_nonnegative_float(row.get("fees_paid"))
+                taxes_paid = _optional_nonnegative_float(row.get("taxes_paid"))
+                corporate_action_note = str(row.get("corporate_action_note") or "").strip()
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"持仓文件第 {line_number} 行包含无效数字。") from error
+            if not symbol or not name or not currency or not asset_type or not as_of:
+                raise ValueError(f"持仓文件第 {line_number} 行缺少必填字段。")
+            if quantity < 0 or avg_cost < 0:
+                raise ValueError(f"持仓文件第 {line_number} 行数量或成本无效。")
+            try:
+                datetime.fromisoformat(as_of)
+            except ValueError as error:
+                raise ValueError(
+                    f"持仓文件第 {line_number} 行 as_of 必须是 ISO 日期或时间。"
+                ) from error
+            positions.append(
+                PortfolioPosition(
+                    symbol,
+                    name,
+                    quantity,
+                    avg_cost,
+                    currency,
+                    asset_type,
+                    as_of,
+                    fees_paid,
+                    taxes_paid,
+                    corporate_action_note,
+                )
+            )
+    if not positions:
+        raise ValueError("持仓文件没有任何持仓行。")
+    return positions
+
+
+def load_imported_positions(
+    path: Path,
+) -> tuple[str, dict[str, PortfolioPosition], list[str]]:
+    if not path.exists():
+        raise ValueError(f"导入持仓快照不存在: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"导入持仓快照不是有效 JSON: {path}") from error
+    if not isinstance(payload, dict) or not isinstance(payload.get("rows"), list):
+        raise ValueError("导入持仓快照缺少 rows。")
+    positions: dict[str, PortfolioPosition] = {}
+    for row in payload["rows"]:
+        if not isinstance(row, dict):
+            raise ValueError("导入持仓快照包含无效行。")
+        try:
+            position = PortfolioPosition(
+                symbol=str(row["symbol"]),
+                name=str(row["name"]),
+                quantity=float(row["quantity"]),
+                avg_cost=float(row["avg_cost"]),
+                currency=str(row["currency"]).upper(),
+                asset_type=str(row["asset_type"]),
+                as_of=str(row["as_of"]),
+                fees_paid=(
+                    float(row["fees_paid"])
+                    if row.get("fees_paid") is not None
+                    else None
+                ),
+                taxes_paid=(
+                    float(row["taxes_paid"])
+                    if row.get("taxes_paid") is not None
+                    else None
+                ),
+                corporate_action_note=str(row.get("corporate_action_note") or ""),
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("导入持仓快照包含无法解析的行。") from error
+        if position.symbol in positions:
+            raise ValueError(f"导入持仓快照包含重复代码: {position.symbol}")
+        positions[position.symbol] = position
+    source = str(payload.get("source") or payload.get("provider") or "")
+    audit_gaps = [
+        str(item)
+        for item in payload.get("audit_gaps", [])
+        if isinstance(item, str) and item.strip()
+    ]
+    return source, positions, audit_gaps
+
+
+def _optional_nonnegative_float(value: object) -> float | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    number = float(text)
+    if number < 0:
+        raise ValueError("费用或税费不能为负数。")
+    return number
 
 
 def load_portfolio_targets(path: Path) -> list[PortfolioTarget]:
@@ -339,6 +596,9 @@ def write_portfolio_check_artifact(result: PortfolioCheckResult, output_dir: Pat
     payload = asdict(result)
     payload["portfolio_path"] = str(result.portfolio_path)
     payload["policy_path"] = str(result.policy_path)
+    payload["positions_path"] = (
+        str(result.positions_path) if result.positions_path is not None else None
+    )
     payload["policy_result"] = result.policy_result.model_dump()
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path

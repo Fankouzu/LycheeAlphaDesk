@@ -183,6 +183,34 @@ def test_data_pull_fx_prints_dated_rates(monkeypatch, tmp_path: Path) -> None:
     assert "日期 2026-07-16" in result.stdout
 
 
+def test_portfolio_import_is_read_only_and_reports_audit_gaps(tmp_path: Path) -> None:
+    positions = tmp_path / "positions.csv"
+    positions.write_text(
+        "symbol,name,quantity,avg_cost,currency,asset_type,as_of\n"
+        "AAPL,Apple,2,300,USD,stock,2026-07-16\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(
+        app,
+        [
+            "portfolio",
+            "import",
+            "--file",
+            str(positions),
+            "--source",
+            "ibkr_csv",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "已导入只读持仓: 1" in result.stdout
+    assert "来源: ibkr_csv" in result.stdout
+    assert "审计缺口" in result.stdout
+    assert (tmp_path / "data" / "portfolio-positions.json").exists()
+
+
 def test_report_demo_generates_markdown_report(tmp_path: Path) -> None:
     result = runner.invoke(app, ["report", "--demo", "--output-dir", str(tmp_path)])
 

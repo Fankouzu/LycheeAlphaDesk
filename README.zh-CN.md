@@ -565,6 +565,18 @@ lychee portfolio check --file portfolio.csv --policy policy.yaml
 
 这个命令检查目标权重合计、现金比例、单项上限、实验性资产、禁止产品和本地行情覆盖，并写入可审计的 `portfolio-check-*.json`。CSV 可以额外提供 `currency` 列；当基础货币为 USD 而行情识别出 HKD/CNY 时，系统会在 FX 缺失时显示“政策通过，等待 FX”，不会使用硬编码汇率。行情与 FX 都齐全时，它会生成带行情日期和 FX 日期的当前只读价值、实际比例和目标偏离；这些是研究快照，不是券商结算价值、交易指令或投资建议。
 
+可以把券商导出的持仓 CSV 先转换成本地只读快照，再用于当前价值核对：
+
+```bash
+lychee portfolio import --file broker-positions.csv --source ibkr_csv
+lychee portfolio check --file portfolio.csv --policy policy.yaml \
+  --positions .alphadesk/data/portfolio-positions.json
+```
+
+仓库提供了可直接试跑的 `examples/demo/broker-positions.csv`。
+
+导入文件需要 `symbol,name,quantity,avg_cost,currency,asset_type,as_of` 字段，可选提供 `fees_paid`、`taxes_paid` 和 `corporate_action_note`。缺少费用、税费或公司行动核对信息会记录为审计缺口，不会被系统猜测或补写；导入的额外代码只会提示，不会悄悄加入目标组合。整个流程只读，不连接券商下单。
+
 FX 练习数据使用 ECB Data Portal 的带日期日频参考汇率：
 
 ```bash

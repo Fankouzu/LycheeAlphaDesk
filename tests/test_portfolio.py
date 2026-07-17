@@ -4,7 +4,11 @@ from pathlib import Path
 
 import yaml
 
-from lychee_alphadesk.core.portfolio import check_portfolio, load_portfolio_targets
+from lychee_alphadesk.core.portfolio import (
+    check_portfolio,
+    import_portfolio_positions,
+    load_portfolio_targets,
+)
 
 
 def _write_policy(path: Path) -> None:
@@ -195,3 +199,90 @@ def test_load_portfolio_targets_requires_stable_columns(tmp_path: Path) -> None:
         assert "缺少字段" in str(error)
     else:
         raise AssertionError("缺少组合字段时必须失败")
+
+
+def test_import_portfolio_positions_preserves_source_and_audit_gaps(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "broker-export.csv"
+    path.write_text(
+        "symbol,name,quantity,avg_cost,currency,asset_type,as_of,fees_paid,taxes_paid,corporate_action_note\n"
+        "2800.HK,Tracker Fund,100,22.5,HKD,etf,2026-07-16,,,\n",
+        encoding="utf-8",
+    )
+
+    result = import_portfolio_positions(
+        positions_path=path,
+        output_dir=tmp_path,
+        source="ibkr_csv",
+        now=datetime(2026, 7, 17, tzinfo=UTC),
+    )
+
+    assert result.source == "ibkr_csv"
+    assert result.positions[0].avg_cost == 22.5
+    assert result.positions[0].fees_paid is None
+    assert len(result.audit_gaps) == 3
+    payload = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert payload["source"] == "ibkr_csv"
+    assert payload["rows"][0]["symbol"] == "2800.HK"
+    assert result.audit_path.exists()
+
+
+def test_check_portfolio_uses_imported_quantity_for_read_only_valuation(
+    tmp_path: Path,
+) -> None:
+    portfolio = tmp_path / "portfolio.csv"
+    portfolio.write_text(
+        "symbol,name,quantity,target_weight,asset_type,currency\n"
+        "CASH,USD Cash,50,0.75,cash,USD\n"
+        "AAPL,Apple,1,0.25,stock,USD\n",
+        encoding="utf-8",
+    )
+    policy = tmp_path / "policy.yaml"
+    _write_policy(policy)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "test",
+                "rows": [
+                    {
+                        "symbol": "AAPL",
+                        "date": "2026-07-16",
+                        "close": 100,
+                        "volume": 1,
+                        "currency": "USD",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    positions_csv = tmp_path / "broker-export.csv"
+    positions_csv.write_text(
+        "symbol,name,quantity,avg_cost,currency,asset_type,as_of\n"
+        "CASH,USD Cash,50,1,USD,cash,2026-07-16\n"
+        "AAPL,Apple,3,90,USD,stock,2026-07-16\n",
+        encoding="utf-8",
+    )
+    imported = import_portfolio_positions(
+        positions_path=positions_csv,
+        output_dir=tmp_path,
+        source="ibkr_csv",
+        now=datetime(2026, 7, 17, tzinfo=UTC),
+    )
+
+    result = check_portfolio(
+        portfolio_path=portfolio,
+        policy_path=policy,
+        output_dir=tmp_path,
+        positions_path=imported.output_path,
+        now=datetime(2026, 7, 17, tzinfo=UTC),
+    )
+
+    assert result.status_label == "政策通过，已生成估值快照"
+    aapl = next(item for item in result.valuations if item.symbol == "AAPL")
+    assert aapl.value_base == 300
+    assert aapl.actual_weight == 300 / 350
+    assert result.position_source == "ibkr_csv"

@@ -28,6 +28,7 @@ from lychee_alphadesk.core.config import AlphaDeskConfig, load_config
 from lychee_alphadesk.core.data_engine import DataQualityCheck, DataSnapshot
 from lychee_alphadesk.providers.demo import (
     FilingSummary,
+    ForecastInterval,
     NewsEvent,
     PriceRow,
 )
@@ -2095,11 +2096,17 @@ def build_cached_data_snapshot(output_dir: Path) -> DataSnapshot:
     news_cache = _read_cache(output_dir, "news-events.json")
     filing_cache = _read_cache(output_dir, "filings.json")
     financials_cache = _read_cache(output_dir, "financials.json")
+    forecasts_cache = _read_cache(output_dir, "forecasts.json")
 
     prices = [_price_row_from_dict(row) for row in market_cache.rows]
     news_events = [_news_event_from_dict(row) for row in news_cache.rows]
     filings = [_filing_summary_from_dict(row) for row in filing_cache.rows]
     financials = [_financial_snapshot_from_dict(row) for row in financials_cache.rows]
+    forecasts = {
+        forecast.symbol: forecast
+        for row in forecasts_cache.rows
+        if (forecast := _forecast_interval_from_dict(row)) is not None
+    }
     provider_names = [
         provider
         for provider in [
@@ -2107,6 +2114,7 @@ def build_cached_data_snapshot(output_dir: Path) -> DataSnapshot:
             news_cache.provider,
             filing_cache.provider,
             financials_cache.provider,
+            forecasts_cache.provider,
         ]
         if provider
     ]
@@ -2119,7 +2127,7 @@ def build_cached_data_snapshot(output_dir: Path) -> DataSnapshot:
         news_events=news_events,
         filings=filings,
         financials=[asdict(row) for row in financials],
-        forecasts={},
+        forecasts=forecasts,
         quality_checks=run_cached_data_health(output_dir),
     )
 
@@ -4255,6 +4263,29 @@ def _filing_summary_from_dict(row: dict[str, object]) -> FilingSummary:
         source_url=str(row["source_url"]),
         symbol=str(row.get("symbol") or "").upper(),
     )
+
+
+def _forecast_interval_from_dict(row: dict[str, object]) -> ForecastInterval | None:
+    symbol = str(row.get("symbol") or "").strip().upper()
+    if not symbol:
+        return None
+    horizon = _number_value(row.get("horizon_days"))
+    lower = _number_value(row.get("lower"))
+    midpoint = _number_value(row.get("midpoint"))
+    upper = _number_value(row.get("upper"))
+    if horizon is None or lower is None or midpoint is None or upper is None:
+        return None
+    try:
+        return ForecastInterval(
+            symbol=symbol,
+            horizon_days=int(horizon),
+            lower=lower,
+            midpoint=midpoint,
+            upper=upper,
+            method=str(row.get("method") or ""),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _financial_snapshot_from_dict(row: dict[str, object]) -> FinancialSnapshot:

@@ -1007,6 +1007,46 @@ def test_verify_research_task_uses_source_backed_research_metrics(
     assert "AI 存储链扩散指标 = 7/10 上涨" in detail
 
 
+def test_verify_research_task_surfaces_forecast_as_non_supporting_reference(
+    tmp_path: Path,
+) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(tmp_path, include_stock_price=True, include_filings=True)
+    data_dir = tmp_path / "data"
+    (data_dir / "forecasts.json").write_text(
+        json.dumps(
+            {
+                "provider": "timesfm",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "horizon_days": 20,
+                        "lower": 90.0,
+                        "midpoint": 100.0,
+                        "upper": 110.0,
+                        "method": "timesfm-2.5-200m-pytorch",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = verify_research_task(
+        output_dir=tmp_path,
+        symbol="STX",
+        now=datetime(2026, 7, 5, 11, 0, tzinfo=UTC),
+    )
+
+    forecast_check = next(check for check in result.checks if check.name == "预测参考")
+    assert forecast_check.status == "warn"
+    assert "必须回测后再解释" in forecast_check.detail
+    detail = render_research_task_detail(result.candidate, result.packet)
+    assert "模型预测参考" in detail
+    assert "90.00 - 110.00" in detail
+    assert "不作为买卖信号" in detail
+
+
 def test_verify_research_task_uses_cached_sec_financial_snapshot(
     tmp_path: Path,
 ) -> None:

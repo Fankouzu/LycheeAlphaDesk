@@ -343,6 +343,7 @@ class AlphaDeskApp(App[None]):
             f"行情: {snapshot.counts['prices']}",
             f"新闻: {snapshot.counts['news_events']}",
             f"公告: {snapshot.counts['filings']}",
+            f"预测: {snapshot.counts['forecasts']}",
         ]
         if snapshot.provider_names:
             lines.append(f"数据源: {', '.join(snapshot.provider_names)}")

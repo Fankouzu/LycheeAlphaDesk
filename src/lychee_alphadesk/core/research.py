@@ -29,7 +29,7 @@ from lychee_alphadesk.core.symbol_mapping import (
     SymbolMappingProposal,
     suggest_symbol_mappings,
 )
-from lychee_alphadesk.providers.demo import FilingSummary, NewsEvent, PriceRow
+from lychee_alphadesk.providers.demo import FilingSummary, ForecastInterval, NewsEvent, PriceRow
 
 PullMarket = Callable[..., PullResult]
 PullNews = Callable[..., PullResult]
@@ -120,6 +120,7 @@ def deepen_research_queue(
             news_events=snapshot.news_events,
             filings=snapshot.filings,
             financials=[_financial_snapshot_from_dict(row) for row in snapshot.financials],
+            forecasts=snapshot.forecasts,
             fund_metadata=fund_metadata,
             research_metrics=research_metrics,
         )
@@ -278,6 +279,7 @@ def _build_research_packet(
     news_events: list[NewsEvent],
     filings: list[FilingSummary],
     financials: list[FinancialSnapshot],
+    forecasts: dict[str, ForecastInterval],
     fund_metadata: list[FundMetadata],
     research_metrics: list[ResearchMetric],
 ) -> ResearchPacket:
@@ -312,6 +314,7 @@ def _build_research_packet(
     )
     related_filings = _related_filings(symbol, item.display_name, filings)
     related_financials = _related_financials(symbol, financials)
+    forecast = forecasts.get(symbol) if symbol is not None else None
     related_metrics = _related_research_metrics(symbol, research_metrics)
     data_gaps = _data_gaps(
         item=item,
@@ -345,6 +348,7 @@ def _build_research_packet(
             "related_news": related_news,
             "filings": related_filings,
             "financials": related_financials,
+            "forecast": asdict(forecast) if forecast is not None else None,
             "research_metrics": related_metrics,
         },
         "risk_flags": item.risk_flags,

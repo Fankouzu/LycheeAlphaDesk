@@ -910,6 +910,7 @@ def build_research_verification_checks(
     )
     filings = _dict_list(local_data.get("filings"))
     financials = _dict_list(local_data.get("financials"))
+    forecast = _dict_value(local_data.get("forecast"))
     research_metrics = _dict_list(local_data.get("research_metrics"))
     data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
     asset_type = _asset_type(packet)
@@ -1017,6 +1018,15 @@ def build_research_verification_checks(
                 detail="当前任务不适用 SEC XBRL 财务快照。",
             )
         )
+    checks.append(
+        ResearchVerificationCheck(
+            name="预测参考",
+            status="warn" if forecast else "na",
+            detail=_forecast_check_detail(forecast)
+            if forecast
+            else "暂无 TimesFM 预测区间；预测不是研究核验必需项。",
+        )
+    )
     if research_metrics:
         checks.append(
             ResearchVerificationCheck(
@@ -1265,6 +1275,14 @@ def _research_metric_check_detail(rows: list[dict[str, object]]) -> str:
 
 def _financial_snapshot_check_detail(rows: list[dict[str, object]]) -> str:
     return "；".join(_financial_snapshot_line(row) for row in rows[:2])
+
+
+def _forecast_check_detail(row: dict[str, object]) -> str:
+    symbol = _string_value(row.get("symbol")) or "当前标的"
+    method = _string_value(row.get("method")) or "TimesFM"
+    horizon = row.get("horizon_days")
+    horizon_text = f"未来 {horizon} 个交易日" if isinstance(horizon, int) else "未来区间"
+    return f"{symbol} 已有 {method} {horizon_text}预测；必须回测后再解释，不作为支持证据。"
 
 
 def _financial_snapshot_support_lines(rows: list[dict[str, object]]) -> list[str]:
@@ -2710,6 +2728,7 @@ def render_research_task_detail(
     )
     filings = _dict_list(local_data.get("filings"))
     financials = _dict_list(local_data.get("financials"))
+    forecast = _dict_value(local_data.get("forecast"))
     research_metrics = _dict_list(local_data.get("research_metrics"))
     data_gaps = _text_list(packet_payload.get("data_gaps")) or candidate.data_gaps
     detail_commands = (
@@ -2775,6 +2794,9 @@ def render_research_task_detail(
         "",
         "财务快照",
         *_financial_snapshot_lines(financials),
+        "",
+        "模型预测参考",
+        *_forecast_lines(forecast),
         "",
         f"数据完整性: {_gap_summary(data_gaps)}",
         f"研究缺口: {_research_gap_summary(candidate, data_gaps)}",
@@ -4515,6 +4537,36 @@ def _financial_snapshot_lines(rows: list[dict[str, object]]) -> list[str]:
     if not rows:
         return ["- 暂无 SEC XBRL 财务快照。"]
     return [f"- {_financial_snapshot_line(row)}" for row in rows[:3]]
+
+
+def _forecast_lines(row: dict[str, object]) -> list[str]:
+    if not row:
+        return ["- 暂无 TimesFM 预测区间。"]
+    symbol = _string_value(row.get("symbol")) or "当前标的"
+    method = _string_value(row.get("method")) or "TimesFM"
+    horizon = row.get("horizon_days")
+    horizon_text = f"{horizon} 日" if isinstance(horizon, int) else "未知 horizon"
+    lower = _forecast_number(row.get("lower"))
+    midpoint = _forecast_number(row.get("midpoint"))
+    upper = _forecast_number(row.get("upper"))
+    if lower is None or midpoint is None or upper is None:
+        return ["- 预测缓存字段不完整，不能显示。"]
+    return [
+        f"- {symbol} {method} / horizon {horizon_text}: "
+        f"{lower:.2f} - {upper:.2f}；中位读数 {midpoint:.2f}",
+        "- 边界：预测需用历史回测验证，不作为买卖信号。",
+    ]
+
+
+def _forecast_number(value: object) -> float | None:
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _gap_summary(data_gaps: list[str]) -> str:

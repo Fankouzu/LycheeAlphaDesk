@@ -2720,14 +2720,34 @@ def test_cached_snapshot_aggregates_live_cache_files(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
+    (data_dir / "forecasts.json").write_text(
+        json.dumps(
+            {
+                "provider": "timesfm",
+                "rows": [
+                    {
+                        "symbol": "AAPL",
+                        "horizon_days": 20,
+                        "lower": 200.0,
+                        "midpoint": 220.0,
+                        "upper": 240.0,
+                        "method": "timesfm-2.5-200m-pytorch",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     snapshot = build_cached_data_snapshot(tmp_path)
 
     assert snapshot.mode == "live"
-    assert snapshot.provider_names == ["alpha_vantage", "finnhub", "sec_edgar"]
+    assert snapshot.provider_names == ["alpha_vantage", "finnhub", "sec_edgar", "timesfm"]
     assert snapshot.counts["prices"] == 1
     assert snapshot.counts["news_events"] == 1
     assert snapshot.counts["filings"] == 1
+    assert snapshot.counts["forecasts"] == 1
+    assert snapshot.forecasts["AAPL"].midpoint == 220.0
 
 
 def test_cached_data_health_reports_missing_and_present_cache_files(tmp_path: Path) -> None:

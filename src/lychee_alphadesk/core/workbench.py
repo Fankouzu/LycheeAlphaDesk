@@ -4447,12 +4447,26 @@ def _headline_lines(rows: list[dict[str, object]], *, empty: str) -> list[str]:
     lines: list[str] = []
     for row in rows[:3]:
         headline = _string_value(row.get("headline")) or "未命名证据"
+        source_label = _news_source_label(row)
         source_url = _string_value(row.get("source_url"))
         if source_url:
-            lines.append(f"- {headline} ({source_url})")
+            lines.append(f"- [{source_label}] {headline} ({source_url})")
         else:
-            lines.append(f"- {headline}")
+            lines.append(f"- [{source_label}] {headline}")
     return lines
+
+
+def _news_source_label(row: dict[str, object]) -> str:
+    source_url = _string_value(row.get("source_url")).casefold()
+    if "tencent.com" in source_url:
+        return "公司官方"
+    if "hkexnews.hk" in source_url:
+        return "交易所公告"
+    if "sec.gov" in source_url:
+        return "监管披露"
+    if "prnewswire.com" in source_url:
+        return "公司新闻稿"
+    return "外部来源"
 
 
 def _filing_lines(rows: list[dict[str, object]]) -> list[str]:

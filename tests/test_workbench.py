@@ -20,6 +20,7 @@ from lychee_alphadesk.core.workbench import (
     ResearchDeepenResult,
     ResearchGapFillResult,
     WorkbenchCheckResult,
+    _headline_lines,
     _next_step,
     _packet_related_news_count,
     _pull_research_action,
@@ -52,6 +53,27 @@ def test_next_step_summarizes_raw_data_gaps_as_a_single_user_action() -> None:
     assert step == "先补齐行情、新闻数据，再重新核验。"
     assert "discovery" not in step
     assert "。；" not in step
+
+
+def test_headline_lines_explain_source_provenance_for_beginner_readout() -> None:
+    lines = _headline_lines(
+        [
+            {
+                "headline": "Tencent Cloud update",
+                "source_url": "https://www.tencent.com/tencent-cloud-update/",
+            },
+            {
+                "headline": "Tencent filing",
+                "source_url": "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0701/notice.pdf",
+            },
+        ],
+        empty="无",
+    )
+
+    assert lines == [
+        "- [公司官方] Tencent Cloud update (https://www.tencent.com/tencent-cloud-update/)",
+        "- [交易所公告] Tencent filing (https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0701/notice.pdf)",
+    ]
 
 
 def test_research_run_action_marks_empty_provider_warnings_as_failed() -> None:

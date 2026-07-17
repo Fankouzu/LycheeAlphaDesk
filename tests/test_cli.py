@@ -87,6 +87,39 @@ def test_data_pull_volatility_writes_official_cboe_metrics(
     assert calls == [{"symbols": ["QQQ"], "output_dir": tmp_path, "force": False}]
 
 
+def test_data_pull_breadth_uses_nasdaq_public_proxy(monkeypatch, tmp_path: Path) -> None:
+    output_path = tmp_path / "data" / "research-metrics.json"
+    calls: list[dict[str, object]] = []
+
+    def fake_pull_market_breadth_metrics(**kwargs: object) -> PullResult:
+        calls.append(kwargs)
+        return PullResult("research_metric", "nasdaq_public", 3, output_path, [])
+
+    monkeypatch.setattr(
+        cli_app,
+        "pull_market_breadth_metrics",
+        fake_pull_market_breadth_metrics,
+        raising=False,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "pull",
+            "breadth",
+            "--symbols",
+            "QQQ",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "市场扩散代理" in result.stdout
+    assert calls == [{"symbols": ["QQQ"], "output_dir": tmp_path, "force": False}]
+
+
 def test_demo_command_reports_available_demo_files() -> None:
     result = runner.invoke(app, ["demo"])
 
@@ -2967,7 +3000,7 @@ def test_research_provider_backlog_command_lists_manual_provider_gaps(
     assert "market_breadth" in result.stdout
     assert "指数成分数据源" in result.stdout
     assert "lychee data set metric --symbol QQQ --domain market_breadth" in result.stdout
-    assert "接入可审计的市场广度 provider" in result.stdout
+    assert "不能把它解释成真实上涨家数/下跌家数" in result.stdout
     assert "数据源缺口队列只用于规划补数据能力，不是买卖建议" in result.stdout
 
 

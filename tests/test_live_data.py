@@ -13,6 +13,7 @@ from lychee_alphadesk.core.config import (
 from lychee_alphadesk.core.live_data import (
     _parse_sec_financial_snapshot,
     build_cached_data_snapshot,
+    pull_market_breadth_metrics,
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
@@ -467,6 +468,64 @@ def test_write_research_metric_cache_preserves_source_backed_metric(
     assert metric.value == "63/100"
     assert metric.source_url == "https://example.com/nasdaq100-breadth"
     assert metric.note == "上涨家数高于下跌家数，需结合等权指数核验。"
+
+
+def test_pull_market_breadth_metrics_uses_nasdaq_equal_weight_proxy(
+    tmp_path: Path,
+) -> None:
+    def post_form_json(
+        url: str,
+        headers: dict[str, str] | None,
+        payload: dict[str, str],
+    ) -> object:
+        assert url.endswith("/Index/HistoryData")
+        index = payload["id"]
+        start_value = {"NDX": 29502.60, "NDXE": 10043.11}[index]
+        end_value = {"NDX": 29025.77, "NDXE": 10011.43}[index]
+        values = [
+            (f"/Date({1784088000000 + position * 86400000})/", start_value)
+            for position in range(20)
+        ] + [("/Date(1784174400000)/", end_value)]
+        return {
+            "iTotalRecords": len(values),
+            "aaData": [
+                {
+                    "TradeDate": trade_date,
+                    "Value": value,
+                    "NetChange": 0,
+                    "PctChange": None,
+                }
+                for trade_date, value in values
+            ],
+        }
+
+    result = pull_market_breadth_metrics(
+        symbols=["QQQ"],
+        output_dir=tmp_path,
+        post_form_json=post_form_json,
+        force=True,
+    )
+
+    assert result.provider == "nasdaq_public"
+    assert result.count == 3
+    metrics = read_research_metric_cache(tmp_path)
+    assert [metric.name for metric in metrics] == [
+        "Nasdaq-100 市值加权 20 交易日变化",
+        "Nasdaq-100 等权 20 交易日变化",
+        "Nasdaq-100 等权相对市值加权差异",
+    ]
+    assert metrics[0].domain == "market_breadth"
+    assert metrics[0].source_url == "https://indexes.nasdaq.com/Index/History/NDX"
+    assert "市场扩散代理" in metrics[2].note
+
+
+def test_pull_market_breadth_metrics_requires_supported_symbol(tmp_path: Path) -> None:
+    try:
+        pull_market_breadth_metrics(symbols=["AAPL"], output_dir=tmp_path)
+    except ValueError as error:
+        assert "QQQ" in str(error)
+    else:
+        raise AssertionError("unsupported symbol should fail clearly")
 
 
 def test_pull_market_prices_auto_uses_eastmoney_for_hk_symbols(

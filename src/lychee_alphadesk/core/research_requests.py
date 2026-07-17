@@ -9,6 +9,7 @@ from lychee_alphadesk.core.live_data import (
     FundMetadataGuide,
     PullResult,
     ResearchMetric,
+    pull_market_breadth_metrics,
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
@@ -31,6 +32,7 @@ PullNews = Callable[..., PullResult]
 PullFilings = Callable[..., PullResult]
 PullFinancials = Callable[..., PullResult]
 PullVolatility = Callable[..., PullResult]
+PullBreadth = Callable[..., PullResult]
 WriteFundGuide = Callable[..., FundMetadataGuide]
 VerifyTask = Callable[..., object]
 
@@ -186,6 +188,7 @@ def fulfill_research_data_request(
     pull_filings: PullFilings = pull_sec_filings,
     pull_financials: PullFinancials = pull_sec_financials,
     pull_volatility: PullVolatility = pull_volatility_metrics,
+    pull_breadth: PullBreadth = pull_market_breadth_metrics,
     write_fund_guide: WriteFundGuide = write_fund_metadata_guide,
     verify_task: VerifyTask = verify_research_task,
 ) -> ResearchDataRequestFulfillment:
@@ -227,6 +230,7 @@ def fulfill_research_data_request(
             pull_filings=pull_filings,
             pull_financials=pull_financials,
             pull_volatility=pull_volatility,
+            pull_breadth=pull_breadth,
             write_fund_guide=write_fund_guide,
         )
         executions.append(execution)
@@ -240,6 +244,7 @@ def fulfill_research_data_request(
                 "filings",
                 "financials",
                 "volatility",
+                "breadth",
             }
         ):
             data_changed = True
@@ -598,12 +603,29 @@ def list_provider_backlog_items(
 ) -> list[ProviderBacklogItem]:
     backlog: list[ProviderBacklogItem] = []
     research_metrics = read_research_metric_cache(output_dir)
-    for request in list_research_data_requests(
+    requests = list_research_data_requests(
+        output_dir,
+        symbol=symbol,
+        name=name,
+        limit=limit,
+    )
+    request_keys = {
+        _provider_backlog_request_key(request)
+        for request in requests
+    }
+    for request in _verification_backlog_requests(
         output_dir,
         symbol=symbol,
         name=name,
         limit=limit,
     ):
+        if _provider_backlog_request_key(request) in request_keys:
+            continue
+        request_keys.add(_provider_backlog_request_key(request))
+        requests.append(request)
+    for request in requests:
+        if _is_process_research_request(request):
+            continue
         if _is_manual_evidence_request(request):
             continue
         gap = _classify_provider_gap(request.request_text)
@@ -633,10 +655,49 @@ def list_provider_backlog_items(
     return backlog
 
 
+def _verification_backlog_requests(
+    output_dir: Path,
+    *,
+    symbol: str | None,
+    name: str | None,
+    limit: int,
+) -> list[ResearchDataRequest]:
+    """Keep residual provider gaps visible after a proxy request is fulfilled."""
+    return _verification_hypothesis_data_requests(
+        output_dir,
+        symbol=symbol,
+        name=name,
+        limit=limit,
+        latest_per_task=True,
+        seen_tasks=set(),
+        handled_request_ids=set(),
+    )
+
+
+def _provider_backlog_request_key(request: ResearchDataRequest) -> tuple[str, str]:
+    return (
+        (request.symbol or request.display_name).strip().upper(),
+        request.request_text.strip().casefold(),
+    )
+
+
 def _is_manual_evidence_request(request: ResearchDataRequest) -> bool:
     return any(
         action.action_type == "manual_filing"
         for action in request.suggested_actions
+    )
+
+
+def _is_process_research_request(request: ResearchDataRequest) -> bool:
+    text = request.request_text.casefold()
+    return _has_any(
+        text,
+        (
+            "对照支持链和反证链",
+            "复核最强反证来源",
+            "一致性复核",
+            "回答同一个核心问题",
+        ),
     )
 
 
@@ -645,6 +706,22 @@ def _provider_gap_is_covered(
     request: ResearchDataRequest,
     research_metrics: list[ResearchMetric],
 ) -> bool:
+    if gap.plugin_type == "market_breadth" and request.symbol:
+        if _looks_like_advancer_count_request(request.request_text.casefold()):
+            return False
+        expected_names = {
+            "nasdaq-100 市值加权 20 交易日变化",
+            "nasdaq-100 等权 20 交易日变化",
+            "nasdaq-100 等权相对市值加权差异",
+        }
+        matched_names = {
+            metric.name.strip().casefold()
+            for metric in research_metrics
+            if metric.symbol.upper() == request.symbol.upper()
+            and metric.domain == "market_breadth"
+            and metric.provider == "nasdaq_public"
+        }
+        return expected_names.issubset(matched_names)
     if gap.plugin_type != "volatility_metrics" or not request.symbol:
         return False
     expected_names = {
@@ -999,6 +1076,7 @@ def _suggest_data_request_actions(
     selector = _research_selector(record)
     lowered = request_text.casefold()
     is_volatility_request = _looks_like_volatility_request(lowered)
+    is_breadth_request = _looks_like_breadth_request(lowered)
     if _looks_like_manual_filing_content_request(lowered):
         return _manual_filing_actions(record, request_text)
     if _looks_like_fund_metadata_request(lowered) and record.symbol:
@@ -1022,7 +1100,14 @@ def _suggest_data_request_actions(
                 ),
             ]
         )
-    if is_volatility_request and record.symbol:
+    if is_breadth_request and record.symbol:
+        actions.append(
+            ResearchDataRequestAction(
+                "breadth",
+                f"lychee data pull breadth --symbols {record.symbol} --force",
+            )
+        )
+    elif is_volatility_request and record.symbol:
         actions.append(
             ResearchDataRequestAction(
                 "volatility",
@@ -1036,7 +1121,11 @@ def _suggest_data_request_actions(
                 f"lychee data pull market --symbols {record.symbol} --provider auto --force",
             )
         )
-    if _looks_like_news_request(lowered) and not is_volatility_request:
+    if (
+        _looks_like_news_request(lowered)
+        and not is_volatility_request
+        and not is_breadth_request
+    ):
         query = _quote_cli_value(record.display_name)
         if record.symbol:
             actions.append(
@@ -1091,6 +1180,7 @@ def _execute_data_request_action(
     pull_filings: PullFilings,
     pull_financials: PullFinancials,
     pull_volatility: PullVolatility,
+    pull_breadth: PullBreadth,
     write_fund_guide: WriteFundGuide,
 ) -> ResearchDataRequestExecution:
     try:
@@ -1171,6 +1261,15 @@ def _execute_data_request_action(
                 force=force,
             )
             return _pull_execution(action, result, "Cboe 波动率指标已刷新。")
+        if action.action_type == "breadth":
+            if not request.symbol:
+                raise ValueError("市场扩散指标刷新需要证券代码。")
+            result = pull_breadth(
+                symbols=[request.symbol],
+                output_dir=output_dir,
+                force=force,
+            )
+            return _pull_execution(action, result, "Nasdaq 市场扩散代理已刷新。")
     except (RuntimeError, ValueError) as error:
         return ResearchDataRequestExecution(
             action_type=action.action_type,
@@ -1326,6 +1425,27 @@ def _looks_like_volatility_request(text: str) -> bool:
     )
 
 
+def _looks_like_breadth_request(text: str) -> bool:
+    return _has_any(
+        text,
+        (
+            "广度",
+            "上涨家数",
+            "下跌家数",
+            "等权",
+            "成分股",
+            "breadth",
+            "advancer",
+            "decliner",
+            "equal-weight",
+        ),
+    )
+
+
+def _looks_like_advancer_count_request(text: str) -> bool:
+    return _has_any(text, ("上涨家数", "下跌家数", "advancer", "decliner"))
+
+
 def _looks_like_news_request(text: str) -> bool:
     keywords = (
         "新闻",
@@ -1468,15 +1588,19 @@ def _classify_provider_gap(request_text: str) -> _ProviderGap:
             data_domain="市场广度",
             plugin_type="market_breadth",
             coverage_gap=(
-                "当前 provider 只能补行情、新闻、公告和基金资料，"
-                "缺少指数成分、上涨家数、等权指数或板块扩散数据。"
+                "当前自动 provider 可补 Nasdaq-100 等权/市值加权扩散代理，"
+                "但不能把它解释成真实上涨家数/下跌家数；成分级广度仍需专门来源。"
             ),
             suggested_provider_examples=[
+                "Nasdaq NDX/NDXE 公开历史（等权扩散代理）",
                 "指数成分数据源",
                 "等权指数或市场广度数据源",
                 "行业/子行业表现数据源",
             ],
-            next_step="接入可审计的市场广度 provider 后，再重新运行研究数据请求。",
+            next_step=(
+                "已接入 Nasdaq NDX/NDXE 扩散代理；若需要真实上涨/下跌家数，"
+                "仍需专门成分级 provider 或人工核验来源。"
+            ),
             always_backlog=True,
         )
     if _has_any(text, ("波动率", "隐含波动", "期权", "vix", "volatility", "option")):
@@ -1548,6 +1672,17 @@ def _provider_gap_commands(
                 "--summary \"与研究问题有关的关键事实\" "
                 "--source-url \"https://...\""
             )
+        ]
+    if gap.plugin_type == "market_breadth" and request.symbol:
+        return [
+            f"lychee data pull breadth --symbols {request.symbol} --force",
+            (
+                f"lychee data set metric --symbol {symbol} "
+                f"--domain {gap.plugin_type} "
+                '--name "<填入上涨/下跌家数或成分级广度指标>" '
+                '--value "<填入核验后的读数>" '
+                '--as-of YYYY-MM-DD --source-url "<资料来源URL>"'
+            ),
         ]
     return [
         (

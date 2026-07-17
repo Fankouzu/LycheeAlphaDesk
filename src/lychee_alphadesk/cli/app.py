@@ -44,6 +44,7 @@ from lychee_alphadesk.core.live_data import (
     PullResult,
     build_cached_data_snapshot,
     parse_symbols,
+    pull_market_breadth_metrics,
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
@@ -1426,6 +1427,34 @@ def data_pull_volatility(
         console.print(str(error), soft_wrap=True)
         raise typer.Exit(code=1) from error
     _print_pull_result(result_label="波动率指标", count=result.count, result=result)
+
+
+@data_pull_app.command("breadth")
+def data_pull_breadth(
+    symbols: Annotated[
+        str,
+        typer.Option("--symbols", help="用英文逗号分隔证券代码，例如 QQQ。"),
+    ],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略研究指标缓存保质期，强制刷新。"),
+    ] = False,
+) -> None:
+    """拉取 Nasdaq 等权/市值加权市场扩散代理指标。"""
+    try:
+        result = pull_market_breadth_metrics(
+            symbols=parse_symbols(symbols),
+            output_dir=output_dir,
+            force=force,
+        )
+    except (RuntimeError, ValueError) as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    _print_pull_result(result_label="市场扩散代理", count=result.count, result=result)
 
 
 @data_pull_app.command("news")

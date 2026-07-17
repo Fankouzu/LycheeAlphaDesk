@@ -1078,6 +1078,7 @@ def build_research_evidence_board(
     support.extend(_proxy_operability_support_lines(packet_payload))
     support.extend(_proxy_fund_metadata_support_lines(packet_payload))
     support.extend(_research_metric_support_lines(research_metrics))
+    missing.extend(_market_breadth_missing_lines(candidate, research_metrics))
     missing.extend(_proxy_missing_data_lines(packet_payload))
     topic_relevance = _news_topic_relevance(
         candidate,
@@ -1377,6 +1378,34 @@ def _research_metric_domain_label(domain: str) -> str:
         "fund_flows": "资金流",
         "sector_performance": "行业表现",
     }.get(domain.strip().lower(), domain or "研究指标")
+
+
+def _market_breadth_missing_lines(
+    candidate: CandidateCheck,
+    rows: list[dict[str, object]],
+) -> list[str]:
+    if (candidate.symbol or "").upper() != "QQQ":
+        return []
+    breadth_rows = [
+        row
+        for row in rows
+        if _string_value(row.get("domain")).casefold() == "market_breadth"
+    ]
+    if not breadth_rows:
+        return []
+    has_advancer_count = any(
+        any(
+            keyword in _string_value(row.get("name")).casefold()
+            for keyword in ("上涨家数", "下跌家数", "advancer", "decliner")
+        )
+        for row in breadth_rows
+    )
+    if has_advancer_count:
+        return []
+    return [
+        "已补齐 Nasdaq NDX/NDXE 等权扩散代理，但仍缺真实上涨家数/下跌家数；"
+        "代理不能替代成分级市场广度。"
+    ]
 
 
 def _proxy_missing_data_lines(packet_payload: dict[str, object]) -> list[str]:
@@ -1928,8 +1957,9 @@ def _next_hypothesis_data_requests(
     support = evidence_board.get("support", [])
     risk = evidence_board.get("risk", [])
     missing = evidence_board.get("missing", [])
-    if missing:
-        requests.append(f"补齐最高优先级缺口: {missing[0]}")
+    for index, gap in enumerate(missing[:3]):
+        prefix = "补齐最高优先级缺口" if index == 0 else "继续补齐缺口"
+        requests.append(f"{prefix}: {gap}")
     if risk:
         requests.append(f"复核最强反证来源: {risk[0]}")
     if support and risk:

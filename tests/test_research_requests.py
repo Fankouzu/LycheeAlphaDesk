@@ -62,8 +62,11 @@ def test_research_data_requests_map_memo_requests_to_precise_commands(
 
     breadth_commands = requests[2].suggested_commands
     assert not any("data guide fund" in command for command in breadth_commands)
-    assert breadth_commands == ["lychee research verify --symbol QQQ"]
-    assert research_data_request_needs_manual_source(requests[2])
+    assert breadth_commands == [
+        "lychee data pull breadth --symbols QQQ --force",
+        "lychee research verify --symbol QQQ",
+    ]
+    assert not research_data_request_needs_manual_source(requests[2])
 
 
 def test_research_data_request_routes_form4_content_to_manual_filing_evidence(
@@ -684,17 +687,29 @@ def test_fulfill_research_data_request_skips_manual_source_only_request(
         verify_calls.append(kwargs)
         return SimpleNamespace(artifact_path=tmp_path / "research" / "verify.json")
 
+    def fake_breadth(**kwargs: object) -> PullResult:
+        return PullResult(
+            "research_metric",
+            "nasdaq_public",
+            3,
+            tmp_path / "data" / "research-metrics.json",
+            [],
+        )
+
     result = fulfill_research_data_request(
         tmp_path,
         request_index=1,
         symbol="QQQ",
+        pull_breadth=fake_breadth,
         verify_task=fake_verify,
     )
 
-    assert verify_calls == []
-    assert [execution.action_type for execution in result.executions] == ["verify"]
-    assert result.executions[0].status == "skipped"
-    assert "人工补来源" in result.executions[0].message
+    assert verify_calls == [{"output_dir": tmp_path, "symbol": "QQQ", "name": None}]
+    assert [execution.action_type for execution in result.executions] == [
+        "breadth",
+        "verify",
+    ]
+    assert result.executions[0].status == "completed"
 
 
 def test_provider_backlog_items_classify_manual_data_requests(tmp_path: Path) -> None:
@@ -715,19 +730,25 @@ def test_provider_backlog_items_classify_manual_data_requests(tmp_path: Path) ->
     assert item.symbol == "QQQ"
     assert item.data_domain == "市场广度"
     assert "成分股上涨家数" in item.request_text
-    assert "当前 provider 只能补行情、新闻、公告和基金资料" in item.coverage_gap
+    assert "不能把它解释成真实上涨家数/下跌家数" in item.coverage_gap
     assert item.plugin_type == "market_breadth"
     assert item.suggested_provider_examples == [
+        "Nasdaq NDX/NDXE 公开历史（等权扩散代理）",
         "指数成分数据源",
         "等权指数或市场广度数据源",
         "行业/子行业表现数据源",
     ]
     assert item.suggested_commands == [
+        "lychee data pull breadth --symbols QQQ --force",
         "lychee data set metric --symbol QQQ --domain market_breadth "
-        '--name "<填入指标名称>" --value "<填入核验后的读数>" '
-        '--as-of YYYY-MM-DD --source-url "<资料来源URL>"'
+        '--name "<填入上涨/下跌家数或成分级广度指标>" '
+        '--value "<填入核验后的读数>" '
+        '--as-of YYYY-MM-DD --source-url "<资料来源URL>"',
     ]
-    assert item.next_step == "接入可审计的市场广度 provider 后，再重新运行研究数据请求。"
+    assert item.next_step == (
+        "已接入 Nasdaq NDX/NDXE 扩散代理；若需要真实上涨/下跌家数，"
+        "仍需专门成分级 provider 或人工核验来源。"
+    )
     assert item.memo_path.endswith("research-memo-test.json")
     assert item.verification_path.endswith("research-verification-test.json")
 
@@ -771,6 +792,58 @@ def test_provider_backlog_hides_volatility_request_when_cboe_metrics_exist(
     backlog = list_provider_backlog_items(tmp_path, symbol="QQQ")
 
     assert [item.plugin_type for item in backlog] == ["market_breadth"]
+
+
+def test_provider_backlog_hides_breadth_request_when_nasdaq_proxy_exists(
+    tmp_path: Path,
+) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["请补充 Nasdaq 100 等权指数和市值加权指数对比。"],
+    )
+    for name, value in (
+        ("Nasdaq-100 市值加权 20 交易日变化", "+2.00%"),
+        ("Nasdaq-100 等权 20 交易日变化", "+2.50%"),
+        ("Nasdaq-100 等权相对市值加权差异", "+0.50 个百分点"),
+    ):
+        write_research_metric_cache(
+            output_dir=tmp_path,
+            symbol="QQQ",
+            domain="market_breadth",
+            name=name,
+            value=value,
+            as_of="2026-07-17",
+            source_url="https://indexes.nasdaq.com/Index/History/NDX",
+            provider="nasdaq_public",
+        )
+
+    assert list_provider_backlog_items(tmp_path, symbol="QQQ") == []
+
+
+def test_provider_backlog_keeps_actual_advancer_count_gap_with_proxy(
+    tmp_path: Path,
+) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["请补充纳斯达克 100 成分股上涨家数和等权指数对比。"],
+    )
+    for name, value in (
+        ("Nasdaq-100 市值加权 20 交易日变化", "+2.00%"),
+        ("Nasdaq-100 等权 20 交易日变化", "+2.50%"),
+        ("Nasdaq-100 等权相对市值加权差异", "+0.50 个百分点"),
+    ):
+        write_research_metric_cache(
+            output_dir=tmp_path,
+            symbol="QQQ",
+            domain="market_breadth",
+            name=name,
+            value=value,
+            as_of="2026-07-17",
+            source_url="https://indexes.nasdaq.com/Index/History/NDX",
+            provider="nasdaq_public",
+        )
+
+    assert len(list_provider_backlog_items(tmp_path, symbol="QQQ")) == 1
 
 
 def _write_request_memo(

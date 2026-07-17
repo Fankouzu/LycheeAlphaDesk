@@ -65,6 +65,11 @@ CBOE_VXN_HISTORY_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/
 CBOE_VOLATILITY_SYMBOLS: dict[str, tuple[str, str]] = {
     "QQQ": ("VXN", CBOE_VXN_HISTORY_URL),
 }
+NASDAQ_INDEX_HISTORY_URL = "https://indexes.nasdaq.com/Index/History/{index}"
+NASDAQ_INDEX_HISTORY_DATA_URL = "https://indexes.nasdaq.com/Index/HistoryData"
+NASDAQ_MARKET_BREADTH_SYMBOLS: dict[str, tuple[str, str]] = {
+    "QQQ": ("NDX", "NDXE"),
+}
 NEWS_ENTITY_QUERIES: dict[str, str] = {
     "0700.HK": "Tencent OR 腾讯",
     "2800.HK": "Hang Seng Index OR 恒生指数 OR 盈富基金",
@@ -449,6 +454,196 @@ def pull_volatility_metrics(
         forced=force,
     )
     return PullResult("research_metric", "cboe", len(rows), output_path, warnings)
+
+
+def pull_market_breadth_metrics(
+    *,
+    symbols: list[str],
+    output_dir: Path,
+    post_form_json: FormJsonPoster | None = None,
+    force: bool = False,
+    now: datetime | None = None,
+) -> PullResult:
+    """拉取官方等权与市值加权指数的市场扩散代理。"""
+    normalized_symbols = _normalized_symbols(symbols)
+    supported_symbols = [
+        symbol
+        for symbol in normalized_symbols
+        if symbol in NASDAQ_MARKET_BREADTH_SYMBOLS
+    ]
+    if not supported_symbols:
+        supported = ", ".join(sorted(NASDAQ_MARKET_BREADTH_SYMBOLS))
+        raise ValueError(f"当前 Nasdaq 市场扩散代理仅支持: {supported}。")
+
+    freshness = evaluate_research_metrics_cache(
+        output_dir=output_dir,
+        provider="nasdaq_public",
+        symbols=supported_symbols,
+        now=now,
+        force=force,
+    )
+    if not freshness.should_refresh and freshness.entry is not None:
+        cached_rows = [
+            row
+            for row in _read_cache(output_dir, "research-metrics.json").rows
+            if _cache_row_symbol(row) in set(supported_symbols)
+            and str(row.get("domain") or "").strip() == "market_breadth"
+            and str(row.get("provider") or "").strip() == "nasdaq_public"
+        ]
+        return PullResult(
+            "research_metric",
+            freshness.entry.provider,
+            len(cached_rows),
+            freshness.entry.artifact_path,
+            [freshness.reason],
+            refreshed=False,
+        )
+
+    poster = post_form_json or _post_form_json
+    rows: list[ResearchMetric] = []
+    warnings: list[str] = []
+    for symbol in supported_symbols:
+        cap_index, equal_index = NASDAQ_MARKET_BREADTH_SYMBOLS[symbol]
+        history: dict[str, list[tuple[str, float]]] = {}
+        for index in (cap_index, equal_index):
+            payload = _post_provider_form_json(
+                poster,
+                NASDAQ_INDEX_HISTORY_DATA_URL,
+                {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "User-Agent": SEC_USER_AGENT,
+                },
+                {
+                    "id": index,
+                    "startDate": _research_metrics_start_date(now),
+                    "endDate": _research_metrics_end_date(now),
+                    "timeOfDay": "",
+                },
+            )
+            parsed = _parse_nasdaq_index_history(payload)
+            if parsed:
+                history[index] = parsed
+            else:
+                warnings.append(f"Nasdaq {index} 没有返回可解析的历史指数值。")
+
+        if cap_index not in history or equal_index not in history:
+            continue
+        cap_metrics = _nasdaq_index_change(history[cap_index])
+        equal_metrics = _nasdaq_index_change(history[equal_index])
+        if cap_metrics is None or equal_metrics is None:
+            warnings.append("Nasdaq NDX/NDXE 历史样本不足，无法计算 20 交易日变化。")
+            continue
+        cap_change, cap_as_of = cap_metrics
+        equal_change, equal_as_of = equal_metrics
+        source_note = (
+            "NDXE 是 Nasdaq 官方 Nasdaq-100 等权指数；这里用等权与市值加权的"
+            "相对变化作为市场扩散代理，不是上涨家数/下跌家数统计。"
+        )
+        rows.extend(
+            [
+                ResearchMetric(
+                    symbol=symbol,
+                    domain="market_breadth",
+                    name="Nasdaq-100 市值加权 20 交易日变化",
+                    value=f"{cap_change:+.2f}%",
+                    as_of=cap_as_of,
+                    source_url=NASDAQ_INDEX_HISTORY_URL.format(index=cap_index),
+                    note="NDX 市值加权指数，用作主题市场方向基准。",
+                    provider="nasdaq_public",
+                ),
+                ResearchMetric(
+                    symbol=symbol,
+                    domain="market_breadth",
+                    name="Nasdaq-100 等权 20 交易日变化",
+                    value=f"{equal_change:+.2f}%",
+                    as_of=equal_as_of,
+                    source_url=NASDAQ_INDEX_HISTORY_URL.format(index=equal_index),
+                    note=source_note,
+                    provider="nasdaq_public",
+                ),
+                ResearchMetric(
+                    symbol=symbol,
+                    domain="market_breadth",
+                    name="Nasdaq-100 等权相对市值加权差异",
+                    value=f"{equal_change - cap_change:+.2f} 个百分点",
+                    as_of=min(cap_as_of, equal_as_of),
+                    source_url=(
+                        f"{NASDAQ_INDEX_HISTORY_URL.format(index=cap_index)}; "
+                        f"{NASDAQ_INDEX_HISTORY_URL.format(index=equal_index)}"
+                    ),
+                    note=source_note,
+                    provider="nasdaq_public",
+                ),
+            ]
+        )
+
+    cache_rows = _merge_research_metric_cache_rows(
+        output_dir,
+        [asdict(row) for row in rows],
+    )
+    output_path = _write_cache(
+        output_dir=output_dir,
+        filename="research-metrics.json",
+        provider="nasdaq_public",
+        rows=cache_rows,
+        warnings=warnings,
+        now=now,
+    )
+    record_research_metrics_cache(
+        output_dir=output_dir,
+        provider="nasdaq_public",
+        symbols=supported_symbols,
+        artifact_path=output_path,
+        row_count=len(rows),
+        now=now,
+        forced=force,
+    )
+    return PullResult("research_metric", "nasdaq_public", len(rows), output_path, warnings)
+
+
+def _parse_nasdaq_index_history(payload: object) -> list[tuple[str, float]]:
+    if not isinstance(payload, dict):
+        return []
+    raw_rows = payload.get("aaData")
+    if not isinstance(raw_rows, list):
+        return []
+    rows: list[tuple[str, float]] = []
+    for row in raw_rows:
+        if not isinstance(row, dict):
+            continue
+        value = row.get("Value")
+        date_value = _nasdaq_date_value(row.get("TradeDate"))
+        if isinstance(value, int | float) and date_value:
+            rows.append((date_value, float(value)))
+    return sorted(rows)
+
+
+def _nasdaq_date_value(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    match = re.fullmatch(r"/Date\((\d+)\)/", value.strip())
+    if not match:
+        return value.strip()[:10]
+    return datetime.fromtimestamp(int(match.group(1)) / 1000, UTC).date().isoformat()
+
+
+def _nasdaq_index_change(history: list[tuple[str, float]]) -> tuple[float, str] | None:
+    if len(history) < 21:
+        return None
+    _, first_value = history[-21]
+    last_date, last_value = history[-1]
+    if first_value == 0:
+        return None
+    return ((last_value - first_value) / first_value * 100, last_date)
+
+
+def _research_metrics_start_date(now: datetime | None) -> str:
+    current = (now or datetime.now(UTC)).date()
+    return (current - timedelta(days=90)).isoformat()
+
+
+def _research_metrics_end_date(now: datetime | None) -> str:
+    return (now or datetime.now(UTC)).date().isoformat()
 
 
 def write_manual_news_event(

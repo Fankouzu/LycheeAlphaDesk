@@ -30,13 +30,19 @@ from lychee_alphadesk.core.forecast import (
     generate_timesfm_forecasts,
 )
 from lychee_alphadesk.core.live_data import (
+    FinancialSnapshotGuide,
     FundMetadataGuide,
     build_cached_data_snapshot,
+    financial_snapshot_guide_symbol,
     parse_symbols,
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
+    pull_sec_financials,
+    pull_tushare_financials,
     run_cached_data_health,
+    write_financial_snapshot_cache_from_file,
+    write_financial_snapshot_guide,
     write_fund_metadata_cache_from_file,
     write_fund_metadata_guide,
     write_manual_filing_summary,
@@ -145,6 +151,7 @@ class AlphaDeskApp(App[None]):
         self.pending_evidence_review_items: list[str] = []
         self.last_pending_evidence_review: ResearchEvidenceReviewResult | None = None
         self.current_fund_metadata_guide_path: Path | None = None
+        self.current_financials_guide_path: Path | None = None
         self.research_data_requests: list[ResearchDataRequest] = []
         self.action_queue_items: list[ActionQueueItem] = []
         self.manual_news_action: ActionQueueItem | None = None
@@ -1151,7 +1158,18 @@ class AlphaDeskApp(App[None]):
         if action == "import_fund_metadata":
             await self._import_fund_metadata_guide(candidate)
             return
-        if action in {"refresh_market", "refresh_news", "refresh_topic_news"} and not symbols:
+        if action == "financials_guide":
+            await self._show_financials_guide(candidate)
+            return
+        if action == "import_financials":
+            await self._import_financials_guide(candidate)
+            return
+        if action in {
+            "refresh_market",
+            "refresh_news",
+            "refresh_topic_news",
+            "refresh_financials",
+        } and not symbols:
             await self._replace_action_panel(
                 Static(
                     "这个任务还没有可刷新的证券代码或代理标的，请先完成入口映射。",
@@ -1225,6 +1243,30 @@ class AlphaDeskApp(App[None]):
                     symbols=filing_symbols,
                     output_dir=self.output_dir,
                 )
+            elif action == "refresh_financials":
+                if candidate.market.upper() == "US":
+                    result = await asyncio.to_thread(
+                        pull_sec_financials,
+                        symbols=symbols,
+                        output_dir=self.output_dir,
+                        force=True,
+                    )
+                elif candidate.market.upper() == "CN":
+                    result = await asyncio.to_thread(
+                        pull_tushare_financials,
+                        symbols=symbols,
+                        output_dir=self.output_dir,
+                        force=True,
+                    )
+                else:
+                    await self._replace_action_panel(
+                        Static(
+                            "港股数字财务请先使用财务资料向导，不能自动猜测数值。",
+                            id="action-status",
+                        )
+                    )
+                    self.set_focus(self.query_one("#action-menu", OptionList))
+                    return
             else:
                 await self._replace_action_panel(
                     Static("未知研究动作。", id="action-status")
@@ -1308,6 +1350,107 @@ class AlphaDeskApp(App[None]):
             Static(_fund_metadata_guide_text(guide), id="action-status"),
             OptionList(
                 Option("导入已填写模板", id="research_detail:import_fund_metadata"),
+                Option("重新下钻核验", id="research_detail:verify_research"),
+                Option("返回研究任务列表", id="research_detail:back_tasks"),
+                id="research-detail-action-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#research-detail-action-menu", OptionList))
+
+
+    async def _show_financials_guide(self, candidate: CandidateCheck) -> None:
+        if not candidate.symbol:
+            await self._replace_action_panel(
+                Static(
+                    "这个任务没有直接证券代码，暂时不能生成财务资料向导。",
+                    id="action-status",
+                )
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static("正在生成财务资料补齐向导，请稍候...", id="action-status")
+        )
+        try:
+            guide = await asyncio.to_thread(
+                write_financial_snapshot_guide,
+                output_dir=self.output_dir,
+                symbol=candidate.symbol,
+                display_name=candidate.display_name,
+                market=candidate.market,
+            )
+            self.current_financials_guide_path = guide.output_path
+        except ValueError as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static(_financials_guide_text(guide), id="action-status"),
+            OptionList(
+                Option("导入已填写模板", id="research_detail:import_financials"),
+                Option("重新下钻核验", id="research_detail:verify_research"),
+                Option("返回研究任务列表", id="research_detail:back_tasks"),
+                id="research-detail-action-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#research-detail-action-menu", OptionList))
+
+
+    async def _import_financials_guide(self, candidate: CandidateCheck) -> None:
+        guide_path = self.current_financials_guide_path
+        if guide_path is None:
+            await self._replace_action_panel(
+                Static(
+                    "还没有财务资料模板。请先生成财务资料补齐向导。",
+                    id="action-status",
+                )
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static("正在导入已填写财务资料模板，请稍候...", id="action-status")
+        )
+        try:
+            result = await asyncio.to_thread(
+                write_financial_snapshot_cache_from_file,
+                output_dir=self.output_dir,
+                guide_path=guide_path,
+            )
+            symbol = financial_snapshot_guide_symbol(guide_path)
+            acknowledgement = await asyncio.to_thread(
+                acknowledge_manual_research_data_request,
+                self.output_dir,
+                action_type="financials_hk_guide",
+                symbol=symbol,
+            )
+        except ValueError as error:
+            await self._replace_action_panel(
+                Static(f"操作失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._refresh_research_state()
+        await self._replace_action_panel(
+            Static(
+                "\n".join(
+                    [
+                        f"人工财务快照已写入: {symbol}",
+                        f"缓存: {result.output_path}",
+                        *(
+                            ["对应港股财务待办已标记为人工交接完成。"]
+                            if acknowledgement is not None
+                            else []
+                        ),
+                        "现在请重新下钻核验，确认数值是否支持当前研究问题。",
+                    ]
+                ),
+                id="action-status",
+            ),
+            OptionList(
                 Option("重新下钻核验", id="research_detail:verify_research"),
                 Option("返回研究任务列表", id="research_detail:back_tasks"),
                 id="research-detail-action-menu",
@@ -2585,6 +2728,29 @@ def _fund_metadata_guide_text(guide: FundMetadataGuide) -> str:
         guide.write_command,
         "",
         "边界: 向导只生成模板，不会猜测基金资料，也不是投资建议。",
+    ]
+    return "\n".join(lines)
+
+
+def _financials_guide_text(guide: FinancialSnapshotGuide) -> str:
+    lines = [
+        "港股财务资料补齐向导",
+        f"标的: {guide.display_name} ({guide.symbol}) [{guide.market}]",
+        f"模板已写入: {guide.output_path}",
+        "",
+        "请从港交所披露或公司年报中填写",
+        "- 报告类型和报告期末日",
+        "- 申报日和报告货币",
+        "- 营业收入、净利润、经营活动现金流",
+        "- 原始资料 URL",
+        "",
+        "建议来源",
+        *[f"- {source}" for source in guide.suggested_sources],
+        "",
+        "填写并保存模板后，在本页面选择导入已填写模板。",
+        "本页的“导入已填写模板”会自动完成写入，不需要记命令。",
+        "",
+        "边界: 向导只保存可审计的人工财务资料，不会猜测数值，也不是投资建议。",
     ]
     return "\n".join(lines)
 

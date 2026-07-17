@@ -1878,6 +1878,101 @@ def test_dashboard_research_task_can_open_fund_metadata_guide(
     asyncio.run(run_case())
 
 
+def test_dashboard_research_task_can_open_hk_financials_guide(
+    monkeypatch, tmp_path: Path
+) -> None:
+    class FakeWorkbenchResult:
+        status = "ready"
+        ready_count = 1
+        blocked_count = 0
+        candidates = [
+            CandidateCheck(
+                display_name="Tencent",
+                market="HK",
+                symbol="0700.HK",
+                proxy_symbols=[],
+                evidence_count=2,
+                gap_count=1,
+                data_gaps=["缺少港股财务快照"],
+                status="needs_review",
+                explanation="",
+                beginner_question="腾讯的业务与现金流是否支持当前研究线索？",
+                why_it_matters="需要把新闻线索和公司披露放在一起核验。",
+                observation_entry="0700.HK",
+                what_to_check="核对最新财报的收入、净利润和经营现金流。",
+                next_step="先补齐港股财务资料，再重新下钻核验。",
+                priority="P1 财务缺口",
+                evidence_status="证据 2 条；缺口 1 个",
+                next_command=(
+                    'lychee data guide financials --symbol 0700.HK '
+                    '--name "Tencent" --market HK'
+                ),
+            )
+        ]
+        deepen_result = ResearchDeepenResult(
+            created_at="2026-07-05T10:00:00+00:00",
+            packets=[
+                ResearchPacket(
+                    packet_id="research:test:hk-financials",
+                    candidate_id=1,
+                    created_at="2026-07-05T10:00:00+00:00",
+                    display_name="Tencent",
+                    symbol="0700.HK",
+                    market="HK",
+                    packet={
+                        "candidate": {"asset_type": "stock"},
+                        "evidence": [],
+                        "local_data": {
+                            "price": {},
+                            "related_news": [],
+                            "filings": [],
+                            "symbol_mapping": [],
+                            "financials": None,
+                        },
+                        "data_gaps": ["缺少港股财务快照"],
+                    },
+                )
+            ],
+            artifact_path=None,
+            db_path=tmp_path / "research.sqlite3",
+        )
+        beginner_brief = "AlphaDesk 研究工作台"
+
+    monkeypatch.setattr(
+        tui_app,
+        "run_workbench_check",
+        lambda **kwargs: FakeWorkbenchResult(),
+        raising=False,
+    )
+
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.press("down")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            action_menu = app.query_one("#research-detail-action-menu", OptionList)
+            guide_index = _option_index(action_menu, "补港股财务资料")
+            for _ in range(guide_index):
+                await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            guide_path = tmp_path / "data" / "financials-guide-0700.HK.json"
+            assert guide_path.exists()
+            text = str(app.query_one("#action-status", Static).content)
+            assert "港股财务资料补齐向导" in text
+            assert "Tencent (0700.HK) [HK]" in text
+            assert "营业收入、净利润、经营活动现金流" in text
+            assert "HKEXnews" in text
+
+    asyncio.run(run_case())
+
+
 def test_dashboard_research_start_keeps_proxy_theme_selection(
     monkeypatch, tmp_path: Path
 ) -> None:

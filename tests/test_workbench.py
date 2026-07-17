@@ -664,7 +664,10 @@ def test_research_action_commands_include_hkex_filings_for_hk_stocks() -> None:
     commands = research_action_commands(candidate, packet)
 
     assert "刷新公司公告: lychee data pull filings --symbols 0700.HK" in commands
-    assert not any("刷新财务快照" in command for command in commands)
+    assert (
+        "财务资料向导: lychee data guide financials --symbol 0700.HK "
+        '--name "Tencent" --market HK'
+    ) in commands
 
 
 def test_research_action_commands_include_cninfo_filings_for_cn_stocks() -> None:
@@ -699,7 +702,7 @@ def test_research_action_commands_include_cninfo_filings_for_cn_stocks() -> None
     commands = research_action_commands(candidate, packet)
 
     assert "刷新公司公告: lychee data pull filings --symbols 000001.SZ" in commands
-    assert not any("刷新财务快照" in command for command in commands)
+    assert "刷新财务快照: lychee data pull financials --symbols 000001.SZ" in commands
 
 
 def test_research_verification_marks_hkex_announcements_as_required_for_hk_stocks() -> None:

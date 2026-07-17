@@ -3183,6 +3183,10 @@ def research_detail_actions(
         actions.append(("refresh_topic_news", "刷新主题新闻"))
     if research_filing_symbols(candidate, packet):
         actions.append(("refresh_filings", "刷新公司公告"))
+        if candidate.market.upper() in {"US", "CN"} and candidate.symbol:
+            actions.append(("refresh_financials", "刷新财务快照"))
+        elif candidate.market.upper() == "HK" and candidate.symbol:
+            actions.append(("financials_guide", "补港股财务资料"))
     actions.append(("verify_research", "下钻核验"))
     actions.append(("generate_memo", "生成研究备忘录"))
     actions.append(("back_tasks", "返回研究任务列表"))
@@ -3224,6 +3228,16 @@ def research_action_commands(
             commands.append(
                 f"刷新财务快照: lychee data pull financials --symbols "
                 f"{','.join(filing_symbols)}"
+            )
+        elif candidate.market.upper() == "CN":
+            commands.append(
+                f"刷新财务快照: lychee data pull financials --symbols "
+                f"{','.join(filing_symbols)}"
+            )
+        elif candidate.market.upper() == "HK" and candidate.symbol:
+            commands.append(
+                "财务资料向导: lychee data guide financials --symbol "
+                f"{candidate.symbol} --name {_quote_cli_value(candidate.display_name)} --market HK"
             )
     if candidate.symbol:
         commands.append(
@@ -3368,6 +3382,9 @@ def research_action_name(action: str) -> str:
         "refresh_market": "刷新行情",
         "refresh_news": "刷新新闻",
         "fund_metadata_guide": "补基金资料向导",
+        "refresh_financials": "刷新财务快照",
+        "financials_guide": "补港股财务资料",
+        "import_financials": "导入财务资料",
         "refresh_topic_news": "刷新主题新闻",
         "refresh_filings": "刷新公司公告",
         "verify_research": "下钻核验",

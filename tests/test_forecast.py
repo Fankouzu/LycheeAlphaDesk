@@ -6,7 +6,9 @@ import pytest
 import lychee_alphadesk.core.forecast as forecast
 from lychee_alphadesk.core.forecast import (
     ForecastProviderError,
+    backtest_forecast_rows,
     generate_timesfm_forecasts,
+    run_forecast_backtest,
     run_timesfm_forecast,
 )
 from lychee_alphadesk.providers.demo import ForecastInterval
@@ -102,3 +104,99 @@ def test_generate_timesfm_forecasts_reads_history_and_writes_auditable_cache(
     payload = json.loads(result.output_path.read_text(encoding="utf-8"))
     assert payload["provider"] == "timesfm"
     assert payload["rows"][0]["midpoint"] == 505.0
+
+
+def test_backtest_forecast_rows_compares_model_with_last_value_baseline() -> None:
+    result = backtest_forecast_rows(
+        history_rows=[
+            {"symbol": "QQQ", "date": "2026-07-01", "close": 100.0},
+            {"symbol": "QQQ", "date": "2026-07-02", "close": 101.0},
+            {"symbol": "QQQ", "date": "2026-07-03", "close": 102.0},
+            {"symbol": "QQQ", "date": "2026-07-04", "close": 110.0},
+            {"symbol": "QQQ", "date": "2026-07-05", "close": 112.0},
+        ],
+        forecast_rows=[
+            {
+                "symbol": "QQQ",
+                "input_end_date": "2026-07-03",
+                "horizon_days": 2,
+                "lower": 105.0,
+                "midpoint": 105.0,
+                "upper": 115.0,
+            }
+        ],
+    )
+
+    assert result.symbol == "QQQ"
+    assert result.samples == 1
+    assert result.mae == 7.0
+    assert result.baseline_mae == 10.0
+    assert result.interval_coverage == 1.0
+
+
+def test_backtest_forecast_rows_reports_no_samples_without_future_actual() -> None:
+    result = backtest_forecast_rows(
+        history_rows=[
+            {"symbol": "QQQ", "date": "2026-07-01", "close": 100.0},
+            {"symbol": "QQQ", "date": "2026-07-02", "close": 101.0},
+        ],
+        forecast_rows=[
+            {
+                "symbol": "QQQ",
+                "input_end_date": "2026-07-02",
+                "horizon_days": 2,
+                "lower": 90.0,
+                "midpoint": 105.0,
+                "upper": 110.0,
+            }
+        ],
+    )
+
+    assert result.samples == 0
+    assert result.mae is None
+    assert result.baseline_mae is None
+    assert result.interval_coverage is None
+
+
+def test_run_forecast_backtest_writes_result_artifact(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "market-history.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {"symbol": "QQQ", "date": "2026-07-01", "close": 100.0},
+                    {"symbol": "QQQ", "date": "2026-07-02", "close": 101.0},
+                    {"symbol": "QQQ", "date": "2026-07-03", "close": 102.0},
+                    {"symbol": "QQQ", "date": "2026-07-04", "close": 110.0},
+                    {"symbol": "QQQ", "date": "2026-07-05", "close": 112.0},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "forecasts.json").write_text(
+        json.dumps(
+            {
+                "provider": "timesfm",
+                "rows": [
+                    {
+                        "symbol": "QQQ",
+                        "input_end_date": "2026-07-03",
+                        "horizon_days": 2,
+                        "lower": 105.0,
+                        "midpoint": 105.0,
+                        "upper": 115.0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_forecast_backtest(output_dir=tmp_path, symbols=["QQQ"])
+
+    assert result.count == 1
+    payload = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert payload["results"][0]["samples"] == 1
+    assert "交易建议" in payload["boundary"]

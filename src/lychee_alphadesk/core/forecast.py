@@ -30,6 +30,23 @@ class ForecastRun:
     forecasts: list[ForecastInterval]
 
 
+@dataclass(frozen=True)
+class ForecastBacktest:
+    symbol: str
+    samples: int
+    horizon_days: int | None
+    mae: float | None
+    baseline_mae: float | None
+    interval_coverage: float | None
+
+
+@dataclass(frozen=True)
+class ForecastBacktestRun:
+    count: int
+    output_path: Path
+    results: list[ForecastBacktest]
+
+
 def run_timesfm_forecast(
     *,
     symbol: str,
@@ -114,6 +131,7 @@ def generate_timesfm_forecasts(
         raise ForecastProviderError("历史行情缓存缺少 rows，无法运行预测。")
     normalized_symbols = sorted({symbol.strip().upper() for symbol in symbols if symbol.strip()})
     forecasts: list[ForecastInterval] = []
+    input_end_dates: dict[str, str] = {}
     for symbol in normalized_symbols:
         series = sorted(
             (
@@ -128,6 +146,7 @@ def generate_timesfm_forecasts(
         )
         if not series:
             raise ForecastProviderError(f"没有找到 {symbol} 的历史行情。")
+        input_end_dates[symbol] = series[-1][0]
         forecasts.append(
             run_timesfm_forecast(
                 symbol=symbol,
@@ -146,7 +165,19 @@ def generate_timesfm_forecasts(
                 "horizon_days": horizon_days,
                 "model": model_name,
                 "warnings": [],
-                "rows": [asdict(forecast) for forecast in forecasts],
+                "rows": [
+                    {
+                        **asdict(forecast),
+                        "input_end_date": input_end_dates[forecast.symbol],
+                        "input_points": sum(
+                            1
+                            for row in rows
+                            if isinstance(row, dict)
+                            and str(row.get("symbol") or "").upper() == forecast.symbol
+                        ),
+                    }
+                    for forecast in forecasts
+                ],
             },
             ensure_ascii=False,
             indent=2,
@@ -155,6 +186,142 @@ def generate_timesfm_forecasts(
         encoding="utf-8",
     )
     return ForecastRun("timesfm", len(forecasts), output_path, forecasts)
+
+
+def backtest_forecast_rows(
+    *,
+    history_rows: list[dict[str, object]],
+    forecast_rows: list[dict[str, object]],
+) -> ForecastBacktest:
+    symbols = sorted(
+        {
+            str(row.get("symbol") or "").strip().upper()
+            for row in forecast_rows
+            if str(row.get("symbol") or "").strip()
+        }
+    )
+    if not symbols:
+        return ForecastBacktest("", 0, None, None, None, None)
+    symbol = symbols[0]
+    history = sorted(
+        [
+            row
+            for row in history_rows
+            if str(row.get("symbol") or "").strip().upper() == symbol
+            and isinstance(row.get("date"), str)
+            and _number(row.get("close")) is not None
+        ],
+        key=lambda row: str(row["date"]),
+    )
+    errors: list[float] = []
+    baseline_errors: list[float] = []
+    covered = 0
+    horizons: list[int] = []
+    for forecast in forecast_rows:
+        if str(forecast.get("symbol") or "").strip().upper() != symbol:
+            continue
+        input_end_date = forecast.get("input_end_date")
+        horizon = forecast.get("horizon_days")
+        midpoint = _number(forecast.get("midpoint"))
+        lower = _number(forecast.get("lower"))
+        upper = _number(forecast.get("upper"))
+        if not isinstance(input_end_date, str) or not isinstance(horizon, int):
+            continue
+        if midpoint is None or lower is None or upper is None:
+            continue
+        input_index = next(
+            (
+                index
+                for index, row in enumerate(history)
+                if row.get("date") == input_end_date
+            ),
+            None,
+        )
+        if input_index is None:
+            continue
+        target_index = input_index + horizon
+        if target_index >= len(history):
+            continue
+        actual = _number(history[target_index].get("close"))
+        baseline = _number(history[input_index].get("close"))
+        if actual is None or baseline is None:
+            continue
+        errors.append(abs(midpoint - actual))
+        baseline_errors.append(abs(baseline - actual))
+        covered += int(lower <= actual <= upper)
+        horizons.append(horizon)
+    samples = len(errors)
+    return ForecastBacktest(
+        symbol=symbol,
+        samples=samples,
+        horizon_days=horizons[0] if horizons and len(set(horizons)) == 1 else None,
+        mae=sum(errors) / samples if samples else None,
+        baseline_mae=sum(baseline_errors) / samples if samples else None,
+        interval_coverage=covered / samples if samples else None,
+    )
+
+
+def run_forecast_backtest(
+    *,
+    output_dir: Path,
+    symbols: list[str],
+) -> ForecastBacktestRun:
+    history_path = output_dir / "data" / "market-history.json"
+    forecast_path = output_dir / "data" / "forecasts.json"
+    if not history_path.exists() or not forecast_path.exists():
+        raise ForecastProviderError(
+            "回测需要 market-history.json 和 forecasts.json；请先拉取历史行情并运行预测。"
+        )
+    try:
+        history_payload = json.loads(history_path.read_text(encoding="utf-8"))
+        forecast_payload = json.loads(forecast_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ForecastProviderError("回测输入缓存不是有效 JSON。") from error
+    history_rows = history_payload.get("rows") if isinstance(history_payload, dict) else None
+    forecast_rows = forecast_payload.get("rows") if isinstance(forecast_payload, dict) else None
+    if not isinstance(history_rows, list) or not isinstance(forecast_rows, list):
+        raise ForecastProviderError("回测输入缓存缺少 rows。")
+    normalized_symbols = sorted({symbol.strip().upper() for symbol in symbols if symbol.strip()})
+    results = [
+        backtest_forecast_rows(
+            history_rows=[row for row in history_rows if isinstance(row, dict)],
+            forecast_rows=[
+                row
+                for row in forecast_rows
+                if isinstance(row, dict)
+                and str(row.get("symbol") or "").strip().upper() == symbol
+            ],
+        )
+        for symbol in normalized_symbols
+    ]
+    output_dir.joinpath("data").mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "data" / "forecast-backtest.json"
+    output_path.write_text(
+        json.dumps(
+            {
+                "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "provider": str(forecast_payload.get("provider") or "timesfm"),
+                "results": [asdict(result) for result in results],
+                "boundary": "回测结果只用于评价历史预测误差，不代表未来收益或交易建议。",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return ForecastBacktestRun(len(results), output_path, results)
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _load_timesfm_module() -> Any:

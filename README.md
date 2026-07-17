@@ -107,7 +107,7 @@ Planned TUI sections:
 
 The first data engine milestone focuses on making data visible and auditable before adding real provider plugins.
 
-Forecast preparation is available through `lychee data pull history --symbols QQQ --days 365`. It writes a separate multi-day `market-history.json` cache with a 24-hour freshness window. Once the optional runtime is installed with `uv pip install -e '.[timesfm]'`, `lychee data pull forecast --symbols QQQ --horizon 20` runs the local TimesFM 2.5 adapter and writes an auditable `forecasts.json` interval. Missing TimesFM or insufficient history is a hard error; no fallback model is silently substituted. Forecasts are research comparisons, not trading instructions.
+Forecast preparation is available through `lychee data pull history --symbols QQQ --days 365`. It writes a separate multi-day `market-history.json` cache with a 24-hour freshness window. Once the optional runtime is installed with `uv pip install -e '.[timesfm]'`, `lychee data pull forecast --symbols QQQ --horizon 20` runs the local TimesFM 2.5 adapter and writes an auditable `forecasts.json` interval. `lychee data forecast-backtest --symbols QQQ` compares completed forecasts with later actual history, the last-value baseline, and interval coverage. Missing TimesFM or insufficient history is a hard error; no fallback model is silently substituted. Forecasts are research comparisons, not trading instructions.
 
 ```bash
 uv run --no-editable lad data health --demo

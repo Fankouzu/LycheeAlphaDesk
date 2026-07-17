@@ -43,6 +43,7 @@ from lychee_alphadesk.core.discovery import (
 from lychee_alphadesk.core.forecast import (
     ForecastProviderError,
     generate_timesfm_forecasts,
+    run_forecast_backtest,
 )
 from lychee_alphadesk.core.live_data import (
     PullResult,
@@ -279,6 +280,45 @@ def data_snapshot(
     console.print(f"新闻事件: {snapshot.counts['news_events']}")
     console.print(f"公告: {snapshot.counts['filings']}")
     console.print(f"预测: {snapshot.counts['forecasts']}")
+
+
+@data_app.command("forecast-backtest")
+def data_forecast_backtest(
+    symbols: Annotated[
+        str,
+        typer.Option("--symbols", help="用英文逗号分隔证券代码，例如 QQQ,TSLA。"),
+    ],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """用已有历史行情评价预测误差和区间覆盖率。"""
+    try:
+        result = run_forecast_backtest(
+            output_dir=output_dir,
+            symbols=parse_symbols(symbols),
+        )
+    except (ForecastProviderError, ValueError) as error:
+        console.print(str(error), soft_wrap=True, markup=False)
+        raise typer.Exit(code=1) from error
+    table = Table(title="TimesFM 历史回测")
+    table.add_column("代码")
+    table.add_column("样本")
+    table.add_column("预测 MAE")
+    table.add_column("最后值基线 MAE")
+    table.add_column("区间覆盖率")
+    for item in result.results:
+        table.add_row(
+            item.symbol,
+            str(item.samples),
+            _format_optional_number(item.mae),
+            _format_optional_number(item.baseline_mae),
+            _format_optional_percent(item.interval_coverage),
+        )
+    console.print(table)
+    console.print(f"回测结果已写入: {result.output_path}", soft_wrap=True)
+    console.print("边界: 回测只评价历史预测误差，不代表未来收益或交易建议。")
 
 
 @data_app.command("health")
@@ -2127,6 +2167,14 @@ def _print_pull_result(*, result_label: str, count: int, result: PullResult) -> 
 
 def _display_mode(mode: str) -> str:
     return {"demo": "演示", "live": "实时"}.get(mode, mode)
+
+
+def _format_optional_number(value: float | None) -> str:
+    return "暂无未来样本" if value is None else f"{value:.4f}"
+
+
+def _format_optional_percent(value: float | None) -> str:
+    return "暂无未来样本" if value is None else f"{value:.1%}"
 
 
 def _display_status(status: str) -> str:

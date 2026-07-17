@@ -2995,7 +2995,7 @@ def test_research_provider_backlog_command_lists_manual_provider_gaps(
     assert "Invesco QQQ Trust" in result.stdout
     assert "市场广度" in result.stdout
     assert "market_breadth" in result.stdout
-    assert "指数成分数据源" in result.stdout
+    assert "Nasdaq Data Link / GIDS 成分与行情" in result.stdout
     assert "lychee data set metric --symbol QQQ --domain market_breadth" in result.stdout
     assert "不能把它解释成真实上涨家数/下跌家数" in result.stdout
     assert "数据源缺口队列只用于规划补数据能力，不是买卖建议" in result.stdout

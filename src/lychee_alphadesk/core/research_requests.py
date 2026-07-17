@@ -683,7 +683,11 @@ def list_provider_backlog_items(
                 plugin_type=gap.plugin_type,
                 coverage_gap=gap.coverage_gap,
                 suggested_provider_examples=gap.suggested_provider_examples,
-                suggested_commands=_provider_gap_commands(request, gap),
+                suggested_commands=_provider_gap_commands(
+                    request,
+                    gap,
+                    research_metrics=research_metrics,
+                ),
                 next_step=gap.next_step,
                 memo_path=request.memo_path,
                 verification_path=request.verification_path,
@@ -746,19 +750,7 @@ def _provider_gap_is_covered(
     if gap.plugin_type == "market_breadth" and request.symbol:
         if _looks_like_advancer_count_request(request.request_text.casefold()):
             return False
-        expected_names = {
-            "nasdaq-100 市值加权 20 交易日变化",
-            "nasdaq-100 等权 20 交易日变化",
-            "nasdaq-100 等权相对市值加权差异",
-        }
-        matched_names = {
-            metric.name.strip().casefold()
-            for metric in research_metrics
-            if metric.symbol.upper() == request.symbol.upper()
-            and metric.domain == "market_breadth"
-            and metric.provider == "nasdaq_public"
-        }
-        return expected_names.issubset(matched_names)
+        return _nasdaq_proxy_is_complete(request.symbol, research_metrics)
     if gap.plugin_type != "volatility_metrics" or not request.symbol:
         return False
     expected_names = {
@@ -1664,7 +1656,7 @@ def _classify_provider_gap(request_text: str) -> _ProviderGap:
             ),
             suggested_provider_examples=[
                 "Nasdaq NDX/NDXE 公开历史（等权扩散代理）",
-                "指数成分数据源",
+                "Nasdaq Data Link / GIDS 成分与行情（需授权）",
                 "等权指数或市场广度数据源",
                 "行业/子行业表现数据源",
             ],
@@ -1734,6 +1726,8 @@ def _has_any(text: str, keywords: tuple[str, ...]) -> bool:
 def _provider_gap_commands(
     request: ResearchDataRequest,
     gap: _ProviderGap,
+    *,
+    research_metrics: list[ResearchMetric] | None = None,
 ) -> list[str]:
     symbol = request.symbol or "<SYMBOL>"
     if gap.plugin_type == "entity_news":
@@ -1745,15 +1739,22 @@ def _provider_gap_commands(
             )
         ]
     if gap.plugin_type == "market_breadth" and request.symbol:
+        manual_metric_command = (
+            f"lychee data set metric --symbol {symbol} "
+            f"--domain {gap.plugin_type} "
+            '--name "<填入上涨/下跌家数或成分级广度指标>" '
+            '--value "<填入核验后的读数>" '
+            '--as-of YYYY-MM-DD --source-url "<资料来源URL>"'
+        )
+        proxy_is_complete = research_metrics is not None and _nasdaq_proxy_is_complete(
+            request.symbol,
+            research_metrics,
+        )
+        if proxy_is_complete:
+            return [manual_metric_command]
         return [
             f"lychee data pull breadth --symbols {request.symbol} --force",
-            (
-                f"lychee data set metric --symbol {symbol} "
-                f"--domain {gap.plugin_type} "
-                '--name "<填入上涨/下跌家数或成分级广度指标>" '
-                '--value "<填入核验后的读数>" '
-                '--as-of YYYY-MM-DD --source-url "<资料来源URL>"'
-            ),
+            manual_metric_command,
         ]
     return [
         (
@@ -1763,3 +1764,22 @@ def _provider_gap_commands(
             '--as-of YYYY-MM-DD --source-url "<资料来源URL>"'
         )
     ]
+
+
+def _nasdaq_proxy_is_complete(
+    symbol: str,
+    research_metrics: list[ResearchMetric],
+) -> bool:
+    expected_names = {
+        "nasdaq-100 市值加权 20 交易日变化",
+        "nasdaq-100 等权 20 交易日变化",
+        "nasdaq-100 等权相对市值加权差异",
+    }
+    matched_names = {
+        metric.name.strip().casefold()
+        for metric in research_metrics
+        if metric.symbol.upper() == symbol.upper()
+        and metric.domain == "market_breadth"
+        and metric.provider == "nasdaq_public"
+    }
+    return expected_names.issubset(matched_names)

@@ -800,7 +800,7 @@ def test_provider_backlog_items_classify_manual_data_requests(tmp_path: Path) ->
     assert item.plugin_type == "market_breadth"
     assert item.suggested_provider_examples == [
         "Nasdaq NDX/NDXE 公开历史（等权扩散代理）",
-        "指数成分数据源",
+        "Nasdaq Data Link / GIDS 成分与行情（需授权）",
         "等权指数或市场广度数据源",
         "行业/子行业表现数据源",
     ]
@@ -909,7 +909,15 @@ def test_provider_backlog_keeps_actual_advancer_count_gap_with_proxy(
             provider="nasdaq_public",
         )
 
-    assert len(list_provider_backlog_items(tmp_path, symbol="QQQ")) == 1
+    backlog = list_provider_backlog_items(tmp_path, symbol="QQQ")
+
+    assert len(backlog) == 1
+    assert backlog[0].suggested_commands == [
+        "lychee data set metric --symbol QQQ --domain market_breadth "
+        '--name "<填入上涨/下跌家数或成分级广度指标>" '
+        '--value "<填入核验后的读数>" '
+        '--as-of YYYY-MM-DD --source-url "<资料来源URL>"',
+    ]
 
 
 def _write_request_memo(

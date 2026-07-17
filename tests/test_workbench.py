@@ -66,6 +66,16 @@ def test_workbench_reads_portfolio_audit_as_beginner_risk_context(
         ),
         encoding="utf-8",
     )
+    transaction_artifact = research_dir / "portfolio-transactions-import-test.json"
+    transaction_artifact.write_text(
+        json.dumps(
+            {
+                "audit_gaps": ["交易流水没有完整提供税费。"],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
     context = _latest_portfolio_context(tmp_path)
 
@@ -73,7 +83,9 @@ def test_workbench_reads_portfolio_audit_as_beginner_risk_context(
     assert context.source == "ibkr_csv"
     assert context.valuation_count == 2
     assert "QQQ: -1.91%" in context.drift_readings
-    assert "研究前的数据完整性上下文" in context.next_action
+    assert context.transaction_status == "需要人工核对"
+    assert context.transaction_gaps == ["交易流水没有完整提供税费。"]
+    assert "先核对交易流水" in context.next_action
 
 
 def test_next_step_summarizes_raw_data_gaps_as_a_single_user_action() -> None:

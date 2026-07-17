@@ -111,6 +111,47 @@ def test_action_queue_executes_portfolio_audit_as_read_only_action(
     assert "QQQ" in result.next_command
 
 
+def test_action_queue_surfaces_and_executes_transaction_audit(
+    tmp_path: Path,
+) -> None:
+    transactions = tmp_path / "transactions.csv"
+    transactions.write_text(
+        "transaction_id,symbol,trade_date,side,quantity,price,currency,account_id\n"
+        "t-1,QQQ,2026-07-16,buy,2,450,USD,account-a\n",
+        encoding="utf-8",
+    )
+    research_dir = tmp_path / "research"
+    research_dir.mkdir()
+    artifact = research_dir / "portfolio-transactions-import-test.json"
+    artifact.write_text(
+        json.dumps(
+            {
+                "source": "ibkr_csv",
+                "input_path": str(transactions),
+                "audit_gaps": ["交易流水没有完整提供费用。"],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    item = action_queue._latest_portfolio_transaction_action(tmp_path)
+
+    assert item is not None
+    assert item.area == "流水审计"
+    assert "费用" in item.detail
+    result = action_queue.execute_action_queue_item(
+        tmp_path,
+        action_index=1,
+        queue_builder=lambda *args, **kwargs: [item],
+    )
+
+    assert result.status == "partial"
+    assert result.count == 1
+    assert result.output_path is not None
+    assert result.output_path.name.startswith("portfolio-transactions-import-")
+
+
 def test_workbench_action_uses_compact_task_title_and_action_summary(
     tmp_path: Path,
 ) -> None:

@@ -14,7 +14,11 @@ from lychee_alphadesk.core.opportunity_radar import (
     OpportunitySignal,
     build_opportunity_radar,
 )
-from lychee_alphadesk.core.portfolio import check_portfolio, write_portfolio_check_artifact
+from lychee_alphadesk.core.portfolio import (
+    check_portfolio,
+    import_portfolio_transactions,
+    write_portfolio_check_artifact,
+)
 from lychee_alphadesk.core.research_db import (
     ResearchDataRequestFulfillmentRecord,
     list_research_data_request_fulfillments,
@@ -60,6 +64,7 @@ RADAR_RESEARCH_FOLLOWUP_SECONDS = 24 * 60 * 60
 RADAR_FOLLOWUP_WORKBENCH_PRIORITY = 25
 DEFAULT_WORKBENCH_PRIORITY = 40
 PORTFOLIO_AUDIT_PRIORITY = 18
+PORTFOLIO_TRANSACTION_AUDIT_PRIORITY = 22
 RADAR_RESEARCH_ADVANCED_STATUSES = {"completed", "partial", "cached"}
 
 
@@ -126,6 +131,9 @@ def build_action_queue(
     portfolio_action = _latest_portfolio_audit_action(output_dir)
     if portfolio_action is not None:
         items.append(portfolio_action)
+    transaction_action = _latest_portfolio_transaction_action(output_dir)
+    if transaction_action is not None:
+        items.append(transaction_action)
 
     for pending in pending_reader(output_dir=output_dir, limit=limit):
         items.append(_pending_evidence_action(pending))
@@ -329,6 +337,14 @@ def execute_action_queue_item(
             output_dir=output_dir,
             item=item,
             payload=portfolio_payload,
+        )
+
+    transaction_payload = _parse_portfolio_transaction_command(item.command)
+    if transaction_payload is not None:
+        return _execute_portfolio_transaction_action(
+            output_dir=output_dir,
+            item=item,
+            payload=transaction_payload,
         )
 
     raise ValueError(
@@ -643,6 +659,40 @@ def _execute_portfolio_check_action(
     )
 
 
+def _execute_portfolio_transaction_action(
+    *,
+    output_dir: Path,
+    item: ActionQueueItem,
+    payload: dict[str, str | None],
+) -> ActionQueueExecution:
+    try:
+        result = import_portfolio_transactions(
+            transactions_path=Path(str(payload["file"])),
+            output_dir=output_dir,
+            source=str(payload.get("source") or "manual_csv"),
+        )
+    except (OSError, ValueError) as error:
+        return ActionQueueExecution(
+            item=item,
+            status="failed",
+            message=str(error),
+            count=0,
+            output_path=None,
+            next_command="",
+            warnings=[],
+        )
+    status = "partial" if result.audit_gaps else "completed"
+    return ActionQueueExecution(
+        item=item,
+        status=status,
+        message=f"交易流水只读审计已完成: {len(result.transactions)} 条。",
+        count=len(result.transactions),
+        output_path=result.audit_path,
+        next_command="",
+        warnings=result.audit_gaps,
+    )
+
+
 def _portfolio_followup_command(result: Any, output_dir: Path) -> str:
     if getattr(result, "missing_price_symbols", []):
         symbols = ",".join(result.missing_price_symbols)
@@ -798,6 +848,54 @@ def _latest_portfolio_audit_action(output_dir: Path) -> ActionQueueItem | None:
         area="组合审计",
         title="补齐组合当前数据",
         detail=detail,
+        command=command,
+        source=str(latest),
+    )
+
+
+def _latest_portfolio_transaction_action(output_dir: Path) -> ActionQueueItem | None:
+    research_dir = output_dir / "research"
+    artifacts = list(research_dir.glob("portfolio-transactions-import-*.json"))
+    if not artifacts:
+        return None
+    latest = max(artifacts, key=lambda path: path.stat().st_mtime)
+    try:
+        payload = json.loads(latest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ActionQueueItem(
+            priority=PORTFOLIO_TRANSACTION_AUDIT_PRIORITY,
+            area="流水审计",
+            title="检查交易流水审计记录",
+            detail="最近的交易流水审计记录无法解析，需要重新导入只读流水。",
+            command=(
+                "lychee portfolio import-transactions "
+                f"--file {shlex.quote(str(latest))} "
+                f"--output-dir {shlex.quote(str(output_dir))}"
+            ),
+            source=str(latest),
+        )
+    gaps = _string_list(payload.get("audit_gaps"))
+    if not gaps:
+        return None
+    input_path = str(payload.get("input_path") or "")
+    source = str(payload.get("source") or "manual_csv")
+    if not input_path:
+        command = (
+            "lychee portfolio import-transactions "
+            f"--output-dir {shlex.quote(str(output_dir))}"
+        )
+    else:
+        command = (
+            "lychee portfolio import-transactions "
+            f"--file {shlex.quote(input_path)} "
+            f"--source {shlex.quote(source)} "
+            f"--output-dir {shlex.quote(str(output_dir))}"
+        )
+    return ActionQueueItem(
+        priority=PORTFOLIO_TRANSACTION_AUDIT_PRIORITY,
+        area="流水审计",
+        title="补齐交易流水审计",
+        detail="；".join(gaps[:3]),
         command=command,
         source=str(latest),
     )
@@ -996,6 +1094,19 @@ def _parse_portfolio_check_command(command: str) -> dict[str, str | None] | None
         "file": portfolio_path,
         "policy": policy_path,
         "positions": _option_value(parts, "--positions") or None,
+    }
+
+
+def _parse_portfolio_transaction_command(command: str) -> dict[str, str | None] | None:
+    parts = shlex.split(command)
+    if parts[:3] != ["lychee", "portfolio", "import-transactions"]:
+        return None
+    transactions_path = _option_value(parts, "--file")
+    if not transactions_path:
+        return None
+    return {
+        "file": transactions_path,
+        "source": _option_value(parts, "--source") or "manual_csv",
     }
 
 

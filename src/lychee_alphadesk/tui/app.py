@@ -1886,6 +1886,10 @@ def _research_workbench_intro(result: WorkbenchCheckResult) -> str:
         )
     )
     portfolio_drifts = getattr(portfolio, "drift_readings", [])
+    portfolio_transactions = str(
+        getattr(portfolio, "transaction_status", "未导入")
+    )
+    portfolio_transaction_gaps = getattr(portfolio, "transaction_gaps", [])
     lines = [
         "AlphaDesk 研究工作台",
         "选择一个研究任务，按 Enter 开始研究。Esc 返回主菜单。",
@@ -1900,10 +1904,13 @@ def _research_workbench_intro(result: WorkbenchCheckResult) -> str:
             f"- 审计状态: {portfolio_status} | 估值 {portfolio_count} 项"
             + (f" | 基础货币: {portfolio_currency}" if portfolio_currency else "")
         ),
+        f"- 流水审计: {portfolio_transactions}",
         f"- 研究前动作: {portfolio_action}",
     ]
     if portfolio_drifts:
         lines.append("- 目标偏离读数: " + "；".join(portfolio_drifts[:3]))
+    if portfolio_transaction_gaps:
+        lines.append("- 流水缺口: " + "；".join(portfolio_transaction_gaps[:2]))
     if result.candidates:
         first = result.candidates[0]
         lines.extend(

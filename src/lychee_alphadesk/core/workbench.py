@@ -80,6 +80,8 @@ class PortfolioContext:
     drift_readings: list[str]
     next_action: str
     artifact_path: str
+    transaction_status: str = "未导入"
+    transaction_gaps: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -4436,7 +4438,20 @@ def _empty_portfolio_context() -> PortfolioContext:
 def _latest_portfolio_context(output_dir: Path) -> PortfolioContext:
     artifacts = list((output_dir / "research").glob("portfolio-check-*.json"))
     if not artifacts:
-        return _empty_portfolio_context()
+        transaction_status, transaction_gaps = _latest_transaction_context(output_dir)
+        if transaction_status == "未导入":
+            return _empty_portfolio_context()
+        context = _empty_portfolio_context()
+        return replace(
+            context,
+            transaction_status=transaction_status,
+            transaction_gaps=transaction_gaps,
+            next_action=(
+                "先核对交易流水: " + "；".join(transaction_gaps[:2])
+                if transaction_gaps
+                else "组合尚未生成当前持仓估值，请先运行只读组合检查。"
+            ),
+        )
     artifact = max(artifacts, key=lambda path: path.stat().st_mtime)
     payload = _read_json_dict(artifact)
     status = _string_value(payload.get("status_label")) or "状态未记录"
@@ -4453,6 +4468,7 @@ def _latest_portfolio_context(output_dir: Path) -> PortfolioContext:
     valuation_gaps = _text_list(payload.get("valuation_gaps"))
     audit_gaps = _text_list(payload.get("position_audit_gaps"))
     errors = _text_list(payload.get("errors"))
+    transaction_status, transaction_gaps = _latest_transaction_context(output_dir)
     if errors:
         next_action = "先修正组合政策检查错误。"
     elif missing_prices:
@@ -4463,6 +4479,8 @@ def _latest_portfolio_context(output_dir: Path) -> PortfolioContext:
         next_action = "先处理组合估值缺口: " + "；".join(valuation_gaps[:2])
     elif audit_gaps:
         next_action = "先核对组合审计信息: " + "；".join(audit_gaps[:2])
+    elif transaction_gaps:
+        next_action = "先核对交易流水: " + "；".join(transaction_gaps[:2])
     else:
         next_action = "组合审计已生成，可将其作为研究前的数据完整性上下文。"
     return PortfolioContext(
@@ -4473,7 +4491,21 @@ def _latest_portfolio_context(output_dir: Path) -> PortfolioContext:
         drift_readings=drift_readings[:6],
         next_action=next_action,
         artifact_path=str(artifact),
+        transaction_status=transaction_status,
+        transaction_gaps=transaction_gaps,
     )
+
+
+def _latest_transaction_context(output_dir: Path) -> tuple[str, list[str]]:
+    artifacts = list(
+        (output_dir / "research").glob("portfolio-transactions-import-*.json")
+    )
+    if not artifacts:
+        return "未导入", []
+    artifact = max(artifacts, key=lambda path: path.stat().st_mtime)
+    payload = _read_json_dict(artifact)
+    gaps = _text_list(payload.get("audit_gaps"))
+    return ("需要人工核对" if gaps else "已导入"), gaps
 
 
 def _portfolio_context_lines(context: PortfolioContext | None) -> list[str]:
@@ -4490,6 +4522,9 @@ def _portfolio_context_lines(context: PortfolioContext | None) -> list[str]:
     )
     if context.drift_readings:
         lines.append("  目标偏离读数: " + "；".join(context.drift_readings[:3]))
+    lines.append(f"  流水审计: {context.transaction_status}")
+    if context.transaction_gaps:
+        lines.append("  流水缺口: " + "；".join(context.transaction_gaps[:2]))
     lines.append(f"  研究前动作: {context.next_action}")
     return lines
 

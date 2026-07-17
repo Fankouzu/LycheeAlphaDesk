@@ -65,28 +65,13 @@ def run_timesfm_forecast(
     if horizon_days < 1 or horizon_days > 256:
         raise ForecastProviderError("预测 horizon 必须在 1 到 256 个交易日之间。")
     if model is None:
-        timesfm_module = timesfm_module or _load_timesfm_module()
-        numpy_module = numpy_module or _load_numpy_module()
-        model_class = getattr(timesfm_module, "TimesFM_2p5_200M_torch", None)
-        if model_class is None:
-            raise ForecastProviderError(
-                "当前 TimesFM 安装不包含 2.5 PyTorch 模型；请安装 timesfm[torch]>=2.0.2。"
-            )
-        try:
-            model = model_class.from_pretrained(model_name)
-            model.compile(
-                timesfm_module.ForecastConfig(
-                    max_context=min(max(len(values), 32), 16384),
-                    max_horizon=max(horizon_days, 256),
-                    normalize_inputs=True,
-                    use_continuous_quantile_head=True,
-                    force_flip_invariance=True,
-                    infer_is_positive=True,
-                    fix_quantile_crossing=True,
-                )
-            )
-        except Exception as error:  # third-party model boundary
-            raise ForecastProviderError(f"TimesFM 模型加载或编译失败: {error}") from error
+        model, numpy_module = _load_timesfm_runtime(
+            model_name=model_name,
+            max_context=len(values),
+            max_horizon=horizon_days,
+            timesfm_module=timesfm_module,
+            numpy_module=numpy_module,
+        )
     if numpy_module is None:
         numpy_module = _load_numpy_module()
     try:
@@ -116,6 +101,8 @@ def generate_timesfm_forecasts(
     symbols: list[str],
     horizon_days: int,
     model_name: str = "google/timesfm-2.5-200m-pytorch",
+    windows: int = 1,
+    stride: int | None = None,
 ) -> ForecastRun:
     history_path = output_dir / "data" / "market-history.json"
     if not history_path.exists():
@@ -129,9 +116,13 @@ def generate_timesfm_forecasts(
     rows = payload.get("rows") if isinstance(payload, dict) else None
     if not isinstance(rows, list):
         raise ForecastProviderError("历史行情缓存缺少 rows，无法运行预测。")
+    if windows < 1 or windows > 20:
+        raise ForecastProviderError("walk-forward 窗口数必须在 1 到 20 之间。")
+    if stride is not None and stride < 1:
+        raise ForecastProviderError("walk-forward 步长必须大于 0。")
     normalized_symbols = sorted({symbol.strip().upper() for symbol in symbols if symbol.strip()})
     forecasts: list[ForecastInterval] = []
-    input_end_dates: dict[str, str] = {}
+    forecast_metadata: list[dict[str, object]] = []
     for symbol in normalized_symbols:
         series = sorted(
             (
@@ -146,15 +137,44 @@ def generate_timesfm_forecasts(
         )
         if not series:
             raise ForecastProviderError(f"没有找到 {symbol} 的历史行情。")
-        input_end_dates[symbol] = series[-1][0]
-        forecasts.append(
-            run_timesfm_forecast(
+        step = stride or horizon_days
+        latest_cutoff = len(series) if windows == 1 else len(series) - horizon_days
+        required_points = 32 + step * (windows - 1)
+        if windows > 1 and latest_cutoff < required_points:
+            raise ForecastProviderError(
+                f"{symbol} 历史行情不足以生成 {windows} 个 walk-forward 窗口；"
+                f"至少需要 {required_points} 个上下文交易日和未来 horizon 数据。"
+            )
+        cutoffs = (
+            [latest_cutoff]
+            if windows == 1
+            else _walk_forward_cutoffs(latest_cutoff, windows, step)
+        )
+        runtime_model: Any | None = None
+        runtime_numpy: Any | None = None
+        if windows > 1:
+            runtime_model, runtime_numpy = _load_timesfm_runtime(
+                model_name=model_name,
+                max_context=max(cutoff for cutoff in cutoffs),
+                max_horizon=horizon_days,
+            )
+        for cutoff in cutoffs:
+            forecast = run_timesfm_forecast(
                 symbol=symbol,
-                values=[close for _, close in series],
+                values=[close for _, close in series[:cutoff]],
                 horizon_days=horizon_days,
                 model_name=model_name,
+                model=runtime_model,
+                numpy_module=runtime_numpy,
             )
-        )
+            forecasts.append(forecast)
+            forecast_metadata.append(
+                {
+                    **asdict(forecast),
+                    "input_end_date": series[cutoff - 1][0],
+                    "input_points": cutoff,
+                }
+            )
     output_dir.joinpath("data").mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "data" / "forecasts.json"
     output_path.write_text(
@@ -165,19 +185,9 @@ def generate_timesfm_forecasts(
                 "horizon_days": horizon_days,
                 "model": model_name,
                 "warnings": [],
-                "rows": [
-                    {
-                        **asdict(forecast),
-                        "input_end_date": input_end_dates[forecast.symbol],
-                        "input_points": sum(
-                            1
-                            for row in rows
-                            if isinstance(row, dict)
-                            and str(row.get("symbol") or "").upper() == forecast.symbol
-                        ),
-                    }
-                    for forecast in forecasts
-                ],
+                "windows": windows,
+                "stride": stride or horizon_days,
+                "rows": forecast_metadata,
             },
             ensure_ascii=False,
             indent=2,
@@ -186,6 +196,11 @@ def generate_timesfm_forecasts(
         encoding="utf-8",
     )
     return ForecastRun("timesfm", len(forecasts), output_path, forecasts)
+
+
+def _walk_forward_cutoffs(latest_cutoff: int, windows: int, stride: int) -> list[int]:
+    earliest = latest_cutoff - stride * (windows - 1)
+    return [earliest + stride * index for index in range(windows)]
 
 
 def backtest_forecast_rows(
@@ -322,6 +337,39 @@ def _number(value: object) -> float | None:
         except ValueError:
             return None
     return None
+
+
+def _load_timesfm_runtime(
+    *,
+    model_name: str,
+    max_context: int,
+    max_horizon: int,
+    timesfm_module: Any | None = None,
+    numpy_module: Any | None = None,
+) -> tuple[Any, Any]:
+    timesfm_module = timesfm_module or _load_timesfm_module()
+    numpy_module = numpy_module or _load_numpy_module()
+    model_class = getattr(timesfm_module, "TimesFM_2p5_200M_torch", None)
+    if model_class is None:
+        raise ForecastProviderError(
+            "当前 TimesFM 安装不包含 2.5 PyTorch 模型；请安装 timesfm[torch]>=2.0.2。"
+        )
+    try:
+        model = model_class.from_pretrained(model_name)
+        model.compile(
+            timesfm_module.ForecastConfig(
+                max_context=min(max(max_context, 32), 16384),
+                max_horizon=max(max_horizon, 256),
+                normalize_inputs=True,
+                use_continuous_quantile_head=True,
+                force_flip_invariance=True,
+                infer_is_positive=True,
+                fix_quantile_crossing=True,
+            )
+        )
+    except Exception as error:  # third-party model boundary
+        raise ForecastProviderError(f"TimesFM 模型加载或编译失败: {error}") from error
+    return model, numpy_module
 
 
 def _load_timesfm_module() -> Any:

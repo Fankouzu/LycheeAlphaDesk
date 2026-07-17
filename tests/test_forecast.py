@@ -106,6 +106,69 @@ def test_generate_timesfm_forecasts_reads_history_and_writes_auditable_cache(
     assert payload["rows"][0]["midpoint"] == 505.0
 
 
+def test_generate_timesfm_forecasts_supports_walk_forward_windows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    rows = [
+        {"symbol": "QQQ", "date": f"2026-07-{index + 1:02d}", "close": 500.0 + index}
+        for index in range(60)
+    ]
+    (data_dir / "market-history.json").write_text(
+        json.dumps({"rows": rows}),
+        encoding="utf-8",
+    )
+    calls: list[int] = []
+
+    def fake_run_timesfm_forecast(**kwargs: object) -> ForecastInterval:
+        values = kwargs["values"]
+        assert isinstance(values, list)
+        calls.append(len(values))
+        return ForecastInterval("QQQ", 5, 490.0, 505.0, 520.0, "fake-timesfm")
+
+    monkeypatch.setattr(forecast, "run_timesfm_forecast", fake_run_timesfm_forecast)
+    monkeypatch.setattr(forecast, "_load_timesfm_runtime", lambda **_: (object(), FakeNumpy()))
+
+    result = generate_timesfm_forecasts(
+        output_dir=tmp_path,
+        symbols=["QQQ"],
+        horizon_days=5,
+        windows=2,
+        stride=10,
+    )
+
+    assert result.count == 2
+    assert calls == [45, 55]
+    payload = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert [row["input_points"] for row in payload["rows"]] == [45, 55]
+
+
+def test_generate_timesfm_forecasts_rejects_insufficient_walk_forward_history(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    rows = [
+        {"symbol": "QQQ", "date": f"2026-07-{index + 1:02d}", "close": 500.0 + index}
+        for index in range(40)
+    ]
+    (data_dir / "market-history.json").write_text(
+        json.dumps({"rows": rows}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ForecastProviderError, match="至少需要 52 个"):
+        generate_timesfm_forecasts(
+            output_dir=tmp_path,
+            symbols=["QQQ"],
+            horizon_days=5,
+            windows=3,
+            stride=10,
+        )
+
+
 def test_backtest_forecast_rows_compares_model_with_last_value_baseline() -> None:
     result = backtest_forecast_rows(
         history_rows=[

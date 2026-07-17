@@ -1494,6 +1494,14 @@ def data_pull_forecast(
         int,
         typer.Option("--horizon", help="预测未来多少个交易日，范围 1 到 256。"),
     ] = 20,
+    windows: Annotated[
+        int,
+        typer.Option("--windows", help="walk-forward 窗口数，1 表示只预测最新截点。"),
+    ] = 1,
+    stride: Annotated[
+        int | None,
+        typer.Option("--stride", help="walk-forward 窗口步长，默认等于 horizon。"),
+    ] = None,
     model: Annotated[
         str,
         typer.Option("--model", help="TimesFM 模型名称。"),
@@ -1510,12 +1518,14 @@ def data_pull_forecast(
             symbols=parse_symbols(symbols),
             horizon_days=horizon,
             model_name=model,
+            windows=windows,
+            stride=stride,
         )
     except (ForecastProviderError, ValueError) as error:
         console.print(str(error), soft_wrap=True, markup=False)
         raise typer.Exit(code=1) from error
     console.print(f"TimesFM 预测已写入: {result.output_path}", soft_wrap=True)
-    console.print(f"预测代码数: {result.count}")
+    console.print(f"预测记录数: {result.count}")
     console.print("边界: 预测区间只用于研究比较，不是买卖建议。")
 
 

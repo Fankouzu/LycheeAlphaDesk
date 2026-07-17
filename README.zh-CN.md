@@ -105,7 +105,7 @@ lychee
 
 第一期数据引擎重点是先让数据可见、可审计，然后再接入真实 provider 插件。
 
-预测前置数据可通过 `lychee data pull history --symbols QQQ --days 365` 获取，系统会单独写入多日 `market-history.json` 历史缓存，默认 24 小时内复用。安装可选 TimesFM 运行时：`uv pip install -e '.[timesfm]'`，再运行 `lychee data pull forecast --symbols QQQ --horizon 20`，使用本地 TimesFM 2.5 适配器写入可审计的 `forecasts.json` 预测区间。`lychee data forecast-backtest --symbols QQQ` 会把已经有未来实际值的预测与最后值基线比较，并显示 MAE 和区间覆盖率。缺少 TimesFM 或历史长度不足时必须报错，不会静默替换其它模型。预测只用于研究比较，不是交易指令。
+预测前置数据可通过 `lychee data pull history --symbols QQQ --days 365` 获取，系统会单独写入多日 `market-history.json` 历史缓存，默认 24 小时内复用。安装可选 TimesFM 运行时：`uv pip install -e '.[timesfm]'`，再运行 `lychee data pull forecast --symbols QQQ --horizon 20`，使用本地 TimesFM 2.5 适配器写入可审计的 `forecasts.json` 预测区间。增加 `--windows 3 --stride 20` 可在多个历史截点生成 walk-forward 预测。`lychee data forecast-backtest --symbols QQQ` 会把已经有未来实际值的预测与最后值基线比较，并显示 MAE 和区间覆盖率。缺少 TimesFM 或历史长度不足时必须报错，不会静默替换其它模型。预测只用于研究比较，不是交易指令。
 
 ```bash
 uv run --no-editable lad data health --demo

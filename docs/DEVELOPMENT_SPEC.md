@@ -456,6 +456,7 @@ v0.1 defaults:
 - TimesFM provider optional.
 - The first real forecasting slice must use a separate multi-day `market-history.json` cache and an explicit optional TimesFM 2.5 provider. Missing the optional runtime or the minimum history context is a hard error; no silent fallback forecast is allowed. Forecast intervals must retain provider/model, horizon, input-cache provenance, and the non-advice boundary.
 - Forecast evaluation must compare completed forecasts with later actual history and a last-value baseline, reporting sample count, MAE, and interval coverage; without future actuals it must report no sample instead of fabricating a score.
+- Walk-forward generation must record each input cutoff and produce multiple forecast rows when requested; the same loaded model runtime should be reused across windows, and evaluation must aggregate only windows with later actual observations.
 - Provider keys stored in the user config directory, not project-level `.env` files.
 - All real provider failures must degrade to explicit warnings.
 - No silent fallback from real data to demo data.

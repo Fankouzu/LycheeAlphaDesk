@@ -2635,6 +2635,47 @@ def test_research_data_requests_command_lists_verification_hypothesis_requests(
     assert "数据请求队列只用于补证据，不是买卖建议" in result.stdout
 
 
+def test_research_data_requests_explains_mixed_official_and_manual_news(
+    tmp_path: Path,
+) -> None:
+    research_dir = tmp_path / "research"
+    research_dir.mkdir(parents=True, exist_ok=True)
+    verification_path = research_dir / "research-verification-tencent.json"
+    verification_path.write_text(
+        json.dumps(
+            {
+                "created_at": "2026-07-05T10:00:00+00:00",
+                "candidate": {
+                    "display_name": "Tencent",
+                    "symbol": "0700.HK",
+                    "market": "HK",
+                    "topic_news_exhausted": True,
+                },
+                "hypothesis_panel": {
+                    "next_data_requests": ["补齐可审计新闻证据。"]
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "research",
+            "data-requests",
+            "--symbol",
+            "0700.HK",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "先刷新官方新闻；完成后仍需录入已核验的原文或官方披露" in result.stdout
+
+
 def test_research_next_command_lists_unified_action_queue(
     monkeypatch: object,
     tmp_path: Path,

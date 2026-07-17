@@ -2634,22 +2634,28 @@ def _print_research_data_requests(requests: list[ResearchDataRequest]) -> None:
         )
         console.print(f"   请求: {item.request_text}", soft_wrap=True)
         needs_manual_source = research_data_request_needs_manual_source(item)
-        if needs_manual_source:
-            has_manual_news_action = any(
-                action.action_type == "manual_source" for action in item.suggested_actions
-            )
-            has_manual_filing_action = any(
-                action.action_type == "manual_filing" for action in item.suggested_actions
-            )
-            message = (
-                "   说明: 自动新闻已刷新但没有命中主题。请只录入已核验的原文或官方披露，"
-                "然后重新核验。"
-                if has_manual_news_action
-                else "   说明: 这条请求需要核验公告或表单正文。请录入已核验的关键事实和原始链接，"
-                "然后重新核验。"
-                if has_manual_filing_action
-                else "   说明: 这类数据当前没有自动补数据命令，需要人工补来源或等待插件接入。"
-            )
+        has_manual_news_action = any(
+            action.action_type == "manual_source" for action in item.suggested_actions
+        )
+        has_manual_filing_action = any(
+            action.action_type == "manual_filing" for action in item.suggested_actions
+        )
+        has_official_news_action = any(
+            action.action_type == "news_official" for action in item.suggested_actions
+        )
+        message = (
+            "   说明: 先刷新官方新闻；完成后仍需录入已核验的原文或官方披露，"
+            "然后重新核验。"
+            if has_manual_news_action and has_official_news_action
+            else "   说明: 自动新闻已刷新但没有命中主题。请只录入已核验的原文或官方披露，"
+            "然后重新核验。"
+            if has_manual_news_action
+            else "   说明: 这条请求需要核验公告或表单正文。请录入已核验的关键事实和原始链接，"
+            "然后重新核验。"
+            if has_manual_filing_action
+            else "   说明: 这类数据当前没有自动补数据命令，需要人工补来源或等待插件接入。"
+        )
+        if has_manual_news_action or has_manual_filing_action:
             console.print(message, soft_wrap=True)
         console.print("   建议命令:")
         for command in item.suggested_commands:

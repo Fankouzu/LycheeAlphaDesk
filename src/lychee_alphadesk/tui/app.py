@@ -1966,6 +1966,10 @@ def _research_data_requests_text(requests: list[ResearchDataRequest]) -> str:
         has_manual_filing_action = any(
             action.action_type == "manual_filing" for action in item.suggested_actions
         )
+        has_official_news_action = any(
+            action.action_type == "news_official"
+            for action in item.suggested_actions
+        )
         lines.extend(
             [
                 (
@@ -1976,6 +1980,11 @@ def _research_data_requests_text(requests: list[ResearchDataRequest]) -> str:
                 f"  请求: {item.request_text}",
                 *(
                     [
+                        "  说明: 先刷新官方新闻；完成后仍需录入已核验的原文或官方披露，"
+                        "然后重新核验。"
+                    ]
+                    if has_manual_news_action and has_official_news_action
+                    else [
                         "  说明: 自动新闻已刷新但没有命中主题。请只录入已核验的原文或官方披露，"
                         "然后重新核验。"
                     ]
@@ -1986,7 +1995,13 @@ def _research_data_requests_text(requests: list[ResearchDataRequest]) -> str:
                     ]
                     if has_manual_filing_action
                     else ["  说明: 这类数据当前没有自动补数据命令，需要人工补来源或等待插件接入。"]
-                    if research_data_request_needs_manual_source(item)
+                    if has_manual_news_action or has_manual_filing_action
+                    else []
+                ),
+                *(
+                    ["  自动动作完成后仍需人工核验来源。"]
+                    if (has_manual_news_action or has_manual_filing_action)
+                    and not research_data_request_needs_manual_source(item)
                     else []
                 ),
                 "  建议命令:",

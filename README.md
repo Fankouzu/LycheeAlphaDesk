@@ -615,6 +615,8 @@ The repository includes `examples/demo/broker-positions.csv` for a local dry run
 
 The import requires `symbol,name,quantity,avg_cost,currency,asset_type,as_of` and optionally accepts `account_id`, `fees_paid`, `taxes_paid`, and `corporate_action_note`. Missing account, fee, tax, or corporate-action reconciliation fields are recorded as audit gaps rather than inferred. When the same symbol comes from multiple accounts, quantity is merged for the read-only valuation while an explicit manual-reconciliation gap is retained. Extra imported symbols are surfaced but are not silently added to the target portfolio. The flow is read-only and does not connect to broker order execution.
 
+When prices cover the imported holdings, the snapshot also shows cost basis and unrealized difference from `avg_cost`. Cross-currency cost uses the current cached FX rate; fees and taxes remain in the imported native currency. These fields are explicitly not tax cost, broker reconciliation, or a return forecast.
+
 When the latest portfolio check still lacks prices, FX, or reconciliation data, `lychee research next` surfaces a `组合审计` action with the next data command. A complete read-only valuation snapshot does not create another action.
 
 `lychee research check` also shows a `组合风险上下文` section above research tasks with audit status, valuation coverage, base currency, drift readings, and the data needed before research. This is a data-completeness context only; it does not change candidates or produce rebalancing advice.

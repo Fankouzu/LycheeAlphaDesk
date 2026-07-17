@@ -1768,6 +1768,15 @@ class AlphaDeskApp(App[None]):
                             f"{result.base_currency} | 当前 {valuation.actual_weight:.2%} "
                             f"目标 {valuation.target_weight:.2%} | "
                             f"偏离 {valuation.drift:+.2%}"
+                            + (
+                                f" | 成本 {valuation.cost_basis_base:.2f} "
+                                f"{result.base_currency} | 未实现差额 "
+                                f"{valuation.unrealized_pnl_base:+.2f} "
+                                f"{result.base_currency}"
+                                if valuation.unrealized_pnl_base is not None
+                                and valuation.cost_basis_base is not None
+                                else ""
+                            )
                         )
                         for valuation in result.valuations
                     ],
@@ -1779,6 +1788,17 @@ class AlphaDeskApp(App[None]):
             *[f"✅ 通过: {item}" for item in result.policy_result.passes],
             *[f"⚠️ 警告: {item}" for item in [*result.policy_result.warnings, *result.warnings]],
             *[f"❌ 需要修正: {item}" for item in [*result.policy_result.errors, *result.errors]],
+            *(
+                [
+                    "成本基础和未实现差额仅按当前行情及当前 FX 缓存折算，"
+                    "不是税务成本、券商结算价值或收益预测。"
+                ]
+                if any(
+                    valuation.unrealized_pnl_base is not None
+                    for valuation in result.valuations
+                )
+                else []
+            ),
             f"检查记录: {artifact_path}",
             "边界: 这是组合练习和政策检查，不是估值、交易或投资建议。",
         ]

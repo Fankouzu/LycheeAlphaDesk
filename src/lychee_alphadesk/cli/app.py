@@ -304,6 +304,8 @@ def portfolio_check(
         valuation_table.add_column("当前比例")
         valuation_table.add_column("目标比例")
         valuation_table.add_column("偏离")
+        valuation_table.add_column("成本基础")
+        valuation_table.add_column("未实现差额")
         valuation_table.add_column("日期")
         for valuation in result.valuations:
             valuation_table.add_row(
@@ -312,9 +314,40 @@ def portfolio_check(
                 f"{valuation.actual_weight:.2%}",
                 f"{valuation.target_weight:.2%}",
                 f"{valuation.drift:+.2%}",
+                (
+                    f"{valuation.cost_basis_base:.2f} {result.base_currency}"
+                    if valuation.cost_basis_base is not None
+                    else "-"
+                ),
+                (
+                    f"{valuation.unrealized_pnl_base:+.2f} {result.base_currency}"
+                    if valuation.unrealized_pnl_base is not None
+                    else "-"
+                ),
                 valuation.fx_as_of or valuation.price_date or "-",
             )
         console.print(valuation_table)
+        audited_costs = [
+            valuation
+            for valuation in result.valuations
+            if valuation.fees_paid is not None or valuation.taxes_paid is not None
+        ]
+        if audited_costs:
+            console.print(
+                "费用/税费字段为导入文件原币读数，不代表已完成券商对账: "
+                + "；".join(
+                    f"{valuation.symbol} 费用 {valuation.fees_paid}"
+                    f" 税费 {valuation.taxes_paid}"
+                    for valuation in audited_costs
+                ),
+                soft_wrap=True,
+            )
+        if any(valuation.unrealized_pnl_base is not None for valuation in result.valuations):
+            console.print(
+                "成本基础和未实现差额仅按当前行情及当前 FX 缓存折算，"
+                "不是税务成本、券商结算价值或收益预测。",
+                soft_wrap=True,
+            )
     for gap in result.valuation_gaps:
         console.print(f"⚠️ 估值缺口: {gap}")
     for item in result.policy_result.passes:

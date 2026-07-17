@@ -341,6 +341,11 @@ def test_check_portfolio_uses_imported_quantity_for_read_only_valuation(
     aapl = next(item for item in result.valuations if item.symbol == "AAPL")
     assert aapl.value_base == 300
     assert aapl.actual_weight == 300 / 350
+    assert aapl.avg_cost == 90
+    assert aapl.cost_basis_base == 270
+    assert aapl.unrealized_pnl_base == 30
+    assert aapl.fees_paid is None
+    assert aapl.taxes_paid is None
     assert result.position_source == "ibkr_csv"
 
 

@@ -61,6 +61,12 @@ class PortfolioValuation:
     target_weight: float
     actual_weight: float
     drift: float
+    quantity: float = 0.0
+    avg_cost: float | None = None
+    cost_basis_base: float | None = None
+    unrealized_pnl_base: float | None = None
+    fees_paid: float | None = None
+    taxes_paid: float | None = None
 
 
 @dataclass(frozen=True)
@@ -268,7 +274,20 @@ def check_portfolio(
         )
         fx_by_quote = {rate.quote_currency: rate for rate in cached_fx}
         pending_values: list[
-            tuple[PortfolioTarget, str, float | None, str, str, float]
+            tuple[
+                PortfolioTarget,
+                str,
+                float | None,
+                str,
+                str,
+                float,
+                float,
+                float | None,
+                float | None,
+                float | None,
+                float | None,
+                float | None,
+            ]
         ] = []
         for target in targets:
             imported = imported_positions.get(target.symbol)
@@ -303,9 +322,14 @@ def check_portfolio(
                 price = price_row.close
                 price_date = price_row.date
                 native_value = (imported.quantity if imported else target.quantity) * price
+            quantity = imported.quantity if imported else target.quantity
+            avg_cost = imported.avg_cost if imported else None
+            fees_paid = imported.fees_paid if imported else None
+            taxes_paid = imported.taxes_paid if imported else None
             if currency == policy.base_currency:
                 base_value = native_value
                 fx_as_of = ""
+                cost_basis_base = quantity * avg_cost if avg_cost is not None else None
             else:
                 fx = fx_by_quote.get(currency)
                 if fx is None:
@@ -315,10 +339,31 @@ def check_portfolio(
                     continue
                 base_value = native_value / fx.rate
                 fx_as_of = fx.as_of
-            pending_values.append(
-                (target, currency, price, price_date, fx_as_of, base_value)
+                cost_basis_base = (
+                    quantity * avg_cost / fx.rate if avg_cost is not None else None
+                )
+            unrealized_pnl_base = (
+                base_value - cost_basis_base
+                if cost_basis_base is not None and target.symbol != "CASH"
+                else None
             )
-        total_value = sum(item[-1] for item in pending_values)
+            pending_values.append(
+                (
+                    target,
+                    currency,
+                    price,
+                    price_date,
+                    fx_as_of,
+                    base_value,
+                    quantity,
+                    avg_cost,
+                    cost_basis_base,
+                    unrealized_pnl_base,
+                    fees_paid,
+                    taxes_paid,
+                )
+            )
+        total_value = sum(item[5] for item in pending_values)
         if valuation_gaps:
             warnings.append("当前价值快照不完整: " + "；".join(valuation_gaps))
         elif total_value <= 0:
@@ -337,8 +382,27 @@ def check_portfolio(
                     target_weight=target.target_weight,
                     actual_weight=base_value / total_value,
                     drift=base_value / total_value - target.target_weight,
+                    quantity=quantity,
+                    avg_cost=avg_cost,
+                    cost_basis_base=cost_basis_base,
+                    unrealized_pnl_base=unrealized_pnl_base,
+                    fees_paid=fees_paid,
+                    taxes_paid=taxes_paid,
                 )
-                for target, currency, price, price_date, fx_as_of, base_value in pending_values
+                for (
+                    target,
+                    currency,
+                    price,
+                    price_date,
+                    fx_as_of,
+                    base_value,
+                    quantity,
+                    avg_cost,
+                    cost_basis_base,
+                    unrealized_pnl_base,
+                    fees_paid,
+                    taxes_paid,
+                ) in pending_values
             ]
 
     return PortfolioCheckResult(

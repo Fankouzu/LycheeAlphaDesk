@@ -335,7 +335,10 @@ def portfolio_import(
         Path,
         typer.Option(
             "--file",
-            help="持仓 CSV，字段: symbol,name,quantity,avg_cost,currency,asset_type,as_of。",
+            help=(
+                "持仓 CSV，字段: symbol,name,quantity,avg_cost,currency,asset_type,"
+                "as_of；可选 account_id。"
+            ),
         ),
     ],
     source: Annotated[
@@ -359,6 +362,11 @@ def portfolio_import(
         raise typer.Exit(code=1) from error
     console.print(f"已导入只读持仓: {len(result.positions)}")
     console.print(f"来源: {result.source}")
+    account_ids = sorted(
+        {position.account_id for position in result.positions if position.account_id}
+    )
+    if account_ids:
+        console.print(f"账户: {', '.join(account_ids)}")
     console.print(f"持仓缓存: {result.output_path}", soft_wrap=True)
     console.print(f"导入审计: {result.audit_path}", soft_wrap=True)
     for gap in result.audit_gaps:

@@ -1,5 +1,5 @@
-symbol,name,quantity,avg_cost,currency,asset_type,as_of,fees_paid,taxes_paid,corporate_action_note
-CASH,USD Cash,3000,1,USD,cash,2026-07-16,0,0,已核对现金余额
-SPY,SPDR S&P 500 ETF Trust,4,500,USD,etf,2026-07-16,1.2,0,已核对分拆与分红记录
-QQQ,Invesco QQQ Trust,2,450,USD,etf,2026-07-16,0.8,0,已核对分拆与分红记录
-2800.HK,Tracker Fund of Hong Kong,100,18,HKD,etf,2026-07-16,15,0,已核对派息与公司行动记录
+symbol,name,quantity,avg_cost,currency,asset_type,as_of,fees_paid,taxes_paid,corporate_action_note,account_id
+CASH,USD Cash,3000,1,USD,cash,2026-07-16,0,0,已核对现金余额,ibkr-paper
+SPY,SPDR S&P 500 ETF Trust,4,500,USD,etf,2026-07-16,1.2,0,已核对分拆与分红记录,ibkr-paper
+QQQ,Invesco QQQ Trust,2,450,USD,etf,2026-07-16,0.8,0,已核对分拆与分红记录,ibkr-paper
+2800.HK,Tracker Fund of Hong Kong,100,18,HKD,etf,2026-07-16,15,0,已核对派息与公司行动记录,ibkr-paper

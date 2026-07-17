@@ -35,6 +35,7 @@ class PortfolioPosition:
     fees_paid: float | None
     taxes_paid: float | None
     corporate_action_note: str
+    account_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -383,6 +384,8 @@ def import_portfolio_positions(
         audit_gaps.append("导出文件没有完整提供已支付税费。")
     if any(not position.corporate_action_note for position in positions):
         audit_gaps.append("导出文件没有公司行动核对说明。")
+    if any(not position.account_id for position in positions):
+        audit_gaps.append("导出文件没有账户标识，无法区分多账户持仓。")
 
     data_dir = output_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -459,6 +462,7 @@ def load_portfolio_positions(path: Path) -> list[PortfolioPosition]:
                 fees_paid = _optional_nonnegative_float(row.get("fees_paid"))
                 taxes_paid = _optional_nonnegative_float(row.get("taxes_paid"))
                 corporate_action_note = str(row.get("corporate_action_note") or "").strip()
+                account_id = str(row.get("account_id") or "").strip()
             except (TypeError, ValueError) as error:
                 raise ValueError(f"持仓文件第 {line_number} 行包含无效数字。") from error
             if not symbol or not name or not currency or not asset_type or not as_of:
@@ -483,6 +487,7 @@ def load_portfolio_positions(path: Path) -> list[PortfolioPosition]:
                     fees_paid,
                     taxes_paid,
                     corporate_action_note,
+                    account_id,
                 )
             )
     if not positions:
@@ -501,6 +506,11 @@ def load_imported_positions(
         raise ValueError(f"导入持仓快照不是有效 JSON: {path}") from error
     if not isinstance(payload, dict) or not isinstance(payload.get("rows"), list):
         raise ValueError("导入持仓快照缺少 rows。")
+    audit_gaps = [
+        str(item)
+        for item in payload.get("audit_gaps", [])
+        if isinstance(item, str) and item.strip()
+    ]
     positions: dict[str, PortfolioPosition] = {}
     for row in payload["rows"]:
         if not isinstance(row, dict):
@@ -525,19 +535,68 @@ def load_imported_positions(
                     else None
                 ),
                 corporate_action_note=str(row.get("corporate_action_note") or ""),
+                account_id=str(row.get("account_id") or ""),
             )
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError("导入持仓快照包含无法解析的行。") from error
-        if position.symbol in positions:
-            raise ValueError(f"导入持仓快照包含重复代码: {position.symbol}")
-        positions[position.symbol] = position
+        if position.symbol not in positions:
+            positions[position.symbol] = position
+            continue
+        positions[position.symbol] = _merge_imported_positions(
+            positions[position.symbol],
+            position,
+        )
+        audit_gaps.append(
+            f"{position.symbol} 出现在多个账户，当前按数量合并，需人工核对账户、费用和公司行动。"
+        )
     source = str(payload.get("source") or payload.get("provider") or "")
-    audit_gaps = [
-        str(item)
-        for item in payload.get("audit_gaps", [])
-        if isinstance(item, str) and item.strip()
-    ]
     return source, positions, audit_gaps
+
+
+def _merge_imported_positions(
+    first: PortfolioPosition,
+    second: PortfolioPosition,
+) -> PortfolioPosition:
+    quantity = first.quantity + second.quantity
+    if quantity:
+        avg_cost = (
+            first.avg_cost * first.quantity + second.avg_cost * second.quantity
+        ) / quantity
+    else:
+        avg_cost = 0.0
+    account_ids = [
+        account_id
+        for account_id in [first.account_id, second.account_id]
+        if account_id
+    ]
+    fees_paid = (
+        first.fees_paid + second.fees_paid
+        if first.fees_paid is not None and second.fees_paid is not None
+        else None
+    )
+    taxes_paid = (
+        first.taxes_paid + second.taxes_paid
+        if first.taxes_paid is not None and second.taxes_paid is not None
+        else None
+    )
+    notes = [
+        note
+        for note in [first.corporate_action_note, second.corporate_action_note]
+        if note
+    ]
+    return PortfolioPosition(
+        symbol=first.symbol,
+        name=first.name or second.name,
+        quantity=quantity,
+        avg_cost=avg_cost,
+        currency=first.currency,
+        asset_type=first.asset_type,
+        as_of=max(first.as_of, second.as_of),
+        fees_paid=fees_paid,
+        taxes_paid=taxes_paid,
+        corporate_action_note="；".join(dict.fromkeys(notes)),
+        account_id=";".join(dict.fromkeys(account_ids)),
+    )
 
 
 def _optional_nonnegative_float(value: object) -> float | None:

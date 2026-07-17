@@ -7,6 +7,7 @@ import yaml
 from lychee_alphadesk.core.portfolio import (
     check_portfolio,
     import_portfolio_positions,
+    load_imported_positions,
     load_portfolio_targets,
     write_portfolio_check_artifact,
 )
@@ -207,8 +208,8 @@ def test_import_portfolio_positions_preserves_source_and_audit_gaps(
 ) -> None:
     path = tmp_path / "broker-export.csv"
     path.write_text(
-        "symbol,name,quantity,avg_cost,currency,asset_type,as_of,fees_paid,taxes_paid,corporate_action_note\n"
-        "2800.HK,Tracker Fund,100,22.5,HKD,etf,2026-07-16,,,\n",
+        "symbol,name,quantity,avg_cost,currency,asset_type,as_of,fees_paid,taxes_paid,corporate_action_note,account_id\n"
+        "2800.HK,Tracker Fund,100,22.5,HKD,etf,2026-07-16,,,,account-1\n",
         encoding="utf-8",
     )
 
@@ -226,7 +227,61 @@ def test_import_portfolio_positions_preserves_source_and_audit_gaps(
     payload = json.loads(result.output_path.read_text(encoding="utf-8"))
     assert payload["source"] == "ibkr_csv"
     assert payload["rows"][0]["symbol"] == "2800.HK"
+    assert payload["rows"][0]["account_id"] == "account-1"
     assert result.audit_path.exists()
+
+
+def test_load_imported_positions_merges_same_symbol_across_accounts(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "positions.json"
+    path.write_text(
+        json.dumps(
+            {
+                "source": "ibkr_csv",
+                "rows": [
+                    {
+                        "symbol": "QQQ",
+                        "name": "Invesco QQQ Trust",
+                        "quantity": 1,
+                        "avg_cost": 400,
+                        "currency": "USD",
+                        "asset_type": "etf",
+                        "as_of": "2026-07-16",
+                        "fees_paid": 1,
+                        "taxes_paid": 0,
+                        "corporate_action_note": "已核对",
+                        "account_id": "account-a",
+                    },
+                    {
+                        "symbol": "QQQ",
+                        "name": "Invesco QQQ Trust",
+                        "quantity": 2,
+                        "avg_cost": 430,
+                        "currency": "USD",
+                        "asset_type": "etf",
+                        "as_of": "2026-07-17",
+                        "fees_paid": 2,
+                        "taxes_paid": 0,
+                        "corporate_action_note": "已核对",
+                        "account_id": "account-b",
+                    },
+                ],
+                "audit_gaps": [],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    source, positions, audit_gaps = load_imported_positions(path)
+
+    assert source == "ibkr_csv"
+    assert positions["QQQ"].quantity == 3
+    assert positions["QQQ"].avg_cost == 420
+    assert positions["QQQ"].fees_paid == 3
+    assert positions["QQQ"].account_id == "account-a;account-b"
+    assert any("多个账户" in gap for gap in audit_gaps)
 
 
 def test_check_portfolio_uses_imported_quantity_for_read_only_valuation(

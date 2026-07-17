@@ -13,6 +13,7 @@ from lychee_alphadesk.core.config import (
 from lychee_alphadesk.core.live_data import (
     _parse_sec_financial_snapshot,
     build_cached_data_snapshot,
+    pull_benchmark_comparison_metrics,
     pull_fund_metadata,
     pull_market_breadth_metrics,
     pull_market_prices,
@@ -572,6 +573,60 @@ def test_pull_market_breadth_metrics_requires_supported_symbol(tmp_path: Path) -
         assert "QQQ" in str(error)
     else:
         raise AssertionError("unsupported symbol should fail clearly")
+
+
+def test_pull_benchmark_comparison_metrics_calculates_qqq_vs_spy(
+    tmp_path: Path,
+) -> None:
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        assert "query1.finance.yahoo.com/v7/finance/spark" in url
+        assert headers is not None
+        return {
+            "spark": {
+                "result": [
+                    {
+                        "symbol": "QQQ",
+                        "response": [
+                            {
+                                "timestamp": [1783949400 + index * 86400 for index in range(6)],
+                                "indicators": {
+                                    "quote": [{"close": [100, 101, 102, 103, 104, 106]}]
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "symbol": "SPY",
+                        "response": [
+                            {
+                                "timestamp": [1783949400 + index * 86400 for index in range(6)],
+                                "indicators": {
+                                    "quote": [{"close": [200, 201, 202, 203, 204, 205]}]
+                                },
+                            }
+                        ],
+                    },
+                ]
+            }
+        }
+
+    result = pull_benchmark_comparison_metrics(
+        symbols=["QQQ"],
+        output_dir=tmp_path,
+        fetch_json=fetch_json,
+        force=True,
+    )
+
+    assert result.provider == "yahoo_public"
+    assert result.count == 3
+    metrics = read_research_metric_cache(tmp_path)
+    assert [metric.name for metric in metrics] == [
+        "QQQ 5 交易日变化",
+        "SPY 5 交易日变化",
+        "QQQ 相对 SPY 5 交易日差异",
+    ]
+    assert [metric.value for metric in metrics] == ["+6.00%", "+2.50%", "+3.50 个百分点"]
+    assert metrics[2].domain == "benchmark_comparison"
 
 
 def test_pull_market_prices_auto_uses_eastmoney_for_hk_symbols(

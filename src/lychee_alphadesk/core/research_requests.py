@@ -9,6 +9,7 @@ from lychee_alphadesk.core.live_data import (
     FundMetadataGuide,
     PullResult,
     ResearchMetric,
+    pull_benchmark_comparison_metrics,
     pull_fund_metadata,
     pull_market_breadth_metrics,
     pull_market_prices,
@@ -36,6 +37,7 @@ PullFinancials = Callable[..., PullResult]
 PullVolatility = Callable[..., PullResult]
 PullBreadth = Callable[..., PullResult]
 PullFundMetadata = Callable[..., PullResult]
+PullBenchmark = Callable[..., PullResult]
 WriteFundGuide = Callable[..., FundMetadataGuide]
 VerifyTask = Callable[..., object]
 
@@ -214,6 +216,7 @@ def fulfill_research_data_request(
     pull_volatility: PullVolatility = pull_volatility_metrics,
     pull_breadth: PullBreadth = pull_market_breadth_metrics,
     pull_fund_metadata: PullFundMetadata = pull_fund_metadata,
+    pull_benchmark: PullBenchmark = pull_benchmark_comparison_metrics,
     write_fund_guide: WriteFundGuide = write_fund_metadata_guide,
     verify_task: VerifyTask = verify_research_task,
 ) -> ResearchDataRequestFulfillment:
@@ -257,6 +260,7 @@ def fulfill_research_data_request(
             pull_volatility=pull_volatility,
             pull_breadth=pull_breadth,
             pull_fund_metadata=pull_fund_metadata,
+            pull_benchmark=pull_benchmark,
             write_fund_guide=write_fund_guide,
         )
         executions.append(execution)
@@ -273,6 +277,7 @@ def fulfill_research_data_request(
                 "breadth",
                 "news_official",
                 "fund_metadata",
+                "benchmark",
             }
         ):
             data_changed = True
@@ -1172,6 +1177,13 @@ def _suggest_data_request_actions(
                 f"{','.join(market_symbols)} --provider auto --force",
             )
         )
+    if _looks_like_benchmark_comparison_request(lowered) and record.symbol:
+        actions.append(
+            ResearchDataRequestAction(
+                "benchmark",
+                f"lychee data pull benchmark --symbols {record.symbol} --force",
+            )
+        )
     if (
         _looks_like_news_request(lowered)
         and not is_volatility_request
@@ -1233,6 +1245,7 @@ def _execute_data_request_action(
     pull_volatility: PullVolatility,
     pull_breadth: PullBreadth,
     pull_fund_metadata: PullFundMetadata,
+    pull_benchmark: PullBenchmark,
     write_fund_guide: WriteFundGuide,
 ) -> ResearchDataRequestExecution:
     try:
@@ -1280,6 +1293,15 @@ def _execute_data_request_action(
                 force=force,
             )
             return _pull_execution(action, result, "官方基金资料已刷新。")
+        if action.action_type == "benchmark":
+            if not request.symbol:
+                raise ValueError("基准比较刷新需要主题证券代码。")
+            result = pull_benchmark(
+                symbols=[request.symbol],
+                output_dir=output_dir,
+                force=force,
+            )
+            return _pull_execution(action, result, "基准比较指标已刷新。")
         if action.action_type == "market":
             if not request.symbol:
                 raise ValueError("行情刷新需要证券代码。")
@@ -1497,6 +1519,13 @@ def _market_request_symbols(symbol: str, request_text: str) -> list[str]:
     ):
         return ["QQQ", "SPY"]
     return [normalized]
+
+
+def _looks_like_benchmark_comparison_request(text: str) -> bool:
+    return _has_any(
+        text,
+        ("更宽市场基准", "宽基", "benchmark", "s&p 500", "spy"),
+    ) and _has_any(text, ("对比", "比较", "相对强弱", "vs", "versus"))
 
 
 def _looks_like_volatility_request(text: str) -> bool:

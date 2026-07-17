@@ -965,6 +965,21 @@ def test_verify_research_task_uses_source_backed_research_metrics(
         source_url="https://example.com/storage-breadth",
         note="用于观察是否从单一股票扩散到供应链。",
     )
+    for name, value in (
+        ("QQQ 5 交易日变化", "-3.98%"),
+        ("SPY 5 交易日变化", "-1.52%"),
+        ("QQQ 相对 SPY 5 交易日差异", "-2.46 个百分点"),
+    ):
+        write_research_metric_cache(
+            output_dir=tmp_path,
+            symbol="STX",
+            domain="benchmark_comparison",
+            name=name,
+            value=value,
+            as_of="2026-07-17",
+            source_url="https://query1.finance.yahoo.com/v7/finance/spark",
+            note="用于测试主题与宽基的相对表现读数。",
+        )
 
     result = verify_research_task(
         output_dir=tmp_path,
@@ -978,6 +993,13 @@ def test_verify_research_task_uses_source_backed_research_metrics(
     assert any(
         "研究指标: STX 市场广度 AI 存储链扩散指标 = 7/10 上涨" in item
         and "来源 https://example.com/storage-breadth" in item
+        for item in result.evidence_board["support"]
+    )
+    benchmark_check = next(check for check in result.checks if check.name == "基准比较核验")
+    assert benchmark_check.status == "pass"
+    assert "QQQ 相对 SPY 5 交易日差异" in benchmark_check.detail
+    assert any(
+        "研究指标: STX 基准比较 QQQ 相对 SPY 5 交易日差异 = -2.46 个百分点" in item
         for item in result.evidence_board["support"]
     )
     detail = render_research_task_detail(result.candidate, result.packet)

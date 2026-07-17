@@ -489,6 +489,7 @@ def test_fulfill_research_data_request_runs_market_pull_and_verify(
         ["请提供 QQQ 与更宽市场基准的行情、成交量和相对强弱对比。"],
     )
     market_calls: list[dict[str, object]] = []
+    benchmark_calls: list[dict[str, object]] = []
     verify_calls: list[dict[str, object]] = []
 
     def fake_pull_market(**kwargs: object) -> PullResult:
@@ -499,11 +500,22 @@ def test_fulfill_research_data_request_runs_market_pull_and_verify(
         verify_calls.append(kwargs)
         return SimpleNamespace(artifact_path=tmp_path / "research" / "verify.json")
 
+    def fake_benchmark(**kwargs: object) -> PullResult:
+        benchmark_calls.append(kwargs)
+        return PullResult(
+            "research_metric",
+            "yahoo_public",
+            3,
+            tmp_path / "data" / "research-metrics.json",
+            [],
+        )
+
     result = fulfill_research_data_request(
         tmp_path,
         request_index=1,
         symbol="QQQ",
         pull_market=fake_pull_market,
+        pull_benchmark=fake_benchmark,
         verify_task=fake_verify,
     )
 
@@ -516,11 +528,16 @@ def test_fulfill_research_data_request_runs_market_pull_and_verify(
         }
     ]
     assert verify_calls == [{"output_dir": tmp_path, "symbol": "QQQ", "name": None}]
+    assert benchmark_calls == [
+        {"symbols": ["QQQ"], "output_dir": tmp_path, "force": True}
+    ]
     assert [execution.action_type for execution in result.executions] == [
         "market",
+        "benchmark",
         "verify",
     ]
     assert [execution.status for execution in result.executions] == [
+        "completed",
         "completed",
         "completed",
     ]
@@ -662,25 +679,37 @@ def test_fulfill_research_data_request_no_data_does_not_verify(
         verify_calls.append(kwargs)
         return SimpleNamespace(artifact_path=tmp_path / "research" / "verify.json")
 
+    def fake_benchmark(**kwargs: object) -> PullResult:
+        return PullResult(
+            "research_metric",
+            "yahoo_public",
+            0,
+            tmp_path / "data" / "research-metrics.json",
+            [],
+        )
+
     result = fulfill_research_data_request(
         tmp_path,
         request_index=1,
         symbol="QQQ",
         pull_market=fake_pull_market,
+        pull_benchmark=fake_benchmark,
         verify_task=fake_verify,
     )
 
     assert verify_calls == []
     assert [execution.action_type for execution in result.executions] == [
         "market",
+        "benchmark",
         "verify",
     ]
     assert [execution.status for execution in result.executions] == [
         "no-data",
+        "no-data",
         "skipped",
     ]
     assert "没有获取到匹配数据" in result.executions[0].message
-    assert "未重新核验" in result.executions[1].message
+    assert "未重新核验" in result.executions[2].message
 
 
 def test_fulfill_research_data_request_prepares_fund_template_without_verify(

@@ -1025,6 +1025,20 @@ def build_research_verification_checks(
                 detail=_research_metric_check_detail(research_metrics),
             )
         )
+        benchmark_metrics = [
+            row
+            for row in research_metrics
+            if _string_value(row.get("domain")).casefold()
+            == "benchmark_comparison"
+        ]
+        if benchmark_metrics:
+            checks.append(
+                ResearchVerificationCheck(
+                    name="基准比较核验",
+                    status="pass" if len(benchmark_metrics) >= 3 else "warn",
+                    detail=_research_metric_check_detail(benchmark_metrics),
+                )
+            )
     if _requires_direct_fund_metadata(candidate, packet):
         has_metadata = _direct_fund_metadata_is_complete(candidate, packet_payload)
         checks.append(
@@ -1078,6 +1092,16 @@ def build_research_evidence_board(
     support.extend(_proxy_operability_support_lines(packet_payload))
     support.extend(_proxy_fund_metadata_support_lines(packet_payload))
     support.extend(_research_metric_support_lines(research_metrics))
+    support.extend(
+        _research_metric_support_lines(
+            [
+                row
+                for row in research_metrics
+                if _string_value(row.get("domain")).casefold()
+                == "benchmark_comparison"
+            ]
+        )
+    )
     missing.extend(_market_breadth_missing_lines(candidate, research_metrics))
     missing.extend(_proxy_missing_data_lines(packet_payload))
     topic_relevance = _news_topic_relevance(
@@ -1375,6 +1399,7 @@ def _research_metric_domain_label(domain: str) -> str:
     return {
         "market_breadth": "市场广度",
         "volatility_metrics": "波动率指标",
+        "benchmark_comparison": "基准比较",
         "fund_flows": "资金流",
         "sector_performance": "行业表现",
     }.get(domain.strip().lower(), domain or "研究指标")

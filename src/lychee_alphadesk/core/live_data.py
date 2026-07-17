@@ -70,6 +70,7 @@ NASDAQ_INDEX_HISTORY_DATA_URL = "https://indexes.nasdaq.com/Index/HistoryData"
 NASDAQ_MARKET_BREADTH_SYMBOLS: dict[str, tuple[str, str]] = {
     "QQQ": ("NDX", "NDXE"),
 }
+YAHOO_BENCHMARK_SYMBOLS: dict[str, str] = {"QQQ": "SPY"}
 NEWS_ENTITY_QUERIES: dict[str, str] = {
     "0700.HK": "Tencent OR 腾讯",
     "2800.HK": "Hang Seng Index OR 恒生指数 OR 盈富基金",
@@ -697,6 +698,181 @@ def pull_market_breadth_metrics(
         forced=force,
     )
     return PullResult("research_metric", "nasdaq_public", len(rows), output_path, warnings)
+
+
+def pull_benchmark_comparison_metrics(
+    *,
+    symbols: list[str],
+    output_dir: Path,
+    fetch_json: JsonFetcher | None = None,
+    force: bool = False,
+    now: datetime | None = None,
+) -> PullResult:
+    """计算 QQQ 与 SPY 最近五个交易日的相对变化。"""
+    normalized_symbols = _normalized_symbols(symbols)
+    supported_symbols = [
+        symbol for symbol in normalized_symbols if symbol in YAHOO_BENCHMARK_SYMBOLS
+    ]
+    if not supported_symbols:
+        raise ValueError("当前公开基准比较 provider 仅支持: QQQ。")
+    comparison_symbols = _normalized_symbols(
+        [*supported_symbols]
+        + [YAHOO_BENCHMARK_SYMBOLS[symbol] for symbol in supported_symbols]
+    )
+    freshness = evaluate_research_metrics_cache(
+        output_dir=output_dir,
+        provider="yahoo_public",
+        symbols=comparison_symbols,
+        now=now,
+        force=force,
+    )
+    if not freshness.should_refresh and freshness.entry is not None:
+        cached_rows = [
+            row
+            for row in _read_cache(output_dir, "research-metrics.json").rows
+            if _cache_row_symbol(row) in set(supported_symbols)
+            and str(row.get("domain") or "").strip() == "benchmark_comparison"
+            and str(row.get("provider") or "").strip() == "yahoo_public"
+        ]
+        return PullResult(
+            "research_metric",
+            freshness.entry.provider,
+            len(cached_rows),
+            freshness.entry.artifact_path,
+            [freshness.reason],
+            refreshed=False,
+        )
+
+    fetcher = fetch_json or _fetch_json
+    url = (
+        "https://query1.finance.yahoo.com/v7/finance/spark?"
+        + urllib.parse.urlencode(
+            {
+                "symbols": ",".join(comparison_symbols),
+                "range": "1mo",
+                "interval": "1d",
+            }
+        )
+    )
+    payload = _fetch_provider_json(
+        fetcher,
+        url,
+        {"User-Agent": "Mozilla/5.0 LycheeAlphaDesk/0.1"},
+    )
+    histories = _parse_yahoo_spark_history(payload)
+    rows: list[ResearchMetric] = []
+    for symbol in supported_symbols:
+        benchmark = YAHOO_BENCHMARK_SYMBOLS[symbol]
+        theme_change = _five_day_change(histories.get(symbol, []))
+        benchmark_change = _five_day_change(histories.get(benchmark, []))
+        if theme_change is None or benchmark_change is None:
+            continue
+        theme_value, theme_as_of = theme_change
+        benchmark_value, benchmark_as_of = benchmark_change
+        source_url = url
+        rows.extend(
+            [
+                ResearchMetric(
+                    symbol=symbol,
+                    domain="benchmark_comparison",
+                    name=f"{symbol} 5 交易日变化",
+                    value=f"{theme_value:+.2f}%",
+                    as_of=theme_as_of,
+                    source_url=source_url,
+                    note="Yahoo Finance 公开历史收盘；仅用于相对表现研究，不构成交易指令。",
+                    provider="yahoo_public",
+                ),
+                ResearchMetric(
+                    symbol=symbol,
+                    domain="benchmark_comparison",
+                    name=f"{benchmark} 5 交易日变化",
+                    value=f"{benchmark_value:+.2f}%",
+                    as_of=benchmark_as_of,
+                    source_url=source_url,
+                    note="作为更宽市场基准，与主题入口使用相同窗口比较。",
+                    provider="yahoo_public",
+                ),
+                ResearchMetric(
+                    symbol=symbol,
+                    domain="benchmark_comparison",
+                    name=f"{symbol} 相对 {benchmark} 5 交易日差异",
+                    value=f"{theme_value - benchmark_value:+.2f} 个百分点",
+                    as_of=min(theme_as_of, benchmark_as_of),
+                    source_url=source_url,
+                    note="相对表现差异不是收益预测，也不能单独构成研究结论。",
+                    provider="yahoo_public",
+                ),
+            ]
+        )
+    if not rows:
+        raise ValueError("Yahoo Finance 没有返回足够的 QQQ/SPY 历史收盘数据。")
+    output_path = _write_cache(
+        output_dir=output_dir,
+        filename="research-metrics.json",
+        provider="yahoo_public",
+        rows=_merge_research_metric_cache_rows(output_dir, [asdict(row) for row in rows]),
+        warnings=[],
+        now=now,
+    )
+    record_research_metrics_cache(
+        output_dir=output_dir,
+        provider="yahoo_public",
+        symbols=comparison_symbols,
+        artifact_path=output_path,
+        row_count=len(rows),
+        now=now,
+        forced=force,
+    )
+    return PullResult("research_metric", "yahoo_public", len(rows), output_path, [])
+
+
+def _parse_yahoo_spark_history(
+    payload: object,
+) -> dict[str, list[tuple[str, float]]]:
+    if not isinstance(payload, dict):
+        return {}
+    spark = payload.get("spark")
+    if not isinstance(spark, dict):
+        return {}
+    results = spark.get("result")
+    if not isinstance(results, list):
+        return {}
+    histories: dict[str, list[tuple[str, float]]] = {}
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        raw_symbol = item.get("symbol")
+        symbol = raw_symbol.strip().upper() if isinstance(raw_symbol, str) else ""
+        response = item.get("response")
+        first = response[0] if isinstance(response, list) and response else None
+        if not symbol or not isinstance(first, dict):
+            continue
+        timestamps = first.get("timestamp")
+        indicators = first.get("indicators")
+        quote = indicators.get("quote") if isinstance(indicators, dict) else None
+        quote_row = quote[0] if isinstance(quote, list) and quote else None
+        closes = quote_row.get("close") if isinstance(quote_row, dict) else None
+        if not isinstance(timestamps, list) or not isinstance(closes, list):
+            continue
+        parsed: list[tuple[str, float]] = []
+        for index, close in enumerate(closes):
+            if not isinstance(close, int | float) or index >= len(timestamps):
+                continue
+            parsed.append((_date_from_epoch(timestamps[index]), float(close)))
+        if parsed:
+            histories[symbol] = parsed
+    return histories
+
+
+def _five_day_change(history: list[tuple[str, float]]) -> tuple[float, str] | None:
+    if len(history) < 6:
+        return None
+    first_date, first_value = history[-6]
+    last_date, last_value = history[-1]
+    if first_value == 0:
+        return None
+    del first_date
+    return ((last_value - first_value) / first_value * 100, last_date)
 
 
 def _parse_nasdaq_index_history(payload: object) -> list[tuple[str, float]]:

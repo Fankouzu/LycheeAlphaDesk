@@ -1119,7 +1119,10 @@ def _select_request(
     request_id: str | None,
 ) -> ResearchDataRequest:
     if not requests:
-        raise ValueError("暂无研究数据请求。请先运行 `lychee research memo`。")
+        raise ValueError(
+            "暂无研究数据请求。请先运行 `lychee research verify` 或 "
+            "`lychee research memo` 生成下一批可执行数据请求。"
+        )
     if request_id:
         for request in requests:
             if request.request_id == request_id:

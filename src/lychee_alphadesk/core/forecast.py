@@ -107,7 +107,8 @@ def generate_timesfm_forecasts(
     history_path = output_dir / "data" / "market-history.json"
     if not history_path.exists():
         raise ForecastProviderError(
-            "没有历史行情缓存；请先运行 `lychee data pull history --symbols ...`。"
+            "没有历史行情缓存；可先运行 "
+            "`lychee data pull history --symbols AAPL`。"
         )
     try:
         payload = json.loads(history_path.read_text(encoding="utf-8"))

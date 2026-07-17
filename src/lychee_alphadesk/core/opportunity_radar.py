@@ -290,8 +290,10 @@ def build_opportunity_radar(
             status="blocked",
             signals=[],
             warnings=[
-                "缺少本地行情或新闻缓存。请先运行 `lychee data pull market` "
-                "和 `lychee data pull news`，或运行 `lychee discover today`。"
+                "缺少本地行情或新闻缓存。可先运行 `lychee data pull market "
+                "--symbols AAPL --provider auto` 和 `lychee data pull news "
+                "--symbols AAPL --provider auto` 建立示例缓存，"
+                "或运行 `lychee discover today`。"
             ],
             disclaimer="非投资建议。机会雷达只用于决定下一步研究什么。",
         )

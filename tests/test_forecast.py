@@ -70,6 +70,17 @@ def test_timesfm_adapter_reports_missing_optional_runtime() -> None:
         )
 
 
+def test_generate_timesfm_forecasts_reports_a_complete_history_command(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ForecastProviderError, match="lychee data pull history --symbols AAPL"):
+        generate_timesfm_forecasts(
+            output_dir=tmp_path,
+            symbols=["AAPL"],
+            horizon_days=5,
+        )
+
+
 def test_generate_timesfm_forecasts_reads_history_and_writes_auditable_cache(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

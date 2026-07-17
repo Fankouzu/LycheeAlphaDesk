@@ -143,6 +143,8 @@ def test_opportunity_radar_requires_local_market_and_news_cache(tmp_path: Path) 
     assert report.status == "blocked"
     assert not report.signals
     assert "缺少本地行情或新闻缓存" in report.warnings[0]
+    assert "lychee data pull market --symbols AAPL --provider auto" in report.warnings[0]
+    assert "lychee data pull news --symbols AAPL --provider auto" in report.warnings[0]
 
 
 def test_opportunity_radar_filters_symbol_noise_without_market_context(

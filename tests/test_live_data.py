@@ -2111,6 +2111,95 @@ def test_pull_news_events_uses_topic_query_for_newsapi(tmp_path: Path) -> None:
     )
 
 
+def test_newsapi_symbol_news_filters_same_name_non_financial_articles(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["newsapi"].value = "demo-newsapi-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        del headers
+        assert "newsapi.org/v2/everything" in url
+        return {
+            "articles": [
+                {
+                    "publishedAt": "2026-07-06T10:00:00Z",
+                    "title": "Apple shares hit a new closing high",
+                    "description": "Investors followed Apple company earnings.",
+                    "url": "https://example.com/apple-shares",
+                },
+                {
+                    "publishedAt": "2026-07-06T09:00:00Z",
+                    "title": "Anya Taylor-Joy x3",
+                    "description": "A television review mentions Apple TV+.",
+                    "url": "https://example.com/apple-tv",
+                },
+            ]
+        }
+
+    result = pull_news_events(
+        symbols=["AAPL"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="newsapi",
+        fetch_json=fetch_json,
+        force=True,
+    )
+
+    assert result.count == 1
+    rows = json.loads(result.output_path.read_text(encoding="utf-8"))["rows"]
+    assert [row["headline"] for row in rows] == ["Apple shares hit a new closing high"]
+
+
+def test_auto_news_fallback_continues_for_symbols_missing_from_first_provider(
+    tmp_path: Path,
+) -> None:
+    config = default_config()
+    config.providers["newsapi"].value = "demo-newsapi-key"
+    config_path = save_config(config, tmp_path / "config.yaml")
+
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        del headers
+        if "newsapi.org" in url:
+            if "Apple" in url:
+                return {
+                    "articles": [
+                        {
+                            "publishedAt": "2026-07-06T10:00:00Z",
+                            "title": "Apple shares rise",
+                            "description": "Apple company shares rose in market trading.",
+                            "url": "https://example.com/apple-shares",
+                        }
+                    ]
+                }
+            return {"articles": []}
+        assert "api.gdeltproject.org" in url
+        return {
+            "articles": [
+                {
+                    "seendate": "20260706T100000Z",
+                    "title": "CSI 300 market update",
+                    "url": "https://example.com/csi300",
+                }
+            ]
+        }
+
+    result = pull_news_events(
+        symbols=["AAPL", "510300.SH"],
+        config_path=config_path,
+        output_dir=tmp_path,
+        provider_id="auto",
+        fetch_json=fetch_json,
+        force=True,
+    )
+
+    assert result.provider == "newsapi+gdelt"
+    assert result.count == 2
+    rows = json.loads(result.output_path.read_text(encoding="utf-8"))["rows"]
+    assert {row["symbols"][0] for row in rows} == {"AAPL", "510300.SH"}
+
+
 def test_pull_news_events_preserves_existing_news_rows(tmp_path: Path) -> None:
     config = default_config()
     config.providers["newsapi"].value = "demo-newsapi-key"

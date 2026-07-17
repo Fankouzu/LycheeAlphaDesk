@@ -1529,7 +1529,8 @@ def pull_news_events(
     registry = news_provider_registry or discover_news_provider_plugins()
     warnings.extend(_sanitize_error_message(item) for item in registry.diagnostics)
     rows: list[NewsEvent] = []
-    selected_provider = ""
+    selected_providers: list[str] = []
+    remaining_symbols = [symbol.strip().upper() for symbol in symbols if symbol.strip()]
     last_empty_provider = ""
     last_error: RuntimeError | None = None
 
@@ -1543,10 +1544,11 @@ def pull_news_events(
         if query and candidate == "finnhub":
             warnings.append("Finnhub 不支持主题关键词新闻查询，正在尝试下一个新闻数据源")
             continue
+        request_symbols = remaining_symbols if symbols else symbols
         try:
-            rows = _pull_news_for_provider(
+            provider_rows = _pull_news_for_provider(
                 provider_id=candidate,
-                symbols=symbols,
+                symbols=request_symbols,
                 query=query,
                 start=start,
                 end=end,
@@ -1567,19 +1569,42 @@ def pull_news_events(
                 )
                 continue
             raise last_error from error
-        if not rows and provider_id == "auto":
+        if not provider_rows and provider_id == "auto":
             last_empty_provider = candidate
             warnings.append(
                 f"{_news_provider_display_name(candidate, registry)} 没有返回匹配新闻，"
                 "正在尝试下一个可用新闻数据源"
             )
             continue
-        selected_provider = candidate
+        if not provider_rows:
+            selected_providers.append(candidate)
+            break
+        rows.extend(provider_rows)
+        selected_providers.append(candidate)
+        if not symbols:
+            break
+        covered_symbols = {
+            symbol
+            for row in provider_rows
+            for symbol in row.symbols
+            if symbol in remaining_symbols
+        }
+        remaining_symbols = [
+            symbol for symbol in remaining_symbols if symbol not in covered_symbols
+        ]
+        if not remaining_symbols:
+            break
+        if provider_id == "auto":
+            warnings.append(
+                f"{_news_provider_display_name(candidate, registry)} 只覆盖部分代码，"
+                f"继续补齐: {', '.join(remaining_symbols)}"
+            )
+            continue
         break
 
-    if not selected_provider:
+    if not selected_providers:
         if last_empty_provider:
-            selected_provider = last_empty_provider
+            selected_providers = [last_empty_provider]
             rows = []
         elif last_error:
             raise last_error
@@ -1588,6 +1613,7 @@ def pull_news_events(
                 "尚未配置可用新闻数据源。请配置内置新闻来源，或安装并配置新闻插件。"
             )
 
+    selected_provider = "+".join(dict.fromkeys(selected_providers))
     new_rows = [asdict(row) for row in rows]
     cache_rows = _merge_news_cache_rows(output_dir, new_rows)
     output_path = _write_cache(
@@ -3350,6 +3376,8 @@ def _pull_newsapi_events(
         for item in articles:
             if not isinstance(item, dict):
                 continue
+            if not _newsapi_article_matches_target(item, target_symbols, query or ""):
+                continue
             rows.append(
                 NewsEvent(
                     timestamp=str(item.get("publishedAt") or ""),
@@ -3361,6 +3389,83 @@ def _pull_newsapi_events(
                 )
             )
     return rows
+
+
+def _newsapi_article_matches_target(
+    item: dict[str, object],
+    target_symbols: list[str],
+    effective_query: str = "",
+) -> bool:
+    """Reject same-name noise before it becomes symbol-scoped evidence."""
+    if not _is_symbol_scoped_news_target(target_symbols):
+        return True
+    symbol = target_symbols[0].strip().upper()
+    entity_query = NEWS_ENTITY_QUERIES.get(symbol)
+    if not entity_query:
+        # A custom symbol query may be a theme rather than an issuer name.
+        return True
+    text = " ".join(
+        str(item.get(field) or "")
+        for field in ("title", "description", "content")
+    ).casefold()
+    entity_terms: list[str] = []
+    for alias in entity_query.split(" OR "):
+        clean_alias = alias.strip().casefold()
+        if not clean_alias:
+            continue
+        entity_terms.append(clean_alias)
+        first_word = clean_alias.split()[0]
+        if (
+            first_word != clean_alias
+            and clean_alias.split()[-1]
+            in {"inc", "corp", "corporation", "limited", "ltd", "plc", "company"}
+        ):
+            entity_terms.append(first_word)
+    entity_match = any(term in text for term in entity_terms)
+    query_terms = [
+        term.strip("()\"'").casefold()
+        for term in re.split(r"\s+(?:AND|OR)\s+|\s+", effective_query)
+        if len(term.strip("()\"'")) >= 3
+    ]
+    topic_match = bool(query_terms) and all(term in text for term in query_terms)
+    if not entity_match and not topic_match:
+        return False
+    return any(
+        term in text
+        for term in (
+            "share",
+            "stock",
+            "market",
+            "index",
+            "fund",
+            "etf",
+            "earnings",
+            "revenue",
+            "profit",
+            "sales",
+            "investor",
+            "company",
+            "business",
+            "cloud",
+            "chip",
+            "semiconductor",
+            "technology",
+            "finance",
+            "经济",
+            "公司",
+            "股票",
+            "指数",
+            "基金",
+            "财报",
+            "营收",
+            "利润",
+            "投资者",
+            "云",
+            "芯片",
+            "半导体",
+            "科技",
+        )
+    )
 
 
 def _newsapi_targets(

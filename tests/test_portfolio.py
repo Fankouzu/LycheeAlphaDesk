@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import yaml
@@ -78,6 +79,67 @@ def test_check_portfolio_rejects_weight_and_blocked_product(tmp_path: Path) -> N
     assert any("低于政策最低值" in error for error in result.errors)
     assert any("超过单项上限" in error for error in result.errors)
     assert any("禁止的产品类型" in error for error in result.errors)
+
+
+def test_check_portfolio_surfaces_foreign_currency_without_fx_assumption(
+    tmp_path: Path,
+) -> None:
+    portfolio = tmp_path / "portfolio.csv"
+    portfolio.write_text(
+        "symbol,name,quantity,target_weight,asset_type,currency\n"
+        "CASH,USD Cash,3000,0.40,cash,USD\n"
+        "AAPL,Apple,2,0.20,stock,USD\n"
+        "2800.HK,Tracker Fund,100,0.20,etf,HKD\n"
+        "510300.SH,CSI 300 ETF,100,0.20,etf,CNY\n",
+        encoding="utf-8",
+    )
+    policy = tmp_path / "policy.yaml"
+    _write_policy(policy)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "test",
+                "rows": [
+                    {
+                        "symbol": "AAPL",
+                        "date": "2026-07-16",
+                        "close": 1,
+                        "volume": 1,
+                        "currency": "USD",
+                    },
+                    {
+                        "symbol": "2800.HK",
+                        "date": "2026-07-16",
+                        "close": 1,
+                        "volume": 1,
+                        "currency": "HKD",
+                    },
+                    {
+                        "symbol": "510300.SH",
+                        "date": "2026-07-16",
+                        "close": 1,
+                        "volume": 1,
+                        "currency": "CNY",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = check_portfolio(
+        portfolio_path=portfolio,
+        policy_path=policy,
+        output_dir=tmp_path,
+    )
+
+    assert result.ok
+    assert result.status_label == "政策通过，等待 FX"
+    assert result.currencies == ["CNY", "HKD", "USD"]
+    assert result.foreign_currency_symbols == ["2800.HK", "510300.SH"]
+    assert any("缺少 FX provider" in warning for warning in result.warnings)
 
 
 def test_load_portfolio_targets_requires_stable_columns(tmp_path: Path) -> None:

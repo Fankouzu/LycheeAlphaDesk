@@ -19,6 +19,7 @@ class PortfolioTarget:
     quantity: float
     target_weight: float
     asset_type: str
+    currency: str = ""
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,9 @@ class PortfolioCheckResult:
     created_at: str
     targets: list[PortfolioTarget]
     policy_result: PolicyValidationResult
+    base_currency: str
+    currencies: list[str]
+    foreign_currency_symbols: list[str]
     total_target_weight: float
     cash_target_weight: float
     experimental_target_weight: float
@@ -45,6 +49,8 @@ class PortfolioCheckResult:
             return "需要修正"
         if self.missing_price_symbols:
             return "政策通过，等待行情"
+        if self.foreign_currency_symbols:
+            return "政策通过，等待 FX"
         return "可继续模拟练习"
 
 
@@ -108,10 +114,12 @@ def check_portfolio(
             )
 
     missing_price_symbols: list[str] = []
+    currencies: set[str] = {policy.base_currency}
+    foreign_currency_symbols: list[str] = []
     if output_dir is not None:
-        cached_symbols = {
-            price.symbol.upper() for price in build_cached_data_snapshot(output_dir).prices
-        }
+        snapshot = build_cached_data_snapshot(output_dir)
+        prices = {price.symbol.upper(): price for price in snapshot.prices}
+        cached_symbols = set(prices)
         missing_price_symbols = [
             target.symbol
             for target in targets
@@ -122,6 +130,30 @@ def check_portfolio(
                 "本地行情缓存未覆盖: " + ", ".join(missing_price_symbols)
                 + "；先补行情后再做组合估值。"
             )
+        for target in targets:
+            if target.symbol == "CASH":
+                continue
+            currency = target.currency or (
+                prices[target.symbol].currency if target.symbol in prices else ""
+            )
+            if currency:
+                normalized_currency = currency.upper()
+                currencies.add(normalized_currency)
+                if normalized_currency != policy.base_currency:
+                    foreign_currency_symbols.append(target.symbol)
+    else:
+        for target in targets:
+            if target.currency:
+                normalized_currency = target.currency.upper()
+                currencies.add(normalized_currency)
+                if normalized_currency != policy.base_currency and target.symbol != "CASH":
+                    foreign_currency_symbols.append(target.symbol)
+    if foreign_currency_symbols:
+        warnings.append(
+            "识别到非基础货币代码: "
+            + ", ".join(foreign_currency_symbols)
+            + f"；基础货币为 {policy.base_currency}，缺少 FX provider，暂不计算跨币种总值。"
+        )
 
     return PortfolioCheckResult(
         portfolio_path=portfolio_path,
@@ -129,6 +161,9 @@ def check_portfolio(
         created_at=(now or datetime.now(UTC)).isoformat(timespec="seconds"),
         targets=targets,
         policy_result=policy_result,
+        base_currency=policy.base_currency,
+        currencies=sorted(currencies),
+        foreign_currency_symbols=foreign_currency_symbols,
         total_target_weight=total_weight,
         cash_target_weight=cash_weight,
         experimental_target_weight=experimental_weight,
@@ -155,13 +190,16 @@ def load_portfolio_targets(path: Path) -> list[PortfolioTarget]:
                 quantity = float(row["quantity"] or "")
                 target_weight = float(row["target_weight"] or "")
                 asset_type = str(row["asset_type"] or "").strip().lower()
+                currency = str(row.get("currency") or "").strip().upper()
             except (TypeError, ValueError) as error:
                 raise ValueError(f"组合文件第 {line_number} 行包含无效数字。") from error
             if not symbol or not name or not asset_type:
                 raise ValueError(f"组合文件第 {line_number} 行缺少必填字段。")
             if quantity < 0 or not 0 <= target_weight <= 1:
                 raise ValueError(f"组合文件第 {line_number} 行数量或目标比例无效。")
-            targets.append(PortfolioTarget(symbol, name, quantity, target_weight, asset_type))
+            targets.append(
+                PortfolioTarget(symbol, name, quantity, target_weight, asset_type, currency)
+            )
     if not targets:
         raise ValueError("组合文件没有任何目标项。")
     return targets

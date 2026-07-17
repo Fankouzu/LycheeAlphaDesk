@@ -265,6 +265,8 @@ def portfolio_check(
     console.print(f"目标权重合计: {result.total_target_weight:.2%}")
     console.print(f"现金目标比例: {result.cash_target_weight:.2%}")
     console.print(f"实验性资产目标比例: {result.experimental_target_weight:.2%}")
+    console.print(f"基础货币: {result.base_currency}")
+    console.print(f"识别币种: {', '.join(result.currencies)}")
     table = Table(title="组合目标")
     table.add_column("代码")
     table.add_column("名称")

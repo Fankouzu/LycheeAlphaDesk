@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-timesfm = ["timesfm[torch]>=2.0.2"]
+timesfm = ["timesfm[torch]>=2.0.2", "httpx[socks]>=0.28.1"]
 
 [project.scripts]
 lad = "lychee_alphadesk.cli.app:main"

@@ -77,6 +77,7 @@ from lychee_alphadesk.core.opportunity_radar import (
 )
 from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
 from lychee_alphadesk.core.policy import load_policy, validate_policy
+from lychee_alphadesk.core.portfolio import check_portfolio, write_portfolio_check_artifact
 from lychee_alphadesk.core.reports import generate_demo_report
 from lychee_alphadesk.core.research import deepen_research_queue, fill_research_data_gaps
 from lychee_alphadesk.core.research_db import (
@@ -131,6 +132,7 @@ app = typer.Typer(
     invoke_without_command=True,
 )
 policy_app = typer.Typer(help="投资政策命令。")
+portfolio_app = typer.Typer(help="模拟组合和投资政策检查命令。")
 audit_app = typer.Typer(help="审计记录命令。")
 data_app = typer.Typer(help="行情、新闻、公告和预测数据命令。")
 data_pull_app = typer.Typer(help="拉取实时数据源数据到本地缓存。")
@@ -215,6 +217,75 @@ def policy_check(path: Path) -> None:
     for item in result.errors:
         console.print(f"错误: {item}")
 
+    if not result.ok:
+        raise typer.Exit(code=1)
+
+
+@portfolio_app.command("check")
+def portfolio_check(
+    portfolio_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--file",
+            help="组合 CSV 文件，需包含 symbol/name/quantity/target_weight/asset_type。",
+        ),
+    ] = None,
+    policy_path: Annotated[
+        Path | None,
+        typer.Option("--policy", help="投资政策 YAML 文件。"),
+    ] = None,
+    demo: Annotated[
+        bool,
+        typer.Option("--demo", help="使用内置组合和政策示例。"),
+    ] = False,
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="缓存和审计输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """只读检查模拟组合目标，不执行交易或估值。"""
+    if demo:
+        portfolio_path = DEMO_ROOT / "portfolio.csv"
+        policy_path = DEMO_ROOT / "policy.yaml"
+    if portfolio_path is None or policy_path is None:
+        console.print("请提供 --file 和 --policy，或使用 --demo。", markup=False)
+        raise typer.Exit(code=2)
+    try:
+        result = check_portfolio(
+            portfolio_path=portfolio_path,
+            policy_path=policy_path,
+            output_dir=output_dir,
+        )
+    except (OSError, ValueError) as error:
+        console.print(str(error), markup=False)
+        raise typer.Exit(code=1) from error
+    artifact_path = write_portfolio_check_artifact(result, output_dir)
+    console.print("Lychee AlphaDesk 模拟组合检查")
+    console.print(f"状态: {result.status_label}")
+    console.print(f"目标权重合计: {result.total_target_weight:.2%}")
+    console.print(f"现金目标比例: {result.cash_target_weight:.2%}")
+    console.print(f"实验性资产目标比例: {result.experimental_target_weight:.2%}")
+    table = Table(title="组合目标")
+    table.add_column("代码")
+    table.add_column("名称")
+    table.add_column("目标比例")
+    table.add_column("类型")
+    for target in result.targets:
+        table.add_row(
+            target.symbol,
+            target.name,
+            f"{target.target_weight:.2%}",
+            target.asset_type,
+        )
+    console.print(table)
+    for item in result.policy_result.passes:
+        console.print(f"✅ 通过: {item}")
+    for item in [*result.policy_result.warnings, *result.warnings]:
+        console.print(f"⚠️ 警告: {item}")
+    for item in [*result.policy_result.errors, *result.errors]:
+        console.print(f"❌ 需要修正: {item}")
+    console.print(f"检查记录已写入: {artifact_path}", soft_wrap=True)
+    console.print("边界: 这是组合练习和政策检查，不是估值、交易或投资建议。")
     if not result.ok:
         raise typer.Exit(code=1)
 
@@ -3366,6 +3437,7 @@ def _keyboard_navigation_available() -> bool:
 
 
 app.add_typer(policy_app, name="policy")
+app.add_typer(portfolio_app, name="portfolio")
 app.add_typer(audit_app, name="audit")
 app.add_typer(discover_app, name="discover")
 app.add_typer(research_app, name="research")

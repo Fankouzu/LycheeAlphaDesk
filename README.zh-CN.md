@@ -556,6 +556,15 @@ decision_requires:
   - human_approval
 ```
 
+在接入任何券商之前，可以先用内置组合或自己的 CSV 做政策练习：
+
+```bash
+lychee portfolio check --demo
+lychee portfolio check --file portfolio.csv --policy policy.yaml
+```
+
+这个命令只检查目标权重合计、现金比例、单项上限、实验性资产、禁止产品和本地行情覆盖，并写入可审计的 `portfolio-check-*.json`。它不估值、不下单，也不会把目标比例解释成投资建议；没有行情时会明确显示“政策通过，等待行情”。
+
 ## 🎯 MVP 范围
 
 第一个公开版本聚焦研究，不聚焦执行。它应该在没有券商账户、LLM key、TimesFM 权重、付费行情数据的情况下也有价值。

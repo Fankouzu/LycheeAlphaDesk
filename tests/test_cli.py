@@ -136,6 +136,19 @@ def test_policy_check_command_prints_passes() -> None:
     assert "实盘交易已关闭" in result.stdout
 
 
+def test_portfolio_check_demo_is_read_only_and_auditable(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["portfolio", "check", "--demo", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert "模拟组合检查" in result.stdout
+    assert "状态: 政策通过，等待行情" in result.stdout
+    assert "不执行交易或估值" in result.stdout or "不是估值、交易或投资建议" in result.stdout
+    assert list((tmp_path / "research").glob("portfolio-check-*.json"))
+
+
 def test_report_demo_generates_markdown_report(tmp_path: Path) -> None:
     result = runner.invoke(app, ["report", "--demo", "--output-dir", str(tmp_path)])
 

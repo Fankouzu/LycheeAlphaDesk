@@ -46,7 +46,8 @@ from lychee_alphadesk.core.opportunity_radar import (
     OpportunityRadarReport,
     build_opportunity_radar,
 )
-from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR
+from lychee_alphadesk.core.paths import DEFAULT_OUTPUT_DIR, DEMO_ROOT
+from lychee_alphadesk.core.portfolio import check_portfolio, write_portfolio_check_artifact
 from lychee_alphadesk.core.research import ResearchPacket
 from lychee_alphadesk.core.research_db import (
     ResearchEvidenceReviewRecord,
@@ -162,6 +163,7 @@ class AlphaDeskApp(App[None]):
             Option("研究备忘录历史", id="research_memos"),
             Option("研究数据请求", id="research_data_requests"),
             Option("数据源缺口队列", id="provider_backlog"),
+            Option("检查模拟组合", id="portfolio_check"),
             Option("手动查看行情", id="pull_market"),
             Option("手动查看新闻", id="pull_news"),
             Option("手动查看公司公告", id="pull_filings"),
@@ -285,6 +287,8 @@ class AlphaDeskApp(App[None]):
             await self._show_research_data_requests()
         elif action_id == "provider_backlog":
             await self._show_provider_backlog()
+        elif action_id == "portfolio_check":
+            await self._show_demo_portfolio_check()
         elif action_id == "pull_market":
             await self._show_symbol_prompt(
                 "pull_market",
@@ -1716,6 +1720,42 @@ class AlphaDeskApp(App[None]):
                 f"{_display_status(check.status):<4} {check.name} - {check.message}"
                 for check in checks
             ],
+        ]
+        await self._replace_action_panel(Static("\n".join(lines), id="action-status"))
+        self.set_focus(self.query_one("#action-menu", OptionList))
+
+    async def _show_demo_portfolio_check(self) -> None:
+        try:
+            result = await asyncio.to_thread(
+                check_portfolio,
+                portfolio_path=DEMO_ROOT / "portfolio.csv",
+                policy_path=DEMO_ROOT / "policy.yaml",
+                output_dir=self.output_dir,
+            )
+            artifact_path = write_portfolio_check_artifact(result, self.output_dir)
+        except (OSError, ValueError) as error:
+            await self._replace_action_panel(
+                Static(f"模拟组合检查失败: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        lines = [
+            "模拟组合检查",
+            f"状态: {result.status_label}",
+            f"目标权重合计: {result.total_target_weight:.2%}",
+            f"现金目标比例: {result.cash_target_weight:.2%}",
+            f"实验性资产目标比例: {result.experimental_target_weight:.2%}",
+            "",
+            "目标项",
+            *[
+                f"- {target.symbol} {target.target_weight:.2%} {target.asset_type}"
+                for target in result.targets
+            ],
+            *[f"✅ 通过: {item}" for item in result.policy_result.passes],
+            *[f"⚠️ 警告: {item}" for item in [*result.policy_result.warnings, *result.warnings]],
+            *[f"❌ 需要修正: {item}" for item in [*result.policy_result.errors, *result.errors]],
+            f"检查记录: {artifact_path}",
+            "边界: 这是组合练习和政策检查，不是估值、交易或投资建议。",
         ]
         await self._replace_action_panel(Static("\n".join(lines), id="action-status"))
         self.set_focus(self.query_one("#action-menu", OptionList))

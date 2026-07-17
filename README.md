@@ -594,6 +594,15 @@ decision_requires:
   - human_approval
 ```
 
+Before connecting any broker, practice with a read-only portfolio policy check:
+
+```bash
+lychee portfolio check --demo
+lychee portfolio check --file portfolio.csv --policy policy.yaml
+```
+
+This checks target-weight total, cash minimum, single-asset limits, experimental assets, blocked products, and local price coverage. It writes an auditable `portfolio-check-*.json`; it does not value, trade, or produce investment advice.
+
 ## 🎯 MVP Scope
 
 The first public version should focus on research, not execution. It should be useful without a broker account, an LLM key, TimesFM weights, or paid market data.

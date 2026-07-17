@@ -403,6 +403,25 @@ def test_dashboard_research_workbench_action_runs_check(
     asyncio.run(run_case())
 
 
+def test_dashboard_portfolio_check_action_is_read_only(tmp_path: Path) -> None:
+    async def run_case() -> None:
+        app = AlphaDeskApp(output_dir=tmp_path)
+        async with app.run_test() as pilot:
+            menu = app.query_one("#action-menu", OptionList)
+            portfolio_index = _option_index(menu, "检查模拟组合")
+            await pilot.press(*(["down"] * portfolio_index))
+            await pilot.press("enter")
+            await pilot.pause()
+
+            text = str(app.query_one("#action-status", Static).content)
+            assert "模拟组合检查" in text
+            assert "政策通过，等待行情" in text
+            assert "不是估值、交易或投资建议" in text
+            assert list((tmp_path / "research").glob("portfolio-check-*.json"))
+
+    asyncio.run(run_case())
+
+
 def test_dashboard_research_review_history_action_lists_records(
     monkeypatch, tmp_path: Path
 ) -> None:

@@ -627,6 +627,8 @@ The CSV requires `transaction_id,symbol,trade_date,side,quantity,price,currency`
 
 The repository includes `examples/demo/transactions.csv` for a local dry run.
 
+See [`docs/BROKER_IMPORT_GUIDE.md`](docs/BROKER_IMPORT_GUIDE.md) for broker field mapping and acceptance steps.
+
 When the latest portfolio check still lacks prices, FX, or reconciliation data, `lychee research next` surfaces a `组合审计` action with the next data command. A complete read-only valuation snapshot does not create another action.
 
 `lychee research check` also shows a `组合风险上下文` section above research tasks with audit status, valuation coverage, base currency, drift readings, and the data needed before research. This is a data-completeness context only; it does not change candidates or produce rebalancing advice.

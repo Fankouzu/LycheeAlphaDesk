@@ -589,6 +589,8 @@ CSV 必须包含 `transaction_id,symbol,trade_date,side,quantity,price,currency`
 
 仓库提供了 `examples/demo/transactions.csv` 作为本地试跑样例。
 
+真实券商导出字段映射和验收流程见 [`docs/BROKER_IMPORT_GUIDE.zh-CN.md`](docs/BROKER_IMPORT_GUIDE.zh-CN.md)。
+
 如果最近一次组合检查仍缺少行情、FX 或持仓核对信息，`lychee research next` 会把它加入“组合审计”行动队列，并给出下一条可执行的数据命令；完整的只读估值快照不会重复制造行动。
 
 `lychee research check` 也会在研究任务顶部显示“组合风险上下文”：当前组合审计状态、估值覆盖数量、基础货币、目标偏离读数和研究前需要补齐的内容。它只是研究前的数据完整性提示，不会改变研究候选，更不会生成调仓建议。

@@ -24,6 +24,21 @@ class PortfolioTarget:
 
 
 @dataclass(frozen=True)
+class PortfolioValuation:
+    symbol: str
+    name: str
+    asset_type: str
+    currency: str
+    price: float | None
+    price_date: str
+    fx_as_of: str
+    value_base: float
+    target_weight: float
+    actual_weight: float
+    drift: float
+
+
+@dataclass(frozen=True)
 class PortfolioCheckResult:
     portfolio_path: Path
     policy_path: Path
@@ -34,6 +49,8 @@ class PortfolioCheckResult:
     currencies: list[str]
     foreign_currency_symbols: list[str]
     missing_fx_currencies: list[str]
+    valuations: list[PortfolioValuation]
+    valuation_gaps: list[str]
     total_target_weight: float
     cash_target_weight: float
     experimental_target_weight: float
@@ -53,6 +70,10 @@ class PortfolioCheckResult:
             return "政策通过，等待行情"
         if self.missing_fx_currencies:
             return "政策通过，等待 FX"
+        if self.valuation_gaps:
+            return "政策通过，等待估值数据"
+        if self.valuations:
+            return "政策通过，已生成估值快照"
         if self.foreign_currency_symbols:
             return "政策通过，FX 已缓存"
         return "可继续模拟练习"
@@ -173,9 +194,83 @@ def check_portfolio(
         )
     elif foreign_currency_symbols:
         warnings.append(
-            "FX 缓存已覆盖非基础货币代码，但当前只做政策检查，"
-            "暂不计算跨币种总值。"
+            "FX 缓存已覆盖非基础货币代码，将生成带日期的只读估值快照；"
+            "结果不等于券商结算价值。"
         )
+
+    valuations: list[PortfolioValuation] = []
+    valuation_gaps: list[str] = []
+    if output_dir is not None:
+        snapshot = build_cached_data_snapshot(output_dir)
+        prices = {price.symbol.upper(): price for price in snapshot.prices}
+        cached_fx = read_cached_fx_rates(
+            output_dir=output_dir,
+            base_currency=policy.base_currency,
+            quote_currencies=sorted(foreign_currencies),
+            now=now,
+        )
+        fx_by_quote = {rate.quote_currency: rate for rate in cached_fx}
+        pending_values: list[
+            tuple[PortfolioTarget, str, float | None, str, str, float]
+        ] = []
+        for target in targets:
+            if target.symbol == "CASH":
+                currency = target.currency or policy.base_currency
+                price = None
+                price_date = ""
+                native_value = target.quantity
+            else:
+                price_row = prices.get(target.symbol)
+                if price_row is None:
+                    valuation_gaps.append(f"{target.symbol}: 缺少行情，无法计算当前价值。")
+                    continue
+                currency = target.currency or price_row.currency.upper()
+                if target.currency and target.currency != price_row.currency.upper():
+                    valuation_gaps.append(
+                        f"{target.symbol}: CSV 币种 {target.currency} 与行情币种 "
+                        f"{price_row.currency.upper()} 不一致。"
+                    )
+                    continue
+                price = price_row.close
+                price_date = price_row.date
+                native_value = target.quantity * price
+            if currency == policy.base_currency:
+                base_value = native_value
+                fx_as_of = ""
+            else:
+                fx = fx_by_quote.get(currency)
+                if fx is None:
+                    valuation_gaps.append(
+                        f"{target.symbol}: 缺少 {policy.base_currency}/{currency} FX。"
+                    )
+                    continue
+                base_value = native_value / fx.rate
+                fx_as_of = fx.as_of
+            pending_values.append(
+                (target, currency, price, price_date, fx_as_of, base_value)
+            )
+        total_value = sum(item[-1] for item in pending_values)
+        if valuation_gaps:
+            warnings.append("当前价值快照不完整: " + "；".join(valuation_gaps))
+        elif total_value <= 0:
+            valuation_gaps.append("当前价值合计不大于 0，无法计算实际比例。")
+        else:
+            valuations = [
+                PortfolioValuation(
+                    symbol=target.symbol,
+                    name=target.name,
+                    asset_type=target.asset_type,
+                    currency=currency,
+                    price=price,
+                    price_date=price_date,
+                    fx_as_of=fx_as_of,
+                    value_base=base_value,
+                    target_weight=target.target_weight,
+                    actual_weight=base_value / total_value,
+                    drift=base_value / total_value - target.target_weight,
+                )
+                for target, currency, price, price_date, fx_as_of, base_value in pending_values
+            ]
 
     return PortfolioCheckResult(
         portfolio_path=portfolio_path,
@@ -187,6 +282,8 @@ def check_portfolio(
         currencies=sorted(currencies),
         foreign_currency_symbols=foreign_currency_symbols,
         missing_fx_currencies=missing_fx_currencies,
+        valuations=valuations,
+        valuation_gaps=valuation_gaps,
         total_target_weight=total_weight,
         cash_target_weight=cash_weight,
         experimental_target_weight=experimental_weight,

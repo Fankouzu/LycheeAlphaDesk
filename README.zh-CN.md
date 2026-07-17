@@ -563,7 +563,7 @@ lychee portfolio check --demo
 lychee portfolio check --file portfolio.csv --policy policy.yaml
 ```
 
-这个命令只检查目标权重合计、现金比例、单项上限、实验性资产、禁止产品和本地行情覆盖，并写入可审计的 `portfolio-check-*.json`。CSV 可以额外提供 `currency` 列；当基础货币为 USD 而行情识别出 HKD/CNY 时，系统会显示“政策通过，等待 FX”，不会使用硬编码汇率计算总值。它不估值、不下单，也不会把目标比例解释成投资建议；没有行情时会明确显示“政策通过，等待行情”。
+这个命令检查目标权重合计、现金比例、单项上限、实验性资产、禁止产品和本地行情覆盖，并写入可审计的 `portfolio-check-*.json`。CSV 可以额外提供 `currency` 列；当基础货币为 USD 而行情识别出 HKD/CNY 时，系统会在 FX 缺失时显示“政策通过，等待 FX”，不会使用硬编码汇率。行情与 FX 都齐全时，它会生成带行情日期和 FX 日期的当前只读价值、实际比例和目标偏离；这些是研究快照，不是券商结算价值、交易指令或投资建议。
 
 FX 练习数据使用 ECB Data Portal 的带日期日频参考汇率：
 

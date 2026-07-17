@@ -601,7 +601,7 @@ lychee portfolio check --demo
 lychee portfolio check --file portfolio.csv --policy policy.yaml
 ```
 
-This checks target-weight total, cash minimum, single-asset limits, experimental assets, blocked products, and local price coverage. It writes an auditable `portfolio-check-*.json`; it does not value, trade, or produce investment advice.
+This checks target-weight total, cash minimum, single-asset limits, experimental assets, blocked products, and local price coverage. When prices and dated FX are available, it also writes a read-only base-currency snapshot with actual weight and target drift. It does not place trades or produce investment advice.
 
 For dated FX context from the ECB Data Portal:
 

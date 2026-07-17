@@ -1758,6 +1758,24 @@ class AlphaDeskApp(App[None]):
                 f"- {target.symbol} {target.target_weight:.2%} {target.asset_type}"
                 for target in result.targets
             ],
+            *(
+                [
+                    "",
+                    "当前只读估值快照",
+                    *[
+                        (
+                            f"- {valuation.symbol}: {valuation.value_base:.2f} "
+                            f"{result.base_currency} | 当前 {valuation.actual_weight:.2%} "
+                            f"目标 {valuation.target_weight:.2%} | "
+                            f"偏离 {valuation.drift:+.2%}"
+                        )
+                        for valuation in result.valuations
+                    ],
+                ]
+                if result.valuations
+                else []
+            ),
+            *[f"⚠️ 估值缺口: {gap}" for gap in result.valuation_gaps],
             *[f"✅ 通过: {item}" for item in result.policy_result.passes],
             *[f"⚠️ 警告: {item}" for item in [*result.policy_result.warnings, *result.warnings]],
             *[f"❌ 需要修正: {item}" for item in [*result.policy_result.errors, *result.errors]],

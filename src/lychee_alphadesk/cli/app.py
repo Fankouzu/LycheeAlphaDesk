@@ -283,6 +283,26 @@ def portfolio_check(
             target.asset_type,
         )
     console.print(table)
+    if result.valuations:
+        valuation_table = Table(title="当前只读估值快照")
+        valuation_table.add_column("代码")
+        valuation_table.add_column("基础货币价值")
+        valuation_table.add_column("当前比例")
+        valuation_table.add_column("目标比例")
+        valuation_table.add_column("偏离")
+        valuation_table.add_column("日期")
+        for valuation in result.valuations:
+            valuation_table.add_row(
+                valuation.symbol,
+                f"{valuation.value_base:.2f} {result.base_currency}",
+                f"{valuation.actual_weight:.2%}",
+                f"{valuation.target_weight:.2%}",
+                f"{valuation.drift:+.2%}",
+                valuation.fx_as_of or valuation.price_date or "-",
+            )
+        console.print(valuation_table)
+    for gap in result.valuation_gaps:
+        console.print(f"⚠️ 估值缺口: {gap}")
     for item in result.policy_result.passes:
         console.print(f"✅ 通过: {item}")
     for item in [*result.policy_result.warnings, *result.warnings]:

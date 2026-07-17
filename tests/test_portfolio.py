@@ -174,8 +174,15 @@ def test_check_portfolio_surfaces_foreign_currency_without_fx_assumption(
         output_dir=tmp_path,
         now=datetime(2026, 7, 17, 12, tzinfo=UTC),
     )
-    assert cached_result.status_label == "政策通过，FX 已缓存"
+    assert cached_result.status_label == "政策通过，已生成估值快照"
     assert cached_result.missing_fx_currencies == []
+    assert {item.symbol for item in cached_result.valuations} == {
+        "CASH",
+        "AAPL",
+        "2800.HK",
+        "510300.SH",
+    }
+    assert all(item.value_base > 0 for item in cached_result.valuations)
 
 
 def test_load_portfolio_targets_requires_stable_columns(tmp_path: Path) -> None:

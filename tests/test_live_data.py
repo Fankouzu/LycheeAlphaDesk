@@ -13,12 +13,14 @@ from lychee_alphadesk.core.config import (
 from lychee_alphadesk.core.live_data import (
     _parse_sec_financial_snapshot,
     build_cached_data_snapshot,
+    pull_fund_metadata,
     pull_market_breadth_metrics,
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
     pull_sec_financials,
     pull_volatility_metrics,
+    read_fund_metadata_cache,
     read_research_metric_cache,
     run_cached_data_health,
     write_fund_metadata_cache,
@@ -437,6 +439,50 @@ def test_write_fund_metadata_cache_preserves_source_backed_proxy_details(
             "provider": "manual",
         }
     ]
+
+
+def test_pull_fund_metadata_uses_invesco_official_qqq_apis(tmp_path: Path) -> None:
+    def fetch_json(url: str, headers: dict[str, str] | None = None) -> object:
+        assert headers is not None
+        assert headers["Origin"] == "https://www.invesco.com"
+        if "variationType=fundDetails" in url:
+            return {
+                "ticker": "QQQ",
+                "effectiveDate": "2026-07-16",
+                "feeValue": 0.18,
+                "totalNoOfHoldings": 104,
+            }
+        assert "/holdings/fund" in url
+        return {
+            "effectiveDate": "2026-07-16",
+            "totalNumberOfHoldings": 108,
+            "holdings": [
+                {
+                    "issuerName": "NVIDIA Corp",
+                    "percentageOfTotalNetAssets": 8.098449,
+                },
+                {
+                    "issuerName": "Apple Inc",
+                    "percentageOfTotalNetAssets": 7.897774,
+                },
+            ],
+        }
+
+    result = pull_fund_metadata(
+        symbols=["QQQ"],
+        output_dir=tmp_path,
+        fetch_json=fetch_json,
+    )
+
+    assert result.provider == "invesco_official"
+    assert result.count == 1
+    metadata = read_fund_metadata_cache(tmp_path)[0]
+    assert metadata.tracking_index == "Nasdaq-100 Index"
+    assert metadata.expense_ratio == "0.18%"
+    assert metadata.holdings_summary == (
+        "持仓 108 个；前 2 项: NVIDIA Corp 8.10%、Apple Inc 7.90%；截至 2026-07-16"
+    )
+    assert metadata.source_url == "https://www.invesco.com/qqq-etf/en/about.html"
 
 
 def test_write_research_metric_cache_preserves_source_backed_metric(

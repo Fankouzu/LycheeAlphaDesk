@@ -44,6 +44,7 @@ from lychee_alphadesk.core.live_data import (
     PullResult,
     build_cached_data_snapshot,
     parse_symbols,
+    pull_fund_metadata,
     pull_market_breadth_metrics,
     pull_market_prices,
     pull_news_events,
@@ -1455,6 +1456,34 @@ def data_pull_breadth(
         console.print(str(error), soft_wrap=True)
         raise typer.Exit(code=1) from error
     _print_pull_result(result_label="市场扩散代理", count=result.count, result=result)
+
+
+@data_pull_app.command("fund-metadata")
+def data_pull_fund_metadata(
+    symbols: Annotated[
+        str,
+        typer.Option("--symbols", help="用英文逗号分隔 ETF 代码，例如 QQQ。"),
+    ],
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="实时缓存输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="忽略已有官方基金资料，强制刷新。"),
+    ] = False,
+) -> None:
+    """拉取官方 ETF 基金资料和持仓摘要。"""
+    try:
+        result = pull_fund_metadata(
+            symbols=parse_symbols(symbols),
+            output_dir=output_dir,
+            force=force,
+        )
+    except (RuntimeError, ValueError) as error:
+        console.print(str(error), soft_wrap=True)
+        raise typer.Exit(code=1) from error
+    _print_pull_result(result_label="基金资料", count=result.count, result=result)
 
 
 @data_pull_app.command("news")

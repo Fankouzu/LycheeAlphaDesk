@@ -54,7 +54,10 @@ def test_research_data_requests_map_memo_requests_to_precise_commands(
 
     assert len(requests) == 3
     fund_commands = requests[0].suggested_commands
-    assert any(command.startswith("lychee data guide fund") for command in fund_commands)
+    assert fund_commands == [
+        "lychee data pull fund-metadata --symbols QQQ --force",
+        "lychee research verify --symbol QQQ",
+    ]
     assert not any("data pull news" in command for command in fund_commands)
 
     news_commands = requests[1].suggested_commands
@@ -67,6 +70,31 @@ def test_research_data_requests_map_memo_requests_to_precise_commands(
         "lychee research verify --symbol QQQ",
     ]
     assert not research_data_request_needs_manual_source(requests[2])
+
+
+def test_research_data_requests_hide_qqq_fund_gap_after_official_cache(
+    tmp_path: Path,
+) -> None:
+    _write_request_memo(
+        tmp_path,
+        ["请补齐 QQQ 的基金资料：跟踪指数、费用率、成分摘要和资料来源 URL。"],
+    )
+    from lychee_alphadesk.core.live_data import write_fund_metadata_cache
+
+    write_fund_metadata_cache(
+        output_dir=tmp_path,
+        symbol="QQQ",
+        display_name="Invesco QQQ Trust",
+        market="US",
+        tracking_index="Nasdaq-100 Index",
+        expense_ratio="0.18%",
+        holdings_summary="持仓 108 个",
+        source_url="https://www.invesco.com/qqq-etf/en/about.html",
+        as_of="2026-07-16",
+        provider="invesco_official",
+    )
+
+    assert list_research_data_requests(tmp_path, symbol="QQQ") == []
 
 
 def test_research_data_request_routes_form4_content_to_manual_filing_evidence(
@@ -682,32 +710,33 @@ def test_fulfill_research_data_request_prepares_fund_template_without_verify(
         verify_calls.append(kwargs)
         return SimpleNamespace(artifact_path=tmp_path / "research" / "verify.json")
 
+    def fake_pull_fund_metadata(**kwargs: object) -> PullResult:
+        return PullResult(
+            "fund_metadata",
+            "invesco_official",
+            1,
+            tmp_path / "data" / "fund-metadata.json",
+            [],
+        )
+
     result = fulfill_research_data_request(
         tmp_path,
         request_index=1,
         symbol="QQQ",
+        pull_fund_metadata=fake_pull_fund_metadata,
         write_fund_guide=fake_write_fund_guide,
         verify_task=fake_verify,
     )
 
-    assert guide_calls == [
-        {
-            "output_dir": tmp_path,
-            "symbol": "QQQ",
-            "display_name": "Invesco QQQ Trust",
-            "market": "US",
-        }
-    ]
-    assert verify_calls == []
+    assert guide_calls == []
+    assert verify_calls == [{"output_dir": tmp_path, "symbol": "QQQ", "name": None}]
     assert [execution.action_type for execution in result.executions] == [
-        "fund_metadata_guide",
-        "fund_metadata_import",
+        "fund_metadata",
         "verify",
     ]
     assert [execution.status for execution in result.executions] == [
         "completed",
-        "manual_required",
-        "skipped",
+        "completed",
     ]
 
 

@@ -325,6 +325,104 @@ def write_fund_metadata_cache(
     return PullResult("fund_metadata", row.provider, 1, output_path, [])
 
 
+INVESCO_QQQ_PAGE_URL = "https://www.invesco.com/qqq-etf/en/about.html"
+INVESCO_QQQ_DETAILS_URL = (
+    "https://dng-api.invesco.com/cache/v1/accounts/en_US/shareclasses/QQQ"
+    "?idType=ticker&variationType=fundDetails&productType=ETF"
+)
+INVESCO_QQQ_HOLDINGS_URL = (
+    "https://dng-api.invesco.com/cache/v1/accounts/en_US/shareclasses/QQQ/holdings/fund"
+    "?idType=ticker&interval=monthly&productType=ETF&loadType=initial"
+)
+
+
+def pull_fund_metadata(
+    *,
+    symbols: list[str],
+    output_dir: Path,
+    fetch_json: JsonFetcher | None = None,
+    force: bool = False,
+) -> PullResult:
+    """Pull source-backed QQQ fund details and holdings from Invesco."""
+    normalized_symbols = _normalized_symbols(symbols)
+    supported_symbols = [symbol for symbol in normalized_symbols if symbol == "QQQ"]
+    if not supported_symbols:
+        raise ValueError("当前 Invesco 官方基金资料 provider 仅支持: QQQ。")
+    if not force:
+        existing = read_fund_metadata_cache(output_dir)
+        if any(
+            row.symbol == "QQQ"
+            and row.provider == "invesco_official"
+            and row.tracking_index
+            and row.expense_ratio
+            and row.holdings_summary
+            for row in existing
+        ):
+            return PullResult(
+                "fund_metadata",
+                "invesco_official",
+                1,
+                output_dir / "data" / "fund-metadata.json",
+                ["Invesco QQQ 基金资料已存在，跳过刷新；需要重拉请使用 --force。"],
+                refreshed=False,
+            )
+
+    fetcher = fetch_json or _fetch_json
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Origin": "https://www.invesco.com",
+        "Referer": INVESCO_QQQ_PAGE_URL,
+        "User-Agent": SEC_USER_AGENT,
+    }
+    details = _fetch_provider_json(fetcher, INVESCO_QQQ_DETAILS_URL, headers)
+    holdings_payload = _fetch_provider_json(fetcher, INVESCO_QQQ_HOLDINGS_URL, headers)
+    if not isinstance(details, dict) or not isinstance(holdings_payload, dict):
+        raise ValueError("Invesco QQQ 官方接口返回格式无法识别。")
+    holdings = holdings_payload.get("holdings")
+    if not isinstance(holdings, list) or not holdings:
+        raise ValueError("Invesco QQQ 官方接口没有返回持仓数据。")
+
+    as_of = str(
+        holdings_payload.get("effectiveDate")
+        or details.get("effectiveDate")
+        or ""
+    ).strip()
+    fee_value = _number_value(details.get("feeValue"))
+    total_holdings = _number_value(holdings_payload.get("totalNumberOfHoldings"))
+    top_holdings = sorted(
+        [
+            item
+            for item in holdings
+            if isinstance(item, dict)
+            and _number_value(item.get("percentageOfTotalNetAssets")) is not None
+        ],
+        key=lambda item: _number_value(item.get("percentageOfTotalNetAssets")) or 0,
+        reverse=True,
+    )[:10]
+    top_summary = "、".join(
+        f"{str(item.get('issuerName') or item.get('ticker') or '未命名').strip()} "
+        f"{_number_value(item.get('percentageOfTotalNetAssets')):.2f}%"
+        for item in top_holdings
+    )
+    total_text = str(int(total_holdings)) if total_holdings is not None else str(len(holdings))
+    fee_text = f"{fee_value:.2f}%" if fee_value is not None else ""
+    holdings_summary = f"持仓 {total_text} 个；前 {len(top_holdings)} 项: {top_summary}"
+    if as_of:
+        holdings_summary += f"；截至 {as_of}"
+    return write_fund_metadata_cache(
+        output_dir=output_dir,
+        symbol="QQQ",
+        display_name="Invesco QQQ Trust",
+        market="US",
+        tracking_index="Nasdaq-100 Index",
+        expense_ratio=fee_text,
+        holdings_summary=holdings_summary,
+        source_url=INVESCO_QQQ_PAGE_URL,
+        as_of=as_of,
+        provider="invesco_official",
+    )
+
+
 def write_research_metric_cache(
     *,
     output_dir: Path,

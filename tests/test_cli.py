@@ -2575,10 +2575,7 @@ def test_research_data_requests_command_lists_actionable_requests(tmp_path: Path
     assert "Lychee AlphaDesk 研究数据请求" in result.stdout
     assert "Invesco QQQ Trust" in result.stdout
     assert "请补齐 QQQ 的基金资料" in result.stdout
-    assert "lychee data guide fund --symbol QQQ" in result.stdout
-    assert "lychee data set fund --from-file .alphadesk/data/fund-metadata-guide-QQQ.json" in (
-        result.stdout
-    )
+    assert "lychee data pull fund-metadata --symbols QQQ --force" in result.stdout
     assert "lychee data pull market --symbols QQQ --provider auto --force" in (
         result.stdout
     )

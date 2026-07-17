@@ -9,12 +9,14 @@ from lychee_alphadesk.core.live_data import (
     FundMetadataGuide,
     PullResult,
     ResearchMetric,
+    pull_fund_metadata,
     pull_market_breadth_metrics,
     pull_market_prices,
     pull_news_events,
     pull_sec_filings,
     pull_sec_financials,
     pull_volatility_metrics,
+    read_fund_metadata_cache,
     read_research_metric_cache,
     write_fund_metadata_guide,
 )
@@ -33,6 +35,7 @@ PullFilings = Callable[..., PullResult]
 PullFinancials = Callable[..., PullResult]
 PullVolatility = Callable[..., PullResult]
 PullBreadth = Callable[..., PullResult]
+PullFundMetadata = Callable[..., PullResult]
 WriteFundGuide = Callable[..., FundMetadataGuide]
 VerifyTask = Callable[..., object]
 
@@ -140,6 +143,8 @@ def list_research_data_requests(
         seen_tasks.add(task_key)
         request_texts = _memo_data_requests(record)
         for index, request_text in enumerate(request_texts, start=1):
+            if _research_request_is_covered(output_dir, record, request_text):
+                continue
             request_id = f"{record.memo_id}:data-request:{index}"
             if request_id in handled_request_ids:
                 continue
@@ -174,6 +179,25 @@ def list_research_data_requests(
     return requests
 
 
+def _research_request_is_covered(
+    output_dir: Path,
+    record: ResearchMemoRecord,
+    request_text: str,
+) -> bool:
+    if not record.symbol or not _looks_like_fund_metadata_request(request_text.casefold()):
+        return False
+    if record.symbol.strip().upper() != "QQQ":
+        return False
+    return any(
+        row.symbol == "QQQ"
+        and row.tracking_index
+        and row.expense_ratio
+        and row.holdings_summary
+        and row.source_url
+        for row in read_fund_metadata_cache(output_dir)
+    )
+
+
 def fulfill_research_data_request(
     output_dir: Path,
     *,
@@ -189,6 +213,7 @@ def fulfill_research_data_request(
     pull_financials: PullFinancials = pull_sec_financials,
     pull_volatility: PullVolatility = pull_volatility_metrics,
     pull_breadth: PullBreadth = pull_market_breadth_metrics,
+    pull_fund_metadata: PullFundMetadata = pull_fund_metadata,
     write_fund_guide: WriteFundGuide = write_fund_metadata_guide,
     verify_task: VerifyTask = verify_research_task,
 ) -> ResearchDataRequestFulfillment:
@@ -231,6 +256,7 @@ def fulfill_research_data_request(
             pull_financials=pull_financials,
             pull_volatility=pull_volatility,
             pull_breadth=pull_breadth,
+            pull_fund_metadata=pull_fund_metadata,
             write_fund_guide=write_fund_guide,
         )
         executions.append(execution)
@@ -246,6 +272,7 @@ def fulfill_research_data_request(
                 "volatility",
                 "breadth",
                 "news_official",
+                "fund_metadata",
             }
         ):
             data_changed = True
@@ -1102,26 +1129,34 @@ def _suggest_data_request_actions(
     if _looks_like_manual_filing_content_request(lowered):
         return _manual_filing_actions(record, request_text)
     if _looks_like_fund_metadata_request(lowered) and record.symbol:
-        actions.extend(
-            [
+        if record.symbol.upper() == "QQQ":
+            actions.append(
                 ResearchDataRequestAction(
-                    "fund_metadata_guide",
-                    (
-                        f"lychee data guide fund --symbol {record.symbol} "
-                        f"--name {_quote_cli_value(record.display_name)} "
-                        f"--market {record.market.upper() or '<MARKET>'}"
+                    "fund_metadata",
+                    "lychee data pull fund-metadata --symbols QQQ --force",
+                )
+            )
+        else:
+            actions.extend(
+                [
+                    ResearchDataRequestAction(
+                        "fund_metadata_guide",
+                        (
+                            f"lychee data guide fund --symbol {record.symbol} "
+                            f"--name {_quote_cli_value(record.display_name)} "
+                            f"--market {record.market.upper() or '<MARKET>'}"
+                        ),
                     ),
-                ),
-                ResearchDataRequestAction(
-                    "fund_metadata_import",
-                    (
-                        "lychee data set fund --from-file "
-                        f".alphadesk/data/fund-metadata-guide-{record.symbol.upper()}.json"
+                    ResearchDataRequestAction(
+                        "fund_metadata_import",
+                        (
+                            "lychee data set fund --from-file "
+                            f".alphadesk/data/fund-metadata-guide-{record.symbol.upper()}.json"
+                        ),
+                        auto_executable=False,
                     ),
-                    auto_executable=False,
-                ),
-            ]
-        )
+                ]
+            )
     if is_breadth_request and record.symbol:
         actions.append(
             ResearchDataRequestAction(
@@ -1203,6 +1238,7 @@ def _execute_data_request_action(
     pull_financials: PullFinancials,
     pull_volatility: PullVolatility,
     pull_breadth: PullBreadth,
+    pull_fund_metadata: PullFundMetadata,
     write_fund_guide: WriteFundGuide,
 ) -> ResearchDataRequestExecution:
     try:
@@ -1241,6 +1277,15 @@ def _execute_data_request_action(
                 output_path=guide.output_path,
                 message="已生成基金资料模板；填写并导入后再重新核验。",
             )
+        if action.action_type == "fund_metadata":
+            if not request.symbol:
+                raise ValueError("基金资料刷新需要证券代码。")
+            result = pull_fund_metadata(
+                symbols=[request.symbol],
+                output_dir=output_dir,
+                force=force,
+            )
+            return _pull_execution(action, result, "官方基金资料已刷新。")
         if action.action_type == "market":
             if not request.symbol:
                 raise ValueError("行情刷新需要证券代码。")

@@ -463,6 +463,7 @@ lychee data pull news --symbols AAPL --provider auto --force
 lychee data pull news --symbols 0700.HK --provider tencent_official --force
 lychee data pull volatility --symbols QQQ
 lychee data pull breadth --symbols QQQ
+lychee data pull fund-metadata --symbols QQQ
 lychee data pull filings --symbols AAPL,TSLA,0700.HK --limit 3
 lychee data pull financials --symbols AAPL,MSFT
 lychee data guide fund --symbol 2800.HK --name "Tracker Fund of Hong Kong" --market HK
@@ -484,6 +485,7 @@ Current live providers:
 - Volatility metrics: `data pull volatility --symbols QQQ` reads Cboe's public VXN history and records the latest close, 20-trading-day change, and trailing-252-observation percentile as auditable QQQ research metrics. VXN is the Cboe Nasdaq-100 30-day implied-volatility index. It provides risk context only, not a market call, market-breadth substitute, or trading instruction. The local metric cache has a 24-hour TTL and `--force` is the explicit refresh override.
 - Market expansion proxy: `data pull breadth --symbols QQQ` reads Nasdaq's public NDX and NDXE history endpoints and records 20-trading-day changes for the cap-weighted and equal-weight Nasdaq-100 plus their spread. NDXE is an auditable equal-weight proxy for whether a move is broadening; it is not an advancer/decliner count or a licensed real-time feed. It must be interpreted with the source date and note preserved in the cache, and the same 24-hour research-metric TTL applies.
 - Tencent entity news: `data pull news --symbols 0700.HK --provider tencent_official` reads Tencent's official Newsroom page, keeps the published date, original article URL, headline, and `0700.HK` entity link, and uses a 24-hour news-cache freshness policy. It is company-originated news, not an HKEX filing and not independent confirmation of a financial claim; official announcements remain under `data pull filings`.
+- Official ETF metadata: `data pull fund-metadata --symbols QQQ` reads Invesco's public QQQ detail and holdings endpoints, storing the tracked index, current expense ratio, holdings count/top holdings, as-of date, and official product URL. A complete official cache removes the same QQQ fund-metadata request from the pending queue; it does not remove market-breadth, news, or consistency gaps.
 - Fund/ETF metadata: `data guide fund` creates a local beginner-friendly checklist and JSON template for tracking index, expense ratio, holdings summary, and source URL. After the template is filled from verified sources, `data set fund --from-file ...` imports it into `fund-metadata.json`; direct `data set fund --symbol ...` remains available for automation. The workbench uses source-backed metadata as proxy-instrument support evidence and reports only still-missing fields; it does not invent fund fees or constituents.
 - Research metrics: `data set metric` writes source-backed local indicators such as `market_breadth`, `volatility_metrics`, `fund_flows`, and `sector_performance` into `research-metrics.json`. The workbench uses them as supplemental evidence in verification checks, evidence boards, and task detail panels.
 

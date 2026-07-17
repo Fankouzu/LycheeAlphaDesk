@@ -1854,7 +1854,18 @@ def _manual_filing_source_details(command: str) -> tuple[str, str, str] | None:
 
 
 def _research_workbench_intro(result: WorkbenchCheckResult) -> str:
-    portfolio = result.portfolio_context
+    portfolio = getattr(result, "portfolio_context", None)
+    portfolio_status = str(getattr(portfolio, "status", "未配置"))
+    portfolio_count = int(getattr(portfolio, "valuation_count", 0))
+    portfolio_currency = str(getattr(portfolio, "base_currency", ""))
+    portfolio_action = str(
+        getattr(
+            portfolio,
+            "next_action",
+            "先运行只读组合检查，建立当前持仓审计上下文。",
+        )
+    )
+    portfolio_drifts = getattr(portfolio, "drift_readings", [])
     lines = [
         "AlphaDesk 研究工作台",
         "选择一个研究任务，按 Enter 开始研究。Esc 返回主菜单。",
@@ -1866,13 +1877,13 @@ def _research_workbench_intro(result: WorkbenchCheckResult) -> str:
         "",
         "组合风险上下文",
         (
-            f"- 审计状态: {portfolio.status} | 估值 {portfolio.valuation_count} 项"
-            + (f" | 基础货币: {portfolio.base_currency}" if portfolio.base_currency else "")
+            f"- 审计状态: {portfolio_status} | 估值 {portfolio_count} 项"
+            + (f" | 基础货币: {portfolio_currency}" if portfolio_currency else "")
         ),
-        f"- 研究前动作: {portfolio.next_action}",
+        f"- 研究前动作: {portfolio_action}",
     ]
-    if portfolio.drift_readings:
-        lines.append("- 目标偏离读数: " + "；".join(portfolio.drift_readings[:3]))
+    if portfolio_drifts:
+        lines.append("- 目标偏离读数: " + "；".join(portfolio_drifts[:3]))
     if result.candidates:
         first = result.candidates[0]
         lines.extend(

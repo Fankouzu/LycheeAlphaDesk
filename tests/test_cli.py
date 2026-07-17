@@ -211,6 +211,35 @@ def test_portfolio_import_is_read_only_and_reports_audit_gaps(tmp_path: Path) ->
     assert (tmp_path / "data" / "portfolio-positions.json").exists()
 
 
+def test_portfolio_import_transactions_is_read_only(tmp_path: Path) -> None:
+    transactions = tmp_path / "transactions.csv"
+    transactions.write_text(
+        "transaction_id,symbol,trade_date,side,quantity,price,currency,fees,taxes,corporate_action,account_id\n"
+        "t-1,QQQ,2026-07-16,buy,2,450,USD,1.2,0,,account-a\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "portfolio",
+            "import-transactions",
+            "--file",
+            str(transactions),
+            "--source",
+            "ibkr_csv",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "已导入只读交易流水: 1" in result.stdout
+    assert "账户: account-a" in result.stdout
+    assert "不会产生交易动作" in result.stdout
+    assert (tmp_path / "data" / "portfolio-transactions.json").exists()
+
+
 def test_report_demo_generates_markdown_report(tmp_path: Path) -> None:
     result = runner.invoke(app, ["report", "--demo", "--output-dir", str(tmp_path)])
 

@@ -617,6 +617,16 @@ The import requires `symbol,name,quantity,avg_cost,currency,asset_type,as_of` an
 
 When prices cover the imported holdings, the snapshot also shows cost basis and unrealized difference from `avg_cost`. Cross-currency cost uses the current cached FX rate; fees and taxes remain in the imported native currency. These fields are explicitly not tax cost, broker reconciliation, or a return forecast.
 
+Transactions, dividends, and corporate actions can be imported into a separate read-only audit ledger:
+
+```bash
+lychee portfolio import-transactions --file transactions.csv --source ibkr_csv
+```
+
+The CSV requires `transaction_id,symbol,trade_date,side,quantity,price,currency` and optionally accepts `account_id,fees,taxes,corporate_action`. Duplicate IDs and missing fee, tax, account, or corporate-action evidence remain explicit audit gaps. The current version does not infer tax, realized P&L, or trading actions from this ledger.
+
+The repository includes `examples/demo/transactions.csv` for a local dry run.
+
 When the latest portfolio check still lacks prices, FX, or reconciliation data, `lychee research next` surfaces a `组合审计` action with the next data command. A complete read-only valuation snapshot does not create another action.
 
 `lychee research check` also shows a `组合风险上下文` section above research tasks with audit status, valuation coverage, base currency, drift readings, and the data needed before research. This is a data-completeness context only; it does not change candidates or produce rebalancing advice.

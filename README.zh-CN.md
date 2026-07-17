@@ -579,6 +579,16 @@ lychee portfolio check --file portfolio.csv --policy policy.yaml \
 
 当行情已覆盖且持仓有 `avg_cost` 时，估值快照还会显示成本基础和未实现差额；费用/税费仍按导入文件原币保留。跨币种成本使用当前 FX 缓存折算，所有这些字段都明确标注不等于税务成本、券商对账或收益结论。
 
+交易流水、股息和公司行动可以单独导入只读审计账本：
+
+```bash
+lychee portfolio import-transactions --file transactions.csv --source ibkr_csv
+```
+
+CSV 必须包含 `transaction_id,symbol,trade_date,side,quantity,price,currency`，可选提供 `account_id,fees,taxes,corporate_action`。流水重复编号、缺失费用/税费/账户标识或未核对的股息/公司行动会保留为审计缺口；当前版本不会据此计算税务、已实现盈亏或交易动作。
+
+仓库提供了 `examples/demo/transactions.csv` 作为本地试跑样例。
+
 如果最近一次组合检查仍缺少行情、FX 或持仓核对信息，`lychee research next` 会把它加入“组合审计”行动队列，并给出下一条可执行的数据命令；完整的只读估值快照不会重复制造行动。
 
 `lychee research check` 也会在研究任务顶部显示“组合风险上下文”：当前组合审计状态、估值覆盖数量、基础货币、目标偏离读数和研究前需要补齐的内容。它只是研究前的数据完整性提示，不会改变研究候选，更不会生成调仓建议。

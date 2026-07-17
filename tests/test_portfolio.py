@@ -7,6 +7,7 @@ import yaml
 from lychee_alphadesk.core.portfolio import (
     check_portfolio,
     import_portfolio_positions,
+    import_portfolio_transactions,
     load_imported_positions,
     load_portfolio_targets,
     write_portfolio_check_artifact,
@@ -282,6 +283,35 @@ def test_load_imported_positions_merges_same_symbol_across_accounts(
     assert positions["QQQ"].fees_paid == 3
     assert positions["QQQ"].account_id == "account-a;account-b"
     assert any("多个账户" in gap for gap in audit_gaps)
+
+
+def test_import_portfolio_transactions_preserves_action_audit_boundary(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "transactions.csv"
+    path.write_text(
+        "transaction_id,symbol,trade_date,side,quantity,price,currency,fees,taxes,corporate_action,account_id\n"
+        "t-1,QQQ,2026-07-16,buy,2,450,USD,1.2,0,,account-a\n"
+        "t-2,QQQ,2026-07-17,dividend,2,1.5,USD,,,已核对股息公告,account-a\n",
+        encoding="utf-8",
+    )
+
+    result = import_portfolio_transactions(
+        transactions_path=path,
+        output_dir=tmp_path,
+        source="ibkr_csv",
+        now=datetime(2026, 7, 18, tzinfo=UTC),
+    )
+
+    assert result.source == "ibkr_csv"
+    assert len(result.transactions) == 2
+    assert result.transactions[1].side == "dividend"
+    assert "交易流水没有完整提供费用。" in result.audit_gaps
+    assert "交易流水没有完整提供税费。" in result.audit_gaps
+    assert "股息或公司行动流水没有核对说明" not in result.audit_gaps
+    payload = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert payload["rows"][1]["corporate_action"] == "已核对股息公告"
+    assert result.audit_path.exists()
 
 
 def test_check_portfolio_uses_imported_quantity_for_read_only_valuation(

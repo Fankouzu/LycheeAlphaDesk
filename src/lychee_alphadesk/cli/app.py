@@ -81,6 +81,7 @@ from lychee_alphadesk.core.policy import load_policy, validate_policy
 from lychee_alphadesk.core.portfolio import (
     check_portfolio,
     import_portfolio_positions,
+    import_portfolio_transactions,
     write_portfolio_check_artifact,
 )
 from lychee_alphadesk.core.reports import generate_demo_report
@@ -405,6 +406,53 @@ def portfolio_import(
     for gap in result.audit_gaps:
         console.print(f"⚠️ 审计缺口: {gap}")
     console.print("边界: 持仓导入只读，不代表已完成券商对账，不会产生交易动作。")
+
+
+@portfolio_app.command("import-transactions")
+def portfolio_import_transactions(
+    transactions_path: Annotated[
+        Path,
+        typer.Option(
+            "--file",
+            help=(
+                "交易流水 CSV，字段: transaction_id,symbol,trade_date,side,"
+                "quantity,price,currency；可选 account_id。"
+            ),
+        ),
+    ],
+    source: Annotated[
+        str,
+        typer.Option("--source", help="导入来源，例如 ibkr_csv、manual_csv。"),
+    ] = "manual_csv",
+    output_dir: Annotated[
+        Path,
+        typer.Option("--output-dir", help="缓存和审计输出目录。"),
+    ] = DEFAULT_OUTPUT_DIR,
+) -> None:
+    """导入只读交易、股息和公司行动流水，不计算税务结论。"""
+    try:
+        result = import_portfolio_transactions(
+            transactions_path=transactions_path,
+            output_dir=output_dir,
+            source=source,
+        )
+    except (OSError, ValueError) as error:
+        console.print(str(error), markup=False)
+        raise typer.Exit(code=1) from error
+    console.print(f"已导入只读交易流水: {len(result.transactions)}")
+    console.print(f"来源: {result.source}")
+    account_ids = sorted(
+        {transaction.account_id for transaction in result.transactions if transaction.account_id}
+    )
+    if account_ids:
+        console.print(f"账户: {', '.join(account_ids)}")
+    console.print(f"流水缓存: {result.output_path}", soft_wrap=True)
+    console.print(f"导入审计: {result.audit_path}", soft_wrap=True)
+    for gap in result.audit_gaps:
+        console.print(f"⚠️ 审计缺口: {gap}")
+    console.print(
+        "边界: 交易流水导入只读，不计算税务或已实现盈亏，不代表券商对账，不会产生交易动作。"
+    )
 
 
 @audit_app.command("list")

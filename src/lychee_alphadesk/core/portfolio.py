@@ -49,6 +49,31 @@ class PortfolioImportResult:
 
 
 @dataclass(frozen=True)
+class PortfolioTransaction:
+    transaction_id: str
+    symbol: str
+    trade_date: str
+    side: str
+    quantity: float
+    price: float
+    currency: str
+    fees: float | None
+    taxes: float | None
+    corporate_action: str
+    account_id: str = ""
+
+
+@dataclass(frozen=True)
+class PortfolioTransactionImportResult:
+    source: str
+    imported_at: str
+    transactions: list[PortfolioTransaction]
+    output_path: Path
+    audit_path: Path
+    audit_gaps: list[str]
+
+
+@dataclass(frozen=True)
 class PortfolioValuation:
     symbol: str
     name: str
@@ -557,6 +582,160 @@ def load_portfolio_positions(path: Path) -> list[PortfolioPosition]:
     if not positions:
         raise ValueError("持仓文件没有任何持仓行。")
     return positions
+
+
+def import_portfolio_transactions(
+    *,
+    transactions_path: Path,
+    output_dir: Path,
+    source: str,
+    now: datetime | None = None,
+) -> PortfolioTransactionImportResult:
+    normalized_source = source.strip()
+    if not normalized_source:
+        raise ValueError("交易流水导入必须提供来源名称。")
+    transactions = load_portfolio_transactions(transactions_path)
+    imported_at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
+    audit_gaps: list[str] = []
+    if any(transaction.fees is None for transaction in transactions):
+        audit_gaps.append("交易流水没有完整提供费用。")
+    if any(transaction.taxes is None for transaction in transactions):
+        audit_gaps.append("交易流水没有完整提供税费。")
+    action_sides = {"dividend", "split", "merger", "spinoff"}
+    if any(
+        transaction.side in action_sides and not transaction.corporate_action
+        for transaction in transactions
+    ):
+        audit_gaps.append("股息或公司行动流水没有核对说明。")
+    if any(not transaction.account_id for transaction in transactions):
+        audit_gaps.append("交易流水没有账户标识，无法区分多账户流水。")
+
+    data_dir = output_dir / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    output_path = data_dir / "portfolio-transactions.json"
+    payload = {
+        "provider": normalized_source,
+        "source": normalized_source,
+        "imported_at": imported_at,
+        "rows": [asdict(transaction) for transaction in transactions],
+        "audit_gaps": audit_gaps,
+        "disclaimer": (
+            "只读交易流水导入；不计算税务结论、已实现盈亏，不代表券商对账，"
+            "不执行交易。"
+        ),
+    }
+    output_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    audit_dir = output_dir / "research"
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = imported_at.replace("-", "").replace(":", "").replace("+00:00", "Z")
+    audit_path = audit_dir / f"portfolio-transactions-import-{timestamp}.json"
+    audit_path.write_text(
+        json.dumps(
+            {
+                "source": normalized_source,
+                "imported_at": imported_at,
+                "input_path": str(transactions_path),
+                "output_path": str(output_path),
+                "transaction_count": len(transactions),
+                "audit_gaps": audit_gaps,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return PortfolioTransactionImportResult(
+        normalized_source,
+        imported_at,
+        transactions,
+        output_path,
+        audit_path,
+        audit_gaps,
+    )
+
+
+def load_portfolio_transactions(path: Path) -> list[PortfolioTransaction]:
+    if not path.exists():
+        raise ValueError(f"交易流水文件不存在: {path}")
+    required = {
+        "transaction_id",
+        "symbol",
+        "trade_date",
+        "side",
+        "quantity",
+        "price",
+        "currency",
+    }
+    allowed_sides = {
+        "buy",
+        "sell",
+        "dividend",
+        "interest",
+        "fee",
+        "tax",
+        "split",
+        "merger",
+        "spinoff",
+    }
+    with path.open(encoding="utf-8", newline="") as file:
+        reader = csv.DictReader(file)
+        missing = sorted(required.difference(reader.fieldnames or []))
+        if missing:
+            raise ValueError("交易流水文件缺少字段: " + ", ".join(missing))
+        transactions: list[PortfolioTransaction] = []
+        seen_ids: set[str] = set()
+        for line_number, row in enumerate(reader, start=2):
+            try:
+                transaction_id = str(row["transaction_id"] or "").strip()
+                symbol = str(row["symbol"] or "").strip().upper()
+                trade_date = str(row["trade_date"] or "").strip()
+                side = str(row["side"] or "").strip().lower()
+                quantity = float(row["quantity"] or "")
+                price = float(row["price"] or "")
+                currency = str(row["currency"] or "").strip().upper()
+                fees = _optional_nonnegative_float(row.get("fees"))
+                taxes = _optional_nonnegative_float(row.get("taxes"))
+                corporate_action = str(row.get("corporate_action") or "").strip()
+                account_id = str(row.get("account_id") or "").strip()
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"交易流水第 {line_number} 行包含无效数字。") from error
+            if not transaction_id or not symbol or not currency or not trade_date:
+                raise ValueError(f"交易流水第 {line_number} 行缺少必填字段。")
+            if side not in allowed_sides:
+                raise ValueError(f"交易流水第 {line_number} 行 side 不受支持: {side}")
+            if quantity < 0 or price < 0:
+                raise ValueError(f"交易流水第 {line_number} 行数量或价格无效。")
+            try:
+                datetime.fromisoformat(trade_date)
+            except ValueError as error:
+                raise ValueError(
+                    f"交易流水第 {line_number} 行 trade_date 必须是 ISO 日期或时间。"
+                ) from error
+            if transaction_id in seen_ids:
+                raise ValueError(f"交易流水包含重复 transaction_id: {transaction_id}")
+            seen_ids.add(transaction_id)
+            transactions.append(
+                PortfolioTransaction(
+                    transaction_id,
+                    symbol,
+                    trade_date,
+                    side,
+                    quantity,
+                    price,
+                    currency,
+                    fees,
+                    taxes,
+                    corporate_action,
+                    account_id,
+                )
+            )
+    if not transactions:
+        raise ValueError("交易流水文件没有任何记录。")
+    return transactions
 
 
 def load_imported_positions(

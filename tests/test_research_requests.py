@@ -366,7 +366,7 @@ def test_verification_request_stops_repeating_news_after_completed_refresh(
         payload={
             "executions": [
                 {
-                    "action_type": "news",
+                    "action_type": "news_official",
                     "status": "completed",
                     "count": 8,
                 },

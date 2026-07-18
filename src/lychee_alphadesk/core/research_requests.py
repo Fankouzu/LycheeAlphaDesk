@@ -822,13 +822,13 @@ def _verification_hypothesis_data_requests(
             continue
         seen_tasks.add(task_key)
         seen_request_paths: set[tuple[str, ...]] = set()
-        news_refresh_exhausted = _verification_topic_news_exhausted(payload) or (
-            _verification_follows_completed_news_refresh(
-                output_dir,
-                record,
-                path,
-            )
+        topic_news_exhausted = _verification_topic_news_exhausted(payload)
+        completed_news_refresh = _verification_follows_completed_news_refresh(
+            output_dir,
+            record,
+            path,
         )
+        news_refresh_exhausted = topic_news_exhausted or completed_news_refresh
         for index, request_text in enumerate(
             _verification_hypothesis_request_texts(payload),
             start=1,
@@ -838,7 +838,10 @@ def _verification_hypothesis_data_requests(
                 continue
             if news_refresh_exhausted and _looks_like_news_request(request_text.casefold()):
                 request_text = _manual_topic_news_request_text()
-                suggested_actions = _manual_topic_news_actions(record)
+                suggested_actions = _manual_topic_news_actions(
+                    record,
+                    include_official=not completed_news_refresh,
+                )
             else:
                 suggested_actions = _suggest_data_request_actions(record, request_text)
             request_path_key = tuple(
@@ -953,7 +956,7 @@ def _verification_follows_completed_news_refresh(
             continue
         executions = _dict_list(fulfillment.payload.get("executions"))
         has_news = any(
-            _string_value(execution.get("action_type")) == "news"
+            _string_value(execution.get("action_type")) in {"news", "news_official"}
             and _string_value(execution.get("status")) in {"completed", "cached"}
             and _int_value(execution.get("count")) > 0
             for execution in executions
@@ -987,10 +990,14 @@ def _manual_topic_news_request_text() -> str:
     )
 
 
-def _manual_topic_news_actions(record: ResearchMemoRecord) -> list[ResearchDataRequestAction]:
+def _manual_topic_news_actions(
+    record: ResearchMemoRecord,
+    *,
+    include_official: bool = True,
+) -> list[ResearchDataRequestAction]:
     symbol = record.symbol.strip().upper() if record.symbol else "<证券代码>"
     actions: list[ResearchDataRequestAction] = []
-    if symbol == "0700.HK":
+    if symbol == "0700.HK" and include_official:
         actions.append(
             ResearchDataRequestAction(
                 "news_official",

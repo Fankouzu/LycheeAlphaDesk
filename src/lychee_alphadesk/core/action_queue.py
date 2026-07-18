@@ -62,6 +62,7 @@ ActionQueueBuilder = Callable[..., list["ActionQueueItem"]]
 ACTION_NO_DATA_COOLDOWN_SECONDS = 60 * 60
 RADAR_RESEARCH_FOLLOWUP_SECONDS = 24 * 60 * 60
 RADAR_FOLLOWUP_WORKBENCH_PRIORITY = 25
+MANUAL_EVIDENCE_PRIORITY = 12
 DEFAULT_WORKBENCH_PRIORITY = 40
 PORTFOLIO_AUDIT_PRIORITY = 18
 PORTFOLIO_TRANSACTION_AUDIT_PRIORITY = 22
@@ -920,7 +921,7 @@ def _data_request_action(
             return None
         is_manual_filing = manual_source.action_type == "manual_filing"
         return ActionQueueItem(
-            priority=25,
+            priority=MANUAL_EVIDENCE_PRIORITY,
             area="人工文件证据" if is_manual_filing else "人工证据",
             title=(
                 f"补充已核验文件: {item.display_name}"

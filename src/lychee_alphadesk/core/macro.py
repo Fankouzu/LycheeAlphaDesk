@@ -53,7 +53,7 @@ def pull_macro_series(
         force=force,
     )
     if not freshness.should_refresh and freshness.entry is not None:
-        rows = [
+        cached_rows = [
             row
             for row in _read_cache(output_dir, "research-metrics.json").rows
             if str(row.get("provider") or "").strip().lower() == provider
@@ -62,7 +62,7 @@ def pull_macro_series(
         return PullResult(
             "macro",
             freshness.entry.provider,
-            len(rows),
+            len(cached_rows),
             freshness.entry.artifact_path,
             [freshness.reason],
             refreshed=False,

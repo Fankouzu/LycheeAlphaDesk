@@ -285,9 +285,11 @@ def fill_research_data_gaps(
         news_symbols=news_symbols,
         unresolved_news_symbols=unresolved_news_symbols,
         financial_symbols=_unique_preserving_order(
-            symbol
-            for symbols in financial_symbols_by_market.values()
-            for symbol in symbols
+            [
+                symbol
+                for symbols in financial_symbols_by_market.values()
+                for symbol in symbols
+            ]
         ),
     )
 

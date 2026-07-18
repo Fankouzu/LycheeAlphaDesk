@@ -4078,7 +4078,10 @@ def _has_financial_gap(data_gaps: list[str]) -> bool:
 
 def _data_gap_next_command(candidate: CandidateCheck) -> str:
     if not candidate.symbol:
-        return f"lychee research verify {_research_selector(candidate)}"
+        return (
+            "lychee research verify "
+            f"{_research_selector(candidate.symbol, candidate.display_name)}"
+        )
     normalized = " ".join(gap.casefold() for gap in candidate.data_gaps)
     if "港股数字财务" in normalized:
         return (

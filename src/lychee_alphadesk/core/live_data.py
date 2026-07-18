@@ -4,7 +4,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from html import unescape
@@ -1264,7 +1264,7 @@ def _financial_snapshot_guide_path(output_dir: Path, symbol: str) -> Path:
     return output_dir / "data" / f"financials-guide-{safe_symbol}.json"
 
 
-def _json_text(payload: dict[object, object], key: str) -> str:
+def _json_text(payload: Mapping[str, object], key: str) -> str:
     value = payload.get(key)
     return value if isinstance(value, str) else ""
 

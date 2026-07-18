@@ -329,7 +329,7 @@ Each research packet must include:
 - Candidate identity: candidate_id, display_name, symbol, market, asset_type, related_theme, why_watch, confidence, and status.
 - Discovery evidence IDs plus expanded evidence details.
 - Local cached data: price, related news, and filings.
-- Data gaps: missing symbol, missing price cache, missing filing cache, or evidence IDs that cannot be resolved from the current local cache.
+- Data gaps: missing symbol, missing price cache, missing filing cache, missing financial snapshots, or evidence IDs that cannot be resolved from the current local cache. Stock tasks must keep a financial gap until a snapshot is verified; Hong Kong numeric financials use the manual evidence template and must not be inferred from announcement titles.
 - Next verification actions.
 - A clear non-advice disclaimer.
 

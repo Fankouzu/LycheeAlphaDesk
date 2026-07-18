@@ -336,7 +336,7 @@ Research Deepen 是 discovery 之后的二阶段研究准备层。它读取 SQLi
 - 候选身份：candidate_id、display_name、symbol、market、asset_type、related_theme、why_watch、confidence 和 status。
 - discovery 证据 ID 及可展开证据详情。
 - 本地缓存数据：行情、相关新闻、公告。
-- 数据缺口：缺少 symbol、缺少行情、缺少公告或证据 ID 无法在当前本地缓存中解析。
+- 数据缺口：缺少 symbol、缺少行情、缺少公告、缺少财务快照或证据 ID 无法在当前本地缓存中解析。股票任务没有财务快照时必须保留缺口；港股数字财务走人工核验模板，不能把公告标题当作财报数值。
 - 下一步核验动作。
 - 明确的非投资建议免责声明。
 

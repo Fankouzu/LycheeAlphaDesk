@@ -1023,14 +1023,14 @@ def build_research_verification_checks(
                 detail="当前任务不要求公司公告/财报核验。",
             )
         )
-    if candidate.market.upper() == "US" and asset_type == "stock":
+    if candidate.market.upper() in {"US", "HK", "CN"} and asset_type == "stock":
         checks.append(
             ResearchVerificationCheck(
                 name="财务快照核验",
                 status="pass" if financials else "warn",
                 detail=_financial_snapshot_check_detail(financials)
                 if financials
-                else "尚无可核验的 SEC XBRL 财务快照；可补齐后再读取营收、利润和经营现金流。",
+                else _financial_snapshot_missing_detail(candidate.market.upper()),
             )
         )
     else:
@@ -1298,6 +1298,20 @@ def _research_metric_check_detail(rows: list[dict[str, object]]) -> str:
 
 def _financial_snapshot_check_detail(rows: list[dict[str, object]]) -> str:
     return "；".join(_financial_snapshot_line(row) for row in rows[:2])
+
+
+def _financial_snapshot_missing_detail(market: str) -> str:
+    return {
+        "US": "尚无可核验的 SEC XBRL 财务快照；补齐后再读取营收、利润和经营现金流。",
+        "HK": (
+            "尚无可核验的港股数字财务快照；请使用人工财务资料向导补齐后再读取"
+            "营收、利润和经营现金流。"
+        ),
+        "CN": (
+            "尚无可核验的 A 股财务快照；需要可用的 Tushare 权限或人工核验后再读取"
+            "营收、利润和经营现金流。"
+        ),
+    }.get(market, "尚无可核验的财务快照；补齐后再读取营收、利润和经营现金流。")
 
 
 def _forecast_check_detail(row: dict[str, object]) -> str:
@@ -4002,6 +4016,8 @@ def _candidate_checks(
             now=now,
         ):
             candidate_check = _mark_market_no_data_cooldown(candidate_check)
+        if candidate_check.data_gaps and _has_financial_gap(candidate_check.data_gaps):
+            candidate_check = _prioritize_data_gap_action(candidate_check)
         checks.append(candidate_check)
     return checks
 
@@ -4039,6 +4055,37 @@ def _mark_market_no_data_cooldown(candidate: CandidateCheck) -> CandidateCheck:
         next_step="行情数据暂不可用，先检查数据健康或更新 provider 权限。",
         next_command="lychee data health",
     )
+
+
+def _prioritize_data_gap_action(candidate: CandidateCheck) -> CandidateCheck:
+    return replace(
+        candidate,
+        status="blocked",
+        next_step=_data_gap_action_summary(candidate.data_gaps),
+        next_command=_data_gap_next_command(candidate),
+        ranking_reason="当前仍有数据缺口，先补齐数据后再进入证据一致性核验。",
+    )
+
+
+def _has_financial_gap(data_gaps: list[str]) -> bool:
+    normalized = " ".join(gap.casefold() for gap in data_gaps)
+    return "财务快照" in normalized or "xbrl" in normalized or "数字财务" in normalized
+
+
+def _data_gap_next_command(candidate: CandidateCheck) -> str:
+    if not candidate.symbol:
+        return f"lychee research verify {_research_selector(candidate)}"
+    normalized = " ".join(gap.casefold() for gap in candidate.data_gaps)
+    if "港股数字财务" in normalized:
+        return (
+            "lychee data guide financials --symbol "
+            f"{candidate.symbol} --name {_quote_cli_value(candidate.display_name)} --market HK"
+        )
+    if "财务快照" in normalized or "xbrl" in normalized:
+        return (
+            f"lychee data pull financials --symbols {candidate.symbol} --force"
+        )
+    return f"lychee research run --symbol {candidate.symbol} --force"
 
 
 def _latest_verification_requires_fund_metadata(
@@ -4982,7 +5029,13 @@ def _data_gap_action_summary(data_gaps: list[str]) -> str:
         labels.append("行情")
     if "新闻" in normalized or "discovery" in normalized:
         labels.append("新闻")
-    if "sec" in normalized or "公告" in normalized or "财报" in normalized:
+    if (
+        "sec" in normalized
+        or "公告" in normalized
+        or "财报" in normalized
+        or "财务" in normalized
+        or "xbrl" in normalized
+    ):
         labels.append("公告/财报")
     if not labels:
         return "先补齐基础研究数据，再重新核验。"

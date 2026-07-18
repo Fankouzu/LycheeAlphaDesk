@@ -325,6 +325,7 @@ def _build_research_packet(
         symbol_mapping=symbol_mapping,
         auditable_topic_news=auditable_topic_news,
         related_filings=related_filings,
+        related_financials=related_financials,
     )
     packet: dict[str, object] = {
         "candidate": {
@@ -1174,6 +1175,7 @@ def _data_gaps(
     symbol_mapping: list[dict[str, object]],
     auditable_topic_news: list[dict[str, object]],
     related_filings: list[dict[str, object]],
+    related_financials: list[dict[str, object]],
 ) -> list[str]:
     gaps: list[str] = []
     if not symbol:
@@ -1204,6 +1206,13 @@ def _data_gaps(
             gaps.append(f"缺少 {symbol} HKEX 公司公告缓存。")
         elif item.market == "CN":
             gaps.append(f"缺少 {symbol} 巨潮公司公告缓存。")
+    if symbol and item.asset_type == "stock" and not related_financials:
+        if item.market == "US":
+            gaps.append(f"缺少 {symbol} SEC XBRL 财务快照。")
+        elif item.market == "HK":
+            gaps.append(f"缺少 {symbol} 港股数字财务快照；请使用人工财务资料向导。")
+        elif item.market == "CN":
+            gaps.append(f"缺少 {symbol} A 股财务快照；需要可用的 Tushare 权限或人工核验。")
     return gaps
 
 

@@ -2120,8 +2120,8 @@ def test_research_review_command_records_non_advisory_verdict(
     assert payload["note"] == "证据完整，下一步做一致性人工复核。"
     assert payload["verification"]["candidate"]["symbol"] == "STX"
     assert payload["evidence_counts"] == {
-        "support": 4,
-        "risk": 2,
+        "support": 5,
+        "risk": 1,
         "off_topic": 0,
         "missing": 0,
     }
@@ -2146,8 +2146,8 @@ def test_research_review_command_records_non_advisory_verdict(
         "STX",
         "continue_research",
         "证据完整，下一步做一致性人工复核。",
-        4,
-        2,
+        5,
+        1,
         0,
         str(artifacts[0]),
         payload["verification_path"],
@@ -2240,7 +2240,7 @@ def test_research_reviews_command_lists_review_history(tmp_path: Path) -> None:
     assert "STX" in result.stdout
     assert "暂停观察" in result.stdout
     assert "暂时观察，等待更多订单和财报证据。" in result.stdout
-    assert "支持 4 | 风险 2 | 待补 0" in result.stdout
+    assert "支持 5 | 风险 1 | 待补 0" in result.stdout
     assert "research-review-" in result.stdout
     assert "不是买卖建议" in result.stdout
 
@@ -4362,6 +4362,28 @@ def _write_cli_research_seed(output_dir: Path) -> None:
         report,
         output_dir,
         output_dir / "data" / "discovery-today.json",
+    )
+    data_dir = output_dir / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "financials.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "company": "Seagate",
+                        "form": "10-K",
+                        "currency": "USD",
+                        "revenue": 100,
+                        "net_income": 10,
+                        "operating_cash_flow": 20,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
     )
 
 

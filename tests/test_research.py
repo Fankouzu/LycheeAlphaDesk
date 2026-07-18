@@ -371,6 +371,9 @@ def test_deepen_research_queue_requires_hkex_filings_for_hk_stocks(
     )
 
     assert "缺少 0700.HK HKEX 公司公告缓存。" in result.packets[0].packet["data_gaps"]
+    assert "缺少 0700.HK 港股数字财务快照；请使用人工财务资料向导。" in result.packets[0].packet[
+        "data_gaps"
+    ]
 
 
 def test_deepen_research_queue_requires_cninfo_filings_for_cn_stocks(
@@ -386,6 +389,10 @@ def test_deepen_research_queue_requires_cninfo_filings_for_cn_stocks(
     )
 
     assert "缺少 000001.SZ 巨潮公司公告缓存。" in result.packets[0].packet["data_gaps"]
+    assert (
+        "缺少 000001.SZ A 股财务快照；需要可用的 Tushare 权限或人工核验。"
+        in result.packets[0].packet["data_gaps"]
+    )
 
 
 def test_fill_research_data_gaps_pulls_cninfo_announcements_for_cn_stocks(
@@ -563,6 +570,26 @@ def test_fill_research_data_gaps_refreshes_missing_symbol_news(
     data_dir.mkdir(exist_ok=True)
     _write_market_cache(tmp_path, ["STX"])
     _write_filings_cache(tmp_path, ["STX"])
+    (data_dir / "financials.json").write_text(
+        json.dumps(
+            {
+                "provider": "sec_edgar",
+                "rows": [
+                    {
+                        "symbol": "STX",
+                        "company": "Seagate",
+                        "form": "10-K",
+                        "currency": "USD",
+                        "revenue": 100,
+                        "net_income": 10,
+                        "operating_cash_flow": 20,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
     before = deepen_research_queue(
         output_dir=tmp_path,
@@ -971,6 +998,7 @@ def _write_live_caches(
     *,
     include_market: bool = True,
     include_filings: bool = False,
+    include_financials: bool = True,
 ) -> None:
     data_dir = tmp_path / "data"
     data_dir.mkdir(exist_ok=True)
@@ -996,6 +1024,27 @@ def _write_live_caches(
         _write_market_cache(tmp_path, ["STX"])
     if include_filings:
         _write_filings_cache(tmp_path, ["STX"])
+    if include_financials:
+        (data_dir / "financials.json").write_text(
+            json.dumps(
+                {
+                    "provider": "sec_edgar",
+                    "rows": [
+                        {
+                            "symbol": "STX",
+                            "company": "Seagate",
+                            "form": "10-K",
+                            "currency": "USD",
+                            "revenue": 100,
+                            "net_income": 10,
+                            "operating_cash_flow": 20,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
 
 def _fake_market_pull(**kwargs: object) -> PullResult:

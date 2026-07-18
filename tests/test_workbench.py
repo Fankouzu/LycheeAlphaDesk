@@ -376,13 +376,20 @@ def test_workbench_next_commands_preserve_expanded_selection_limit(
     late_candidate = next(
         candidate for candidate in result.candidates if candidate.symbol == "LATE.HK"
     )
-    assert late_candidate.next_command == "lychee research verify --symbol LATE.HK --limit 6"
-    assert "执行: lychee research verify --symbol LATE.HK --limit 6" in result.beginner_brief
+    assert late_candidate.next_command == (
+        'lychee data guide financials --symbol LATE.HK --name "后排候选" --market HK'
+    )
+    assert (
+        '处理命令: lychee data guide financials --symbol LATE.HK '
+        '--name "后排候选" --market HK'
+    ) in (
+        result.beginner_brief
+    )
     assert (
         json.loads(result.artifact_path.read_text(encoding="utf-8"))["candidates"][-1][
             "next_command"
         ]
-        == "lychee research verify --symbol LATE.HK --limit 6"
+        == 'lychee data guide financials --symbol LATE.HK --name "后排候选" --market HK'
     )
 
 
@@ -758,9 +765,12 @@ def test_research_verification_marks_hkex_announcements_as_required_for_hk_stock
 
     checks = build_research_verification_checks(candidate, packet)
     filing_check = next(check for check in checks if check.name == "公告/财报核验")
+    financial_check = next(check for check in checks if check.name == "财务快照核验")
 
     assert filing_check.status == "pass"
     assert filing_check.detail == "可核验 HKEX 公司公告 1 条。"
+    assert financial_check.status == "warn"
+    assert "港股数字财务快照" in financial_check.detail
 
 
 def test_research_verification_marks_cninfo_announcements_as_required_for_cn_stocks() -> None:
@@ -2838,6 +2848,7 @@ def _write_live_caches(
     include_hk_tech_price: bool = False,
     include_stock_price: bool = False,
     include_filings: bool = False,
+    include_financials: bool = True,
     news_headline: str = "Market evidence",
     news_summary: str = "Evidence for the candidate.",
 ) -> None:
@@ -2909,6 +2920,27 @@ def _write_live_caches(
                             "form": "10-K",
                             "summary": "STX 在 2026-07-01 提交了 10-K。",
                             "source_url": "https://example.com/filing",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    if include_financials:
+        (data_dir / "financials.json").write_text(
+            json.dumps(
+                {
+                    "provider": "sec_edgar",
+                    "rows": [
+                        {
+                            "symbol": "STX",
+                            "company": "Seagate",
+                            "form": "10-K",
+                            "currency": "USD",
+                            "revenue": 100,
+                            "net_income": 10,
+                            "operating_cash_flow": 20,
                         }
                     ],
                 },

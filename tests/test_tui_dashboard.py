@@ -348,7 +348,7 @@ def test_dashboard_research_workbench_action_runs_check(
                 "- 纳斯达克100ETF观察 [US] | 入口: QQQ | "
                 "优先级: P2 待增强证据 | 证据状态: 证据 1 条；缺口 0 个",
                 "  研究问题: 美股科技股现在是独立主线，还是只是跟着大盘一起反弹？",
-                "  关键核验: 对比 QQQ 与 SPY。",
+                "  验证标准: 对比 QQQ 与 SPY。",
                 "  下一步: 检查成交量是否配合反弹",
                 "",
                 "下一步队列",

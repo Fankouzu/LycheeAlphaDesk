@@ -201,16 +201,16 @@ def test_workbench_check_runs_closed_loop_and_writes_beginner_ready_report(
     assert "边界: 研究任务台，不给买卖建议。" in result.beginner_brief
     assert "组合风险上下文" in result.beginner_brief
     assert "现在先做" in result.beginner_brief
-    assert "为什么先做:" in result.beginner_brief
-    assert "你要回答:" in result.beginner_brief
-    assert "只需要执行:" in result.beginner_brief
+    assert "排序依据:" in result.beginner_brief
+    assert "待确认事实:" in result.beginner_brief
+    assert "执行入口:" in result.beginner_brief
     assert "今日研究任务" in result.beginner_brief
     assert "研究问题:" in result.beginner_brief
     assert "优先级:" in result.beginner_brief
     assert "排序理由:" in result.beginner_brief
     assert "证据状态:" in result.beginner_brief
-    assert "关键核验:" in result.beginner_brief
-    assert '执行命令: lychee research run --name "恒生指数压力观察" --force' in (
+    assert "验证标准:" in result.beginner_brief
+    assert '执行入口: lychee research run --name "恒生指数压力观察" --force' in (
         result.beginner_brief
     )
     assert "下一步队列" in result.beginner_brief

@@ -3536,7 +3536,7 @@ def test_research_deepen_command_shows_proxy_mapping_symbols(tmp_path: Path) -> 
     assert "今日研究任务" in result.stdout
     assert "研究问题:" in result.stdout
     assert "证据状态:" in result.stdout
-    assert "关键核验:" in result.stdout
+    assert "验证标准:" in result.stdout
     assert "下一步队列" in result.stdout
     assert "给新手的读法" not in result.stdout
     assert "怎么理解代理" not in result.stdout
@@ -3719,7 +3719,7 @@ def test_research_check_command_runs_closed_loop_and_prints_beginner_report(
     assert "今日研究任务" in result.stdout
     assert "研究问题:" in result.stdout
     assert "证据状态:" in result.stdout
-    assert "关键核验:" in result.stdout
+    assert "验证标准:" in result.stdout
     assert "下一步队列" in result.stdout
     assert "给新手的读法" not in result.stdout
     assert list((tmp_path / "research").glob("workbench-check-*.json"))

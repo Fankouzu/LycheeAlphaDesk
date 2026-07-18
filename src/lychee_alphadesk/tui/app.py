@@ -2113,7 +2113,7 @@ def _research_workbench_intro(result: WorkbenchCheckResult) -> str:
             ]
         )
         if first.next_command:
-            lines.append(f"  只需要执行: {first.next_command}")
+            lines.append(f"  执行入口: {first.next_command}")
     return "\n".join(lines)
 
 

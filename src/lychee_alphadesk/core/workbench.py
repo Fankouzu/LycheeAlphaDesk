@@ -4437,10 +4437,10 @@ def _beginner_brief(
     if candidates:
         first = candidates[0]
         lines.append(f"- {first.display_name}: {first.next_step}")
-        lines.append(f"  为什么先做: {first.ranking_reason}")
-        lines.append(f"  你要回答: {first.beginner_question}")
+        lines.append(f"  排序依据: {first.ranking_reason}")
+        lines.append(f"  待确认事实: {first.beginner_question}")
         if first.next_command:
-            lines.append(f"  只需要执行: {first.next_command}")
+            lines.append(f"  执行入口: {first.next_command}")
     else:
         lines.append("- 先运行今日市场发现，建立第一批研究任务。")
 
@@ -4455,10 +4455,10 @@ def _beginner_brief(
             )
             lines.append(f"  排序理由: {candidate.ranking_reason}")
             lines.append(f"  研究问题: {candidate.beginner_question}")
-            lines.append(f"  关键核验: {candidate.what_to_check}")
-            lines.append(f"  下一步: {candidate.next_step}")
+            lines.append(f"  验证标准: {candidate.what_to_check}")
+            lines.append(f"  当前动作: {candidate.next_step}")
             if candidate.next_command:
-                lines.append(f"  执行命令: {candidate.next_command}")
+                lines.append(f"  执行入口: {candidate.next_command}")
             if candidate.proxy_symbols:
                 lines.append(f"  {_proxy_followup_line()}")
     else:

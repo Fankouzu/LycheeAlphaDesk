@@ -855,6 +855,8 @@ def research_fill_gaps(
         status=status,
         limit=limit,
         force=force,
+        pull_financials=pull_sec_financials,
+        pull_cn_financials=pull_tushare_financials,
     )
     if fill_result.candidates_checked == 0:
         console.print("研究队列为空。请先运行 `lychee discover today`。")

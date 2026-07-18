@@ -1328,8 +1328,41 @@ def _financial_report_candidates(
                 "provider": _json_text(row, "provider") or "filings cache",
             }
         )
-    candidates.sort(key=lambda item: (item["date"], item["source_url"]), reverse=True)
+    candidates.sort(
+        key=lambda item: (
+            _financial_report_priority(item["title"]),
+            item["date"],
+            item["source_url"],
+        ),
+        reverse=True,
+    )
     return candidates[:5]
+
+
+def _financial_report_priority(title: str) -> int:
+    normalized = title.casefold()
+    if any(
+        marker in normalized
+        for marker in (
+            "quarterly results",
+            "interim results",
+            "annual results",
+            "final results",
+            "季度业绩",
+            "中期业绩",
+            "年度业绩",
+            "全年业绩",
+        )
+    ):
+        return 3
+    if any(
+        marker in normalized
+        for marker in ("annual report", "interim report", "年报", "中期报告")
+    ):
+        return 2
+    if "agm" in normalized or "股东周年大会" in normalized:
+        return 0
+    return 1
 
 
 def _json_text(payload: Mapping[str, object], key: str) -> str:

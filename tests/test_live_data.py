@@ -890,6 +890,13 @@ def test_financial_snapshot_guide_prefills_cached_official_report(
                     },
                     {
                         "symbol": "0700.HK",
+                        "date": "2026-03-18",
+                        "summary": "HKEXnews 公告: Announcements and Notices - [Results of AGM]",
+                        "source_url": "https://www1.hkexnews.hk/agm-results.pdf",
+                        "provider": "hkexnews",
+                    },
+                    {
+                        "symbol": "0700.HK",
                         "date": "2026-02-01",
                         "summary": "HKEXnews 公告: Next Day Disclosure Returns",
                         "source_url": "https://www1.hkexnews.hk/other.pdf",

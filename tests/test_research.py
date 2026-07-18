@@ -9,8 +9,54 @@ from lychee_alphadesk.core.discovery import (
     DiscoveryTheme,
 )
 from lychee_alphadesk.core.live_data import PullResult
-from lychee_alphadesk.core.research import deepen_research_queue, fill_research_data_gaps
-from lychee_alphadesk.core.research_db import write_discovery_research_run
+from lychee_alphadesk.core.research import (
+    _related_news,
+    _research_topic_terms,
+    deepen_research_queue,
+    fill_research_data_gaps,
+)
+from lychee_alphadesk.core.research_db import ResearchQueueItem, write_discovery_research_run
+from lychee_alphadesk.providers.demo import NewsEvent
+
+
+def test_research_topic_terms_match_manual_chinese_hk_platform_evidence() -> None:
+    item = ResearchQueueItem(
+        candidate_id=3,
+        run_id="run-1",
+        created_at="2026-07-18T00:00:00+00:00",
+        display_name="Tencent",
+        symbol="0700.HK",
+        market="HK",
+        asset_type="stock",
+        related_theme="中国政策与消费观察",
+        why_watch="大型港股中国平台公司，可观察跨市场情绪。",
+        evidence=[],
+        risk_flags=[],
+        next_actions=[],
+        confidence="medium",
+        status="new",
+    )
+    event = NewsEvent(
+        timestamp="2026-07-18T01:40:10+00:00",
+        headline="港股中国平台公司2026年第一季度业绩改善",
+        summary="腾讯官方业绩报告显示营收、净利润和经营现金流改善。",
+        symbols=["0700.HK"],
+        source_url="https://example.com/tencent-q1.pdf",
+        is_symbol_scoped=True,
+    )
+
+    related = _related_news(
+        item.symbol,
+        item.display_name,
+        item.market,
+        item.asset_type,
+        [event],
+        topic_terms=_research_topic_terms(item),
+    )
+
+    assert "港股" in _research_topic_terms(item)
+    assert "中国" in _research_topic_terms(item)
+    assert related == [event.__dict__]
 
 
 def test_deepen_research_queue_builds_source_backed_packet(tmp_path: Path) -> None:

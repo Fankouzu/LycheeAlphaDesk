@@ -4001,6 +4001,15 @@ def _candidate_checks(
                 candidate_check,
                 verification_followup,
             )
+        elif output_dir is not None and (
+            ready_for_review := _latest_verification_ready_for_review(
+                output_dir,
+                candidate_check,
+            )
+        ) is not None:
+            # A completed verification supersedes an older topic-news exhaustion
+            # marker; otherwise a newly supplied manual source can never progress.
+            candidate_check = _mark_ready_for_review(candidate_check, ready_for_review)
         elif data_request_news_state == "exhausted":
             candidate_check = _mark_topic_news_exhausted(candidate_check)
         elif data_request_news_state == "review_ready":
@@ -4017,13 +4026,6 @@ def _candidate_checks(
             packet,
         ):
             candidate_check = _mark_topic_news_review_ready(candidate_check)
-        elif output_dir is not None and (
-            ready_for_review := _latest_verification_ready_for_review(
-                output_dir,
-                candidate_check,
-            )
-        ) is not None:
-            candidate_check = _mark_ready_for_review(candidate_check, ready_for_review)
         if output_dir is not None and _candidate_market_is_in_no_data_cooldown(
             output_dir,
             candidate_check,

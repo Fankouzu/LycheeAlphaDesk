@@ -2579,6 +2579,18 @@ def data_guide_financials(
     console.print("人工财务快照补齐向导")
     console.print(f"标的: {guide.display_name} ({guide.symbol}) [{guide.market}]")
     console.print(f"模板已写入: {guide.output_path}", soft_wrap=True)
+    if guide.official_report_candidates:
+        console.print(
+            f"已找到 {len(guide.official_report_candidates)} 条本地官方报告候选；"
+            "模板已预填最新一条，请打开原文核对。"
+        )
+        for report in guide.official_report_candidates[:3]:
+            console.print(
+                f"- {report['date']} | {report['title']} | {report['source_url']}",
+                soft_wrap=True,
+            )
+    else:
+        console.print("未找到本地官方报告候选，请从 HKEXnews 或发行人 IR 页面选择原文。")
     console.print("填写报告类型、报告期、币种、营收/净利润/经营现金流至少一项和来源 URL")
     console.print("建议来源")
     for source in guide.suggested_sources:

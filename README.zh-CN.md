@@ -486,7 +486,7 @@ lychee research verify --symbol NVDA
 
 `data set filing` 必须提供关联研究的证券代码、公司、表单类型、公告日期、已核验摘要和 `http(s)` 来源 URL。它会合并写入 `filings.json`，不会删除 SEC 已缓存行或更早的人工记录；后续 SEC 刷新也必须保留人工文件证据。带 symbol 的文件证据只会匹配同一代码。TUI 从 `人工文件证据` 行打开同一套显式保存表单，保存后再提供“重新下钻核验”。
 
-港股数字财务目前使用人工核验模板，不把公告标题当成数值：
+港股数字财务目前使用人工核验模板，不把公告标题当成数值。若本地已有该代码的官方财务公告缓存，向导会列出最多 5 条报告候选，并预填最新一条的标题、公告日期和 URL；用户仍必须打开原文核对：
 
 ```bash
 lychee data guide financials --symbol 0700.HK --name "腾讯控股" --market HK

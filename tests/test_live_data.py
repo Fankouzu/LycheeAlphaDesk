@@ -871,6 +871,53 @@ def test_manual_financial_snapshot_guide_imports_source_backed_hk_row(
     assert "重新下钻核验" in audit["boundary"]
 
 
+def test_financial_snapshot_guide_prefills_cached_official_report(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True)
+    (data_dir / "filings.json").write_text(
+        json.dumps(
+            {
+                "provider": "hkexnews",
+                "rows": [
+                    {
+                        "symbol": "0700.HK",
+                        "date": "2026-03-18",
+                        "summary": "HKEXnews 公告: 2025 年度业绩",
+                        "source_url": "https://www1.hkexnews.hk/results-2025.pdf",
+                        "provider": "hkexnews",
+                    },
+                    {
+                        "symbol": "0700.HK",
+                        "date": "2026-02-01",
+                        "summary": "HKEXnews 公告: Next Day Disclosure Returns",
+                        "source_url": "https://www1.hkexnews.hk/other.pdf",
+                        "provider": "hkexnews",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    guide = write_financial_snapshot_guide(
+        output_dir=tmp_path,
+        symbol="0700.HK",
+        display_name="腾讯控股",
+        market="HK",
+    )
+
+    payload = json.loads(guide.output_path.read_text(encoding="utf-8"))
+    assert guide.official_report_candidates[0]["source_url"].endswith(
+        "results-2025.pdf"
+    )
+    assert payload["template"]["report_type"] == "HKEXnews 公告: 2025 年度业绩"
+    assert payload["template"]["filing_date"] == "2026-03-18"
+    assert payload["template"]["source_url"].endswith("results-2025.pdf")
+
+
 def test_pull_market_prices_auto_uses_eastmoney_for_hk_symbols(
     tmp_path: Path,
 ) -> None:

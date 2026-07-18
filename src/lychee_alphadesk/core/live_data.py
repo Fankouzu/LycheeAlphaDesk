@@ -196,6 +196,7 @@ class FinancialSnapshotGuide:
     required_fields: list[str]
     suggested_sources: list[str]
     output_path: Path
+    official_report_candidates: list[dict[str, str]]
 
 
 def write_financial_snapshot_guide(
@@ -221,6 +222,10 @@ def write_financial_snapshot_guide(
         "source_url",
     ]
     suggested_sources = _financial_snapshot_suggested_sources(normalized_market)
+    official_report_candidates = _financial_report_candidates(
+        output_dir=output_dir,
+        symbol=normalized_symbol,
+    )
     output_path = _financial_snapshot_guide_path(output_dir, normalized_symbol)
     guide = FinancialSnapshotGuide(
         symbol=normalized_symbol,
@@ -229,6 +234,7 @@ def write_financial_snapshot_guide(
         required_fields=required_fields,
         suggested_sources=suggested_sources,
         output_path=output_path,
+        official_report_candidates=official_report_candidates,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -239,15 +245,28 @@ def write_financial_snapshot_guide(
                 "market": guide.market,
                 "required_fields": guide.required_fields,
                 "suggested_sources": guide.suggested_sources,
+                "official_report_candidates": guide.official_report_candidates,
                 "template": {
-                    "report_type": "",
+                    "report_type": (
+                        official_report_candidates[0]["title"]
+                        if official_report_candidates
+                        else ""
+                    ),
                     "period_end": "",
-                    "filing_date": "",
+                    "filing_date": (
+                        official_report_candidates[0]["date"]
+                        if official_report_candidates
+                        else ""
+                    ),
                     "currency": "",
                     "revenue": "",
                     "net_income": "",
                     "operating_cash_flow": "",
-                    "source_url": "",
+                    "source_url": (
+                        official_report_candidates[0]["source_url"]
+                        if official_report_candidates
+                        else ""
+                    ),
                     "notes": "",
                 },
                 "notes": [
@@ -1262,6 +1281,55 @@ def _fund_metadata_guide_path(output_dir: Path, symbol: str) -> Path:
 def _financial_snapshot_guide_path(output_dir: Path, symbol: str) -> Path:
     safe_symbol = re.sub(r"[^A-Z0-9._-]+", "-", symbol.upper()).strip("-")
     return output_dir / "data" / f"financials-guide-{safe_symbol}.json"
+
+
+def _financial_report_candidates(
+    *,
+    output_dir: Path,
+    symbol: str,
+) -> list[dict[str, str]]:
+    """Find already cached, source-backed reports without making a new request."""
+    keywords = (
+        "annual",
+        "interim",
+        "results",
+        "financial",
+        "report",
+        "年报",
+        "年度",
+        "中期",
+        "半年",
+        "业绩",
+        "财务",
+        "季报",
+        "季度",
+    )
+    candidates: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+    for row in _read_cache(output_dir, "filings.json").rows:
+        row_symbol = _cache_row_symbol(row)
+        source_url = _json_text(row, "source_url")
+        title = _json_text(row, "summary") or _json_text(row, "form")
+        filing_date = _json_text(row, "date")
+        if row_symbol != symbol.upper() or not source_url or not title or not filing_date:
+            continue
+        if not source_url.startswith(("http://", "https://")):
+            continue
+        if not any(keyword in title.casefold() for keyword in keywords):
+            continue
+        if source_url in seen_urls:
+            continue
+        seen_urls.add(source_url)
+        candidates.append(
+            {
+                "date": filing_date,
+                "title": title,
+                "source_url": source_url,
+                "provider": _json_text(row, "provider") or "filings cache",
+            }
+        )
+    candidates.sort(key=lambda item: (item["date"], item["source_url"]), reverse=True)
+    return candidates[:5]
 
 
 def _json_text(payload: Mapping[str, object], key: str) -> str:

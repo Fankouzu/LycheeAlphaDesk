@@ -2830,7 +2830,7 @@ def render_research_task_detail(
         *_filing_lines(filings),
         "",
         "财务快照",
-        *_financial_snapshot_lines(financials),
+        *_financial_snapshot_lines(financials, market=candidate.market),
         "",
         "模型预测参考",
         *_forecast_lines(forecast),
@@ -4750,9 +4750,18 @@ def _filing_lines(rows: list[dict[str, object]]) -> list[str]:
     return lines
 
 
-def _financial_snapshot_lines(rows: list[dict[str, object]]) -> list[str]:
+def _financial_snapshot_lines(
+    rows: list[dict[str, object]],
+    *,
+    market: str = "US",
+) -> list[str]:
     if not rows:
-        return ["- 暂无 SEC XBRL 财务快照。"]
+        empty_text = {
+            "US": "暂无 SEC XBRL 财务快照。",
+            "HK": "暂无港股数字财务快照；请使用人工财务资料向导。",
+            "CN": "暂无 A 股财务快照；请检查 Tushare 权限或使用人工核验。",
+        }.get(market.upper(), "暂无财务快照。")
+        return [f"- {empty_text}"]
     return [f"- {_financial_snapshot_line(row)}" for row in rows[:3]]
 
 
@@ -5033,10 +5042,10 @@ def _data_gap_action_summary(data_gaps: list[str]) -> str:
         "sec" in normalized
         or "公告" in normalized
         or "财报" in normalized
-        or "财务" in normalized
-        or "xbrl" in normalized
     ):
         labels.append("公告/财报")
+    if "财务" in normalized or "xbrl" in normalized or "数字财务" in normalized:
+        labels.append("财务")
     if not labels:
         return "先补齐基础研究数据，再重新核验。"
     return f"先补齐{'、'.join(labels)}数据，再重新核验。"

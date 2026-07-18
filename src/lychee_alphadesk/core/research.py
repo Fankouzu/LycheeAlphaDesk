@@ -34,6 +34,7 @@ from lychee_alphadesk.providers.demo import FilingSummary, ForecastInterval, New
 PullMarket = Callable[..., PullResult]
 PullNews = Callable[..., PullResult]
 PullFilings = Callable[..., PullResult]
+PullFinancials = Callable[..., PullResult]
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,7 @@ class ResearchGapFillResult:
     actions: list[ResearchGapFillAction]
     news_symbols: list[str] = field(default_factory=list)
     unresolved_news_symbols: list[str] = field(default_factory=list)
+    financial_symbols: list[str] = field(default_factory=list)
 
     @property
     def warnings(self) -> list[str]:
@@ -208,6 +210,8 @@ def fill_research_data_gaps(
     pull_market: PullMarket = pull_market_prices,
     pull_news: PullNews = pull_news_events,
     pull_filings: PullFilings = pull_sec_filings,
+    pull_financials: PullFinancials | None = None,
+    pull_cn_financials: PullFinancials | None = None,
 ) -> ResearchGapFillResult:
     queue = list_research_queue(output_dir, status=status, limit=limit)
     if not queue:
@@ -224,6 +228,11 @@ def fill_research_data_gaps(
         [symbol for item in news_items if (symbol := _normalized_symbol(item))]
     )
     filing_symbols = _symbols_missing_filings(queue, snapshot.filings, force=force)
+    financial_symbols_by_market = _symbols_missing_financials(
+        queue,
+        snapshot.financials,
+        force=force,
+    )
     symbol_mapping_items = [item for item in queue if not _normalized_symbol(item)]
     symbol_mapping_candidates = [item.display_name for item in symbol_mapping_items]
 
@@ -256,6 +265,14 @@ def fill_research_data_gaps(
             pull_filings=pull_filings,
         )
     )
+    financial_actions = _financial_gap_actions(
+        financial_symbols_by_market=financial_symbols_by_market,
+        output_dir=output_dir,
+        force=force,
+        pull_financials=pull_financials,
+        pull_cn_financials=pull_cn_financials,
+    )
+    actions.extend(financial_actions)
     if symbol_mapping_items:
         actions.append(_symbol_mapping_gap_action(symbol_mapping_items))
 
@@ -267,6 +284,11 @@ def fill_research_data_gaps(
         actions=actions,
         news_symbols=news_symbols,
         unresolved_news_symbols=unresolved_news_symbols,
+        financial_symbols=_unique_preserving_order(
+            symbol
+            for symbols in financial_symbols_by_market.values()
+            for symbol in symbols
+        ),
     )
 
 
@@ -409,6 +431,34 @@ def _symbols_missing_filings(
         ):
             symbols.append(symbol)
     return _unique_preserving_order(symbols)
+
+
+def _symbols_missing_financials(
+    queue: list[ResearchQueueItem],
+    financials: list[dict[str, object]],
+    *,
+    force: bool,
+) -> dict[str, list[str]]:
+    cached_symbols = {
+        _string_value(row.get("symbol")).upper()
+        for row in financials
+        if _string_value(row.get("symbol"))
+    }
+    symbols_by_market: dict[str, list[str]] = {"US": [], "HK": [], "CN": []}
+    for item in queue:
+        symbol = _normalized_symbol(item)
+        market = item.market.upper()
+        if (
+            symbol
+            and market in symbols_by_market
+            and item.asset_type.lower() == "stock"
+            and (force or symbol not in cached_symbols)
+        ):
+            symbols_by_market[market].append(symbol)
+    return {
+        market: _unique_preserving_order(symbols)
+        for market, symbols in symbols_by_market.items()
+    }
 
 
 def _symbols_missing_news(
@@ -578,6 +628,108 @@ def _pull_filings_gap_action(
             success_message="公司公告缓存已补齐。",
             partial_message="公司公告缓存已部分补齐。",
             failed_message="公司公告补齐未完成。",
+        ),
+    )
+
+
+def _financial_gap_actions(
+    *,
+    financial_symbols_by_market: dict[str, list[str]],
+    output_dir: Path,
+    force: bool,
+    pull_financials: PullFinancials | None,
+    pull_cn_financials: PullFinancials | None,
+) -> list[ResearchGapFillAction]:
+    actions: list[ResearchGapFillAction] = []
+    us_symbols = financial_symbols_by_market.get("US", [])
+    if pull_financials is not None:
+        actions.append(
+            _pull_financials_gap_action(
+                action_type="sec_financials",
+                symbols=us_symbols,
+                output_dir=output_dir,
+                force=force,
+                pull_financials=pull_financials,
+                provider_label="SEC XBRL",
+            )
+        )
+    cn_symbols = financial_symbols_by_market.get("CN", [])
+    if pull_cn_financials is not None:
+        actions.append(
+            _pull_financials_gap_action(
+                action_type="tushare_financials",
+                symbols=cn_symbols,
+                output_dir=output_dir,
+                force=force,
+                pull_financials=pull_cn_financials,
+                provider_label="Tushare A 股财务",
+            )
+        )
+    hk_symbols = financial_symbols_by_market.get("HK", [])
+    if hk_symbols and (pull_financials is not None or pull_cn_financials is not None):
+        actions.append(
+            ResearchGapFillAction(
+                action_type="hk_financials_manual",
+                status="needs_input",
+                symbols=hk_symbols,
+                count=0,
+                output_path=None,
+                warnings=[],
+                message="港股数字财务需要人工填写并核验财务资料向导。",
+            )
+        )
+    return actions
+
+
+def _pull_financials_gap_action(
+    *,
+    action_type: str,
+    symbols: list[str],
+    output_dir: Path,
+    force: bool,
+    pull_financials: PullFinancials,
+    provider_label: str,
+) -> ResearchGapFillAction:
+    if not symbols:
+        return ResearchGapFillAction(
+            action_type=action_type,
+            status="skipped",
+            symbols=[],
+            count=0,
+            output_path=None,
+            warnings=[],
+            message=f"{provider_label} 财务快照没有需要补齐的股票。",
+        )
+    try:
+        result = pull_financials(
+            symbols=symbols,
+            output_dir=output_dir,
+            force=force,
+        )
+    except (RuntimeError, ValueError) as error:
+        return ResearchGapFillAction(
+            action_type=action_type,
+            status="failed",
+            symbols=symbols,
+            count=0,
+            output_path=None,
+            warnings=[str(error)],
+            message=f"{provider_label} 财务快照补齐失败。",
+        )
+    return ResearchGapFillAction(
+        action_type=action_type,
+        status=_gap_pull_status(result, requested_count=len(symbols)),
+        symbols=symbols,
+        count=result.count,
+        output_path=result.output_path,
+        warnings=result.warnings,
+        message=_gap_pull_message(
+            result,
+            requested_count=len(symbols),
+            success_message=f"{provider_label} 财务快照已补齐。",
+            partial_message=f"{provider_label} 财务快照已部分补齐。",
+            failed_message=f"{provider_label} 财务快照补齐未完成。",
+            no_data_message=f"{provider_label} 暂无可用财务快照。",
         ),
     )
 

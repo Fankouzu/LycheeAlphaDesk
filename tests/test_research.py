@@ -653,6 +653,64 @@ def test_fill_research_data_gaps_refreshes_missing_symbol_news(
     assert after.packets[0].packet["data_gaps"] == []
 
 
+def test_fill_research_data_gaps_pulls_us_financial_snapshot(
+    tmp_path: Path,
+) -> None:
+    _write_discovery_seed(tmp_path, symbol="STX")
+    _write_live_caches(
+        tmp_path,
+        include_market=True,
+        include_filings=True,
+        include_financials=False,
+    )
+
+    def fake_financials_pull(**kwargs: object) -> PullResult:
+        output_dir = kwargs["output_dir"]
+        assert isinstance(output_dir, Path)
+        assert kwargs["symbols"] == ["STX"]
+        assert kwargs["force"] is False
+        output_path = output_dir / "data" / "financials.json"
+        output_path.write_text(
+            json.dumps(
+                {
+                    "provider": "sec_edgar",
+                    "rows": [
+                        {
+                            "symbol": "STX",
+                            "company": "Seagate",
+                            "form": "10-K",
+                            "currency": "USD",
+                            "revenue": 100,
+                            "net_income": 10,
+                            "operating_cash_flow": 20,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return PullResult("financials", "sec_edgar", 1, output_path, [])
+
+    result = fill_research_data_gaps(
+        output_dir=tmp_path,
+        fill_news=False,
+        pull_financials=fake_financials_pull,
+    )
+    after = deepen_research_queue(
+        output_dir=tmp_path,
+        now=datetime(2026, 7, 5, 11, 5, tzinfo=UTC),
+    )
+
+    financial_action = next(
+        action for action in result.actions if action.action_type == "sec_financials"
+    )
+    assert result.financial_symbols == ["STX"]
+    assert financial_action.status == "pulled"
+    assert financial_action.count == 1
+    assert "缺少 STX SEC XBRL 财务快照。" not in after.packets[0].packet["data_gaps"]
+
+
 def test_fill_research_data_gaps_marks_off_topic_news_as_unresolved(
     tmp_path: Path,
 ) -> None:

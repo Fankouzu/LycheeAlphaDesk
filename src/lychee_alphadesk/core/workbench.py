@@ -331,6 +331,8 @@ def run_workbench_check(
     pull_market: PullMarket | None = None,
     pull_news: PullNews | None = None,
     pull_filings: PullFilings | None = None,
+    pull_financials: Callable[..., PullResult] | None = None,
+    pull_cn_financials: Callable[..., PullResult] | None = None,
 ) -> WorkbenchCheckResult:
     created_at = (now or datetime.now(UTC)).isoformat(timespec="seconds")
     fill_result = fill_research_data_gaps(
@@ -342,6 +344,8 @@ def run_workbench_check(
         pull_market=pull_market or pull_market_prices,
         pull_news=pull_news or pull_news_events,
         pull_filings=pull_filings or pull_sec_filings,
+        pull_financials=pull_financials,
+        pull_cn_financials=pull_cn_financials,
     )
     deepen_result = deepen_research_queue(
         output_dir=output_dir,
@@ -5103,6 +5107,7 @@ def _auto_fill_payload(result: ResearchGapFillResult) -> dict[str, object]:
         "news_symbols": result.news_symbols,
         "unresolved_news_symbols": result.unresolved_news_symbols,
         "filing_symbols": result.filing_symbols,
+        "financial_symbols": result.financial_symbols,
         "symbol_mapping_candidates": result.symbol_mapping_candidates,
         "actions": [
             {

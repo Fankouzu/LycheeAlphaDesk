@@ -916,6 +916,8 @@ def research_check(
         status=status,
         limit=limit,
         force=force,
+        pull_financials=pull_sec_financials,
+        pull_cn_financials=pull_tushare_financials,
     )
     _print_workbench_check(result)
     if strict and not result.is_ready:
@@ -955,6 +957,8 @@ def research_detail(
         status=status,
         limit=limit,
         force=force,
+        pull_financials=pull_sec_financials,
+        pull_cn_financials=pull_tushare_financials,
     )
     if not result.candidates:
         console.print("研究队列为空。请先运行 `lychee discover today`。")
@@ -3726,6 +3730,9 @@ def _display_gap_action_type(action_type: str) -> str:
         "market_prices": "行情",
         "news_events": "新闻",
         "sec_filings": "公司公告",
+        "sec_financials": "美股财务",
+        "tushare_financials": "A 股财务",
+        "hk_financials_manual": "港股财务",
         "symbol_mapping": "代码映射",
     }.get(action_type, action_type)
 

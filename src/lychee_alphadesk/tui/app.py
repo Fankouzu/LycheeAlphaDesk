@@ -388,6 +388,8 @@ class AlphaDeskApp(App[None]):
             result = await asyncio.to_thread(
                 run_workbench_check,
                 output_dir=self.output_dir,
+                pull_financials=pull_sec_financials,
+                pull_cn_financials=pull_tushare_financials,
             )
         except (RuntimeError, ValueError) as error:
             await self._replace_action_panel(

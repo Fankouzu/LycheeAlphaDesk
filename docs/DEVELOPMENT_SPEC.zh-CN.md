@@ -350,7 +350,7 @@ Research Deepen 不得输出直接买入/卖出结论、目标价、自动仓位
 4. 检查 data_gaps 是否减少、证据是否可追溯、输出是否仍然不构成投资建议。
 5. 如果数据仍不满足研究需要，继续开发补齐能力，而不是把缺口留给用户猜。
 
-自动补缺口第一版仅处理确定性动作：已有 symbol 的行情、US stock 的 SEC filings。行情 provider 必须支持逐 symbol 容错：一个市场或 provider 失败不得丢弃其它 symbol 已成功拉取的数据。缺少 symbol 的候选进入映射队列，后续应由 symbol mapping provider 或 LLM-assisted mapping 在有证据约束下处理。
+自动补缺口处理确定性动作：已有 symbol 的行情、相关新闻、US/HK/CN 公司公告，以及可用 provider 支持的 US SEC XBRL 和 A 股财务快照。港股数字财务会进入人工交接状态，不会自动猜测。行情和财务 provider 必须支持逐 symbol 容错：一个市场或 provider 失败不得丢弃其它 symbol 已成功拉取的数据。缺少 symbol 的候选进入映射队列，后续应由 symbol mapping provider 或 LLM-assisted mapping 在有证据约束下处理。
 
 ## 7. Provider 接口
 

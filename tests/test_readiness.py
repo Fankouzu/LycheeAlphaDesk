@@ -112,3 +112,68 @@ def test_readiness_audit_reports_ready_when_ai_research_inputs_exist(
     assert all(
         check.status != "error" for check in result.checks if check.required
     )
+
+
+def test_readiness_keeps_degraded_cache_as_warning_when_rows_exist(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config = default_config()
+    save_config(config, config_path)
+    set_openai_compatible_llm(
+        "https://llm.example/v1",
+        "secret",
+        "model-name",
+        path=config_path,
+    )
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "market-prices.json").write_text(
+        json.dumps(
+            {
+                "provider": "eastmoney",
+                "rows": [{"symbol": "0700.HK", "date": "2026-07-18"}],
+                "warnings": ["Tushare hk_daily 权限不足，已使用 Eastmoney"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (data_dir / "news-events.json").write_text(
+        json.dumps({"provider": "fixture", "rows": [{"headline": "market"}]}),
+        encoding="utf-8",
+    )
+    write_discovery_research_run(
+        DiscoveryReport(
+            mode="fixture",
+            created_at="2026-07-18T00:00:00+00:00",
+            markets=["HK"],
+            sources=[DiscoverySource("fixture", "HK", "fixture")],
+            themes=[],
+            candidates=[
+                DiscoveryCandidate(
+                    "Tencent",
+                    "0700.HK",
+                    "HK",
+                    "stock",
+                    "fixture",
+                    "research entry",
+                    [],
+                    [],
+                    ["verify"],
+                    "medium",
+                )
+            ],
+            warnings=[],
+            next_actions=[],
+            disclaimer="research only",
+        ),
+        tmp_path,
+        data_dir / "discovery.json",
+    )
+
+    result = run_readiness_audit(tmp_path, config_path=config_path)
+
+    market_check = next(check for check in result.checks if check.key == "market")
+    assert market_check.status == "warning"
+    assert result.status == "partial"

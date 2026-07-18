@@ -152,7 +152,12 @@ def _required_cache_check(
     message = getattr(check, "message", "缓存检查不可用")
     if status == "pass":
         return ReadinessCheck(key, label, "pass", message)
-    return ReadinessCheck(key, label, "error", message)
+    return ReadinessCheck(
+        key,
+        label,
+        "warning" if status == "warning" else "error",
+        message,
+    )
 
 
 def _research_candidate_count(output_dir: Path) -> int:

@@ -2590,7 +2590,11 @@ def data_guide_financials(
                 soft_wrap=True,
             )
     else:
-        console.print("未找到本地官方报告候选，请从 HKEXnews 或发行人 IR 页面选择原文。")
+        console.print(
+            "未找到本地官方报告候选；可先运行 "
+            f"lychee data pull filings --symbols {guide.symbol} --limit 50，"
+            "再重新运行本向导。"
+        )
     console.print("填写报告类型、报告期、币种、营收/净利润/经营现金流至少一项和来源 URL")
     console.print("建议来源")
     for source in guide.suggested_sources:

@@ -1401,6 +1401,52 @@ def test_workbench_uses_latest_ready_verification_as_next_research_step(
     assert "lychee research memo --symbol STX" in workbench.beginner_brief
 
 
+def test_workbench_surfaces_latest_blocked_verification_in_strict_gate(
+    tmp_path: Path,
+) -> None:
+    _write_stock_seed(tmp_path)
+    _write_live_caches(
+        tmp_path,
+        include_stock_price=True,
+        include_filings=True,
+        news_headline="Generic market article",
+        news_summary="No evidence for the storage research question.",
+    )
+    research_dir = tmp_path / "research"
+    research_dir.mkdir(exist_ok=True)
+    (research_dir / "research-verification-blocked.json").write_text(
+        json.dumps(
+            {
+                "created_at": "2026-07-05T11:00:00+00:00",
+                "candidate": {
+                    "display_name": "Seagate",
+                    "symbol": "STX",
+                    "market": "US",
+                },
+                "decision_board": {
+                    "workflow_state": "evidence_review",
+                    "workflow_label": "先复核主题相关性",
+                    "next_steps": ["先补齐主题新闻证据。"],
+                    "next_commands": ["lychee research run --symbol STX --force"],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    workbench = run_workbench_check(output_dir=tmp_path)
+
+    candidate = workbench.candidates[0]
+    assert workbench.status == "blocked"
+    assert candidate.status == "blocked"
+    assert candidate.data_gaps == []
+    assert "核验阻塞: 先复核主题相关性" in candidate.evidence_status
+    verification_gate = next(gate for gate in workbench.gates if gate.name == "证据核验")
+    assert verification_gate.status == "fail"
+    assert candidate.next_command == "lychee research run --symbol STX --force"
+
+
 def test_verify_research_task_uses_direct_etf_fund_metadata(
     tmp_path: Path,
 ) -> None:

@@ -3991,6 +3991,16 @@ def _candidate_checks(
             candidate_check,
         ):
             candidate_check = _mark_fund_metadata_review(candidate_check)
+        elif output_dir is not None and (
+            verification_followup := _latest_verification_followup(
+                output_dir,
+                candidate_check,
+            )
+        ) is not None:
+            candidate_check = _mark_verification_followup(
+                candidate_check,
+                verification_followup,
+            )
         elif data_request_news_state == "exhausted":
             candidate_check = _mark_topic_news_exhausted(candidate_check)
         elif data_request_news_state == "review_ready":
@@ -4141,6 +4151,52 @@ def _latest_verification_ready_for_review(
     steps = _text_list(decision_board.get("next_steps"))
     step = steps[0] if steps else "记录继续研究，并进入人工一致性复核。"
     return step, memo_command
+
+
+def _latest_verification_followup(
+    output_dir: Path,
+    candidate: CandidateCheck,
+) -> tuple[str, str, str] | None:
+    path = _latest_matching_verification_artifact(output_dir, candidate)
+    if path is None:
+        return None
+    payload = _read_json_dict(path)
+    decision_board = _dict_value(payload.get("decision_board"))
+    workflow_state = _string_value(decision_board.get("workflow_state"))
+    if workflow_state not in {
+        "blocked",
+        "evidence_review",
+        "risk_review",
+        "direction_review",
+        "proxy_review",
+    }:
+        return None
+    next_steps = _text_list(decision_board.get("next_steps"))
+    next_commands = _text_list(decision_board.get("next_commands"))
+    step = next_steps[0] if next_steps else "先处理最新核验中的证据缺口。"
+    command = next_commands[0] if next_commands else (
+        "lychee research verify "
+        f"{_research_selector(candidate.symbol, candidate.display_name)}"
+    )
+    label = _string_value(decision_board.get("workflow_label")) or workflow_state
+    return label, step, command
+
+
+def _mark_verification_followup(
+    candidate: CandidateCheck,
+    followup: tuple[str, str, str],
+) -> CandidateCheck:
+    label, step, command = followup
+    return replace(
+        candidate,
+        status="blocked",
+        gap_count=max(1, candidate.gap_count),
+        priority="P2 证据核验",
+        ranking_reason="最新下钻核验仍有证据阻塞，先处理核验结果再继续研究。",
+        evidence_status=candidate.evidence_status + f"；核验阻塞: {label}",
+        next_step=step,
+        next_command=command,
+    )
 
 
 def _mark_ready_for_review(
@@ -4377,10 +4433,28 @@ def _workbench_gates(
         proxy_detail = f"代理行情覆盖 {proxy_price_count}/{proxy_total}。"
     gates.append(WorkbenchGate("代理行情", proxy_status, proxy_detail))
 
+    verification_blocked = [
+        candidate
+        for candidate in candidates
+        if candidate.status == "blocked" and not candidate.data_gaps
+    ]
+    gates.append(
+        WorkbenchGate(
+            "证据核验",
+            "fail" if verification_blocked else "pass",
+            (
+                "最新核验仍有阻塞: "
+                + ", ".join(candidate.display_name for candidate in verification_blocked)
+                if verification_blocked
+                else "没有最新核验阻塞。"
+            ),
+        )
+    )
+
     blocked = [
         candidate
         for candidate in candidates
-        if candidate.status == "blocked" or candidate.data_gaps
+        if candidate.data_gaps
     ]
     if blocked:
         gates.append(
@@ -4485,7 +4559,14 @@ def _beginner_brief(
             lines.append(f"  优先级: {candidate.priority}")
             lines.append(f"  排序理由: {candidate.ranking_reason}")
             lines.append(f"  研究问题: {candidate.beginner_question}")
-            lines.append("  当前状态: 数据尚未齐备，暂不进入下钻研究。")
+            lines.append(
+                "  当前状态: "
+                + (
+                    "数据尚未齐备，暂不进入下钻研究。"
+                    if candidate.data_gaps
+                    else "最新核验尚未通过，暂不进入一致性复核。"
+                )
+            )
             lines.append(f"  处理动作: {candidate.next_step}")
             if candidate.next_command:
                 lines.append(f"  处理命令: {candidate.next_command}")

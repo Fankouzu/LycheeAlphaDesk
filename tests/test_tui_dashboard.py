@@ -1970,6 +1970,43 @@ def test_dashboard_research_task_can_open_hk_financials_guide(
             assert "营业收入、净利润、经营活动现金流" in text
             assert "HKEXnews" in text
 
+            action_menu = app.query_one("#research-detail-action-menu", OptionList)
+            edit_index = _option_index(action_menu, "在工作台填写并导入")
+            for _ in range(edit_index):
+                await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            form_values = {
+                "#financial-report-type": "2025 年年度业绩",
+                "#financial-period-end": "2025-12-31",
+                "#financial-filing-date": "2026-03-18",
+                "#financial-currency": "HKD million",
+                "#financial-revenue": "660257",
+                "#financial-net-income": "189356",
+                "#financial-operating-cash-flow": "250000",
+                "#financial-source-url": "https://www1.hkexnews.hk/tencent-results.pdf",
+                "#financial-notes": "单位已按报告核对",
+            }
+            for widget_id, value in form_values.items():
+                app.query_one(widget_id, Input).value = value
+            form_menu = app.query_one("#financials-entry-menu", OptionList)
+            app.set_focus(form_menu)
+            save_index = _option_index(form_menu, "保存并导入财务资料")
+            for _ in range(save_index):
+                await pilot.press("down")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            financials = tmp_path / "data" / "financials.json"
+            assert financials.exists()
+            imported = json.loads(financials.read_text(encoding="utf-8"))
+            assert imported["rows"][0]["symbol"] == "0700.HK"
+            assert imported["rows"][0]["revenue"] == 660257.0
+            assert "人工财务快照已写入" in str(
+                app.query_one("#action-status", Static).content
+            )
+
     asyncio.run(run_case())
 
 

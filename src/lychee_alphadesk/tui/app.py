@@ -274,6 +274,20 @@ class AlphaDeskApp(App[None]):
         if isinstance(action_id, str) and action_id.startswith("manual_filing_verify:"):
             await self._verify_manual_filing_source(action_id)
             return
+        if action_id == "financials_save":
+            selection = self.selected_research_index
+            if selection is not None and selection < len(self.research_candidates):
+                await self._save_financials_guide(self.research_candidates[selection])
+            else:
+                self._set_status("研究任务不存在，请重新打开研究工作台。")
+            return
+        if action_id == "financials_cancel":
+            selection = self.selected_research_index
+            if selection is not None and selection < len(self.research_candidates):
+                await self._cancel_financials_guide(self.research_candidates[selection])
+            else:
+                await self._show_research_workbench()
+            return
         if action_id == "pending_evidence_verify_last":
             await self._run_pending_evidence_verification()
             return
@@ -1163,6 +1177,9 @@ class AlphaDeskApp(App[None]):
         if action == "financials_guide":
             await self._show_financials_guide(candidate)
             return
+        if action == "edit_financials":
+            await self._edit_financials_guide(candidate)
+            return
         if action == "import_financials":
             await self._import_financials_guide(candidate)
             return
@@ -1392,6 +1409,7 @@ class AlphaDeskApp(App[None]):
         await self._replace_action_panel(
             Static(_financials_guide_text(guide), id="action-status"),
             OptionList(
+                Option("在工作台填写并导入", id="research_detail:edit_financials"),
                 Option("导入已填写模板", id="research_detail:import_financials"),
                 Option("重新下钻核验", id="research_detail:verify_research"),
                 Option("返回研究任务列表", id="research_detail:back_tasks"),
@@ -1400,6 +1418,135 @@ class AlphaDeskApp(App[None]):
             ),
         )
         self.set_focus(self.query_one("#research-detail-action-menu", OptionList))
+
+
+    async def _edit_financials_guide(self, candidate: CandidateCheck) -> None:
+        guide_path = self.current_financials_guide_path
+        if guide_path is None or not guide_path.exists():
+            await self._replace_action_panel(
+                Static("还没有财务资料模板。请先生成财务资料补齐向导。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        try:
+            payload = json.loads(guide_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            await self._replace_action_panel(
+                Static(f"无法读取财务资料模板: {error}", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        template = payload.get("template") if isinstance(payload, dict) else None
+        if not isinstance(template, dict):
+            await self._replace_action_panel(
+                Static("财务资料模板缺少可填写字段，请重新生成。", id="action-status")
+            )
+            self.set_focus(self.query_one("#action-menu", OptionList))
+            return
+        await self._replace_action_panel(
+            Static(
+                "\n".join(
+                    [
+                        "填写港股财务资料",
+                        f"对象: {candidate.display_name} ({candidate.symbol})",
+                        "只填写你已从官方报告核对的内容；金额单位写在报告货币中。",
+                        "至少填写营收、净利润、经营现金流中的一项，然后选择保存。",
+                    ]
+                ),
+                id="action-status",
+            ),
+            Input(
+                value=_template_text(template, "report_type"),
+                placeholder="报告类型",
+                id="financial-report-type",
+            ),
+            Input(
+                value=_template_text(template, "period_end"),
+                placeholder="报告期结束日，例如 2025-12-31",
+                id="financial-period-end",
+            ),
+            Input(
+                value=_template_text(template, "filing_date"),
+                placeholder="申报/公告日期，例如 2026-03-18",
+                id="financial-filing-date",
+            ),
+            Input(
+                value=_template_text(template, "currency"),
+                placeholder="报告货币和单位，例如 HKD million",
+                id="financial-currency",
+            ),
+            Input(
+                value=_template_text(template, "revenue"),
+                placeholder="营业收入（可留空）",
+                id="financial-revenue",
+            ),
+            Input(
+                value=_template_text(template, "net_income"),
+                placeholder="净利润（可留空）",
+                id="financial-net-income",
+            ),
+            Input(
+                value=_template_text(template, "operating_cash_flow"),
+                placeholder="经营活动现金流（可留空）",
+                id="financial-operating-cash-flow",
+            ),
+            Input(
+                value=_template_text(template, "source_url"),
+                placeholder="官方报告 URL",
+                id="financial-source-url",
+            ),
+            Input(
+                value=_template_text(template, "notes"),
+                placeholder="备注，例如数字单位和页码",
+                id="financial-notes",
+            ),
+            OptionList(
+                Option("保存并导入财务资料", id="financials_save"),
+                Option("取消并返回向导", id="financials_cancel"),
+                id="financials-entry-menu",
+                markup=False,
+            ),
+        )
+        self.set_focus(self.query_one("#financial-report-type", Input))
+
+
+    async def _save_financials_guide(self, candidate: CandidateCheck) -> None:
+        guide_path = self.current_financials_guide_path
+        if guide_path is None or not guide_path.exists():
+            self._set_status("还没有财务资料模板。")
+            return
+        try:
+            payload = json.loads(guide_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            self._set_status(f"无法读取财务资料模板: {error}")
+            return
+        template = payload.get("template") if isinstance(payload, dict) else None
+        if not isinstance(template, dict):
+            self._set_status("财务资料模板缺少可填写字段，请重新生成。")
+            return
+        field_ids = {
+            "report_type": "financial-report-type",
+            "period_end": "financial-period-end",
+            "filing_date": "financial-filing-date",
+            "currency": "financial-currency",
+            "revenue": "financial-revenue",
+            "net_income": "financial-net-income",
+            "operating_cash_flow": "financial-operating-cash-flow",
+            "source_url": "financial-source-url",
+            "notes": "financial-notes",
+        }
+        for field, widget_id in field_ids.items():
+            template[field] = self.query_one(f"#{widget_id}", Input).value.strip()
+        payload["template"] = template
+        guide_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        await self._import_financials_guide(candidate)
+
+
+    async def _cancel_financials_guide(self, candidate: CandidateCheck) -> None:
+        await self._show_financials_guide(candidate)
 
 
     async def _import_financials_guide(self, candidate: CandidateCheck) -> None:
@@ -2740,6 +2887,20 @@ def _financials_guide_text(guide: FinancialSnapshotGuide) -> str:
         f"标的: {guide.display_name} ({guide.symbol}) [{guide.market}]",
         f"模板已写入: {guide.output_path}",
         "",
+    ]
+    if guide.official_report_candidates:
+        lines.extend(
+            [
+                "已找到官方报告候选（最新一条已预填，请打开原文核对）",
+                *[
+                    f"- {report['date']} | {report['title']}"
+                    for report in guide.official_report_candidates[:3]
+                ],
+                "",
+            ]
+        )
+    lines.extend(
+        [
         "请从港交所披露或公司年报中填写",
         "- 报告类型和报告期末日",
         "- 申报日和报告货币",
@@ -2750,11 +2911,17 @@ def _financials_guide_text(guide: FinancialSnapshotGuide) -> str:
         *[f"- {source}" for source in guide.suggested_sources],
         "",
         "填写并保存模板后，在本页面选择导入已填写模板。",
-        "本页的“导入已填写模板”会自动完成写入，不需要记命令。",
+        "也可以选择“在工作台填写并导入”，不需要离开本页面编辑 JSON。",
         "",
         "边界: 向导只保存可审计的人工财务资料，不会猜测数值，也不是投资建议。",
-    ]
+        ]
+    )
     return "\n".join(lines)
+
+
+def _template_text(template: dict[str, object], field: str) -> str:
+    value = template.get(field)
+    return value if isinstance(value, str) else ""
 
 
 def _fund_metadata_imported_text(candidate: CandidateCheck, output_path: Path) -> str:
